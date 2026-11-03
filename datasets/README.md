@@ -7,7 +7,7 @@ code does not apply to them.
 
 `datasets.json` describes every dataset: title, description, file, format, size, SHA-256 checksum,
 source, date retrieved, licence (and its link), the credit wording required, any notice that must
-accompany it, and the date the licence was reviewed. An entry may also have a `variables` list
+accompany it, a one-line `credit_short` (shown in the pop-up after adding the data, the full wording going into the code log), and the date the licence was reviewed. An entry may also have a `variables` list
 (`name`, `group`, `description` for each column), shown in the Look-at window's Variable description tab; the check
 below confirms that every column is described and nothing else. Klausmate shows this beside each dataset and
 adds the credit and licence as comments to the code log when the data are downloaded.

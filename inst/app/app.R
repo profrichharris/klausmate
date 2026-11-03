@@ -38,6 +38,7 @@ CM_NEEDS <- c(
 # setwd() typed in the Quick Console); klaus() applies the final value to the R
 # session when the app closes.
 .cm <- new.env()
+.cm$pkg_choices <- list()     # packages the student has chosen for kinds of analysis (task id -> package), until the app is closed
 .cm$known_data <- list()     # objects loaded from Klausmate's online datasets: name -> title, attribution, variable descriptions
 .cm$root <- normalizePath(getOption(".klausmate_project_root", getwd()),
                           winslash = "/", mustWork = FALSE)
@@ -242,6 +243,102 @@ APPROACH_EXTRAS <- list(
                   choices = c("Same as Coding", "tidyverse", "Base R"), default = "Same as Coding",
                   text = "for strings and dates, prefer %s (stringr/lubridate for tidyverse)")
 )
+
+# Kinds of analysis that can be done well with more than one R package, where Klausmate asks the student, once per
+# session, which they would like (Ask for Code). The answer is remembered until the app is closed, and a package named in
+# a later prompt replaces it. Nothing is asked for what the Preferences already settle (Statistical approach, Modelling
+# interface, Tables, Mapping, Spatial data) or where one package is the clear standard, for example sf for vector data,
+# lm and glm, spatialreg, gstat, GWmodel, mgcv, survival, lavaan, igraph or spatstat.
+#   words    : words in a prompt that suggest the task
+#   options  : package, pattern (names of the package or its functions in a prompt), blurb (shown in the question)
+#   recommend: the package marked "recommended"; recommend_tidy replaces it when Coding is tidyverse
+#   bayes_skip: no question when the Statistical approach preference is Bayesian (brms or rstanarm are used then)
+PACKAGE_TASKS <- list(
+  multilevel = list(
+    label = "a multilevel (mixed-effects) model",
+    words = "multi-?level|mixed[- ]effects?|mixed[- ]models?|random (intercepts?|slopes?|effects?)|hierarchical (linear |regression )?models?|intra-?class correlation|\\bICC\\b|cross-classified|variance partition",
+    options = list(
+      list(package = "lme4", pattern = "lme4|\\bg?lmer\\b",
+           blurb = "The most widely used and taught; the most tutorials and help online. Formulas like y ~ x + (1 | group)."),
+      list(package = "glmmTMB", pattern = "glmmTMB",
+           blurb = "Same style of formula as lme4, and also handles counts with extra zeros and other distributions."),
+      list(package = "nlme", pattern = "\\bnlme\\b|\\blme\\(",
+           blurb = "Comes with R (nothing to install); older, and good when you need to model correlated errors.")),
+    recommend = "lme4", bayes_skip = TRUE),
+  spatial_weights = list(
+    label = "spatial autocorrelation or spatial weights",
+    words = "moran|spatial autocorrelation|spatial weights?|neighbou?r(s|hood)? (list|matrix|structure)|contiguity|\\bLISA\\b|local indicators of spatial|getis|geary",
+    options = list(
+      list(package = "spdep", pattern = "spdep|poly2nb|nb2listw|moran\\.(test|mc)|localmoran",
+           blurb = "The established package: covers all the textbook tests, with the most tutorials."),
+      list(package = "sfdep", pattern = "sfdep|st_contiguity|st_weights|global_moran",
+           blurb = "Works directly on sf tables in a tidyverse style; built on spdep.")),
+    recommend = "spdep", recommend_tidy = "sfdep"),
+  survey = list(
+    label = "survey data with weights or a sample design",
+    words = "survey (weights?|design|data|sample)|complex survey|sampling weights?|design weights?|post-?stratif|svydesign",
+    options = list(
+      list(package = "survey", pattern = "\\bsurvey package|library\\(survey\\)|svydesign|\\bsvy[a-z]+\\(",
+           blurb = "The standard package for design-based analysis, with the widest range of methods."),
+      list(package = "srvyr", pattern = "srvyr|as_survey",
+           blurb = "Wraps survey in dplyr-style verbs (group_by, summarise) that tidyverse users will recognise.")),
+    recommend = "survey", recommend_tidy = "srvyr"),
+  text = list(
+    label = "text analysis",
+    words = "text (analysis|mining|data)|sentiment|word (frequenc|count|cloud)|tokeni[sz]|topic model|tf-?idf|n-?grams?|\\bcorpus\\b",
+    options = list(
+      list(package = "tidytext", pattern = "tidytext|unnest_tokens",
+           blurb = "Text as an ordinary tidy table; the gentlest start, works with dplyr and ggplot2."),
+      list(package = "quanteda", pattern = "quanteda|\\bdfm\\(",
+           blurb = "Faster and with more methods for large collections of text; a little more to learn.")),
+    recommend = "tidytext"),
+  time_series = list(
+    label = "time series modelling or forecasting",
+    words = "time[- ]series|forecast(s|ing)?\\b|exponential smoothing|seasonal decomposition|\\bACF\\b",
+    options = list(
+      list(package = "forecast", pattern = "forecast::|library\\(forecast\\)|forecast package|auto\\.arima",
+           blurb = "The long-established package, with the most teaching material."),
+      list(package = "fable", pattern = "\\bfable\\b|tsibble|fabletools",
+           blurb = "The newer tidy successor by the same authors; works with data frames in a tidyverse style.")),
+    recommend = "forecast", recommend_tidy = "fable"),
+  ordinal = list(
+    label = "an ordinal (ordered categories) regression",
+    words = "ordinal (logistic |logit |probit )?(regression|outcome|response|model)|proportional odds|ordered (logit|logistic|probit)|\\bpolr\\b",
+    options = list(
+      list(package = "MASS", pattern = "\\bMASS\\b|\\bpolr\\b",
+           blurb = "Comes with R (nothing to install); polr() covers the standard proportional-odds model."),
+      list(package = "ordinal", pattern = "\\bclmm?\\b|library\\(ordinal\\)|ordinal::|ordinal package",
+           blurb = "More options and tests, and can include random effects; one more package to install.")),
+    recommend = "MASS", bayes_skip = TRUE)
+)
+
+# Which task (if any) a prompt is about, and which of that task's packages it already names
+pkg_task_match <- function(prompt) {
+  for (id in names(PACKAGE_TASKS)) {
+    t <- PACKAGE_TASKS[[id]]
+    named <- Filter(function(o) grepl(o$pattern, prompt, ignore.case = TRUE, perl = TRUE), t$options)
+    named <- vapply(named, function(o) o$package, "")
+    if (length(named) > 0 || grepl(t$words, prompt, ignore.case = TRUE, perl = TRUE))
+      return(list(id = id, task = t, named = unname(named)))
+  }
+  NULL
+}
+
+# The package to mark as recommended
+pkg_recommended <- function(task, coding = "") {
+  if (!is.null(task$recommend_tidy) && identical(tolower(trimws(coding)), "tidyverse")) task$recommend_tidy else task$recommend
+}
+
+# A line for the system prompt for each choice the student has made
+package_choice_clause <- function(choices) {
+  choices <- choices[names(choices) %in% names(PACKAGE_TASKS)]
+  if (length(choices) == 0L) return("")
+  lines <- vapply(names(choices), function(id)
+    sprintf("- for %s, use the %s package", PACKAGE_TASKS[[id]]$label, choices[[id]]), "")
+  paste0("PACKAGE CHOICES made by the student earlier in this session: ",
+         "when the request involves these kinds of analysis, use these packages, unless the request itself names a different package:\n",
+         paste(lines, collapse = "\n"))
+}
 
 # Preferences that change the code Claude writes (comment density is handled by its own rewrite)
 PREF_RELEVANT <- c(coding = "Coding", pipeline = "Pipeline", plotting = "Plotting", mapping = "Mapping",
@@ -491,7 +588,8 @@ consistency_rule <- function(level) {
 build_system_prompt <- function(coding, plotting, mapping, img_format, img_quality, img_size,
                                 max_lines = 50, comment_density = "Minimal",
                                 loaded_pkgs = character(0),
-                                language = "English", approaches = list(), consistency = 1L) {
+                                language = "English", approaches = list(), consistency = 1L,
+                                package_choices = list()) {
   library_rule <- paste0(
     "PACKAGE LOADING RULE: Always include an explicit library() call for every ",
     "package your code uses. ",
@@ -521,6 +619,7 @@ build_system_prompt <- function(coding, plotting, mapping, img_format, img_quali
     if (tolower(mapping) == "tmap") tmap_v4_instruction,
     filename_timestamp_instruction(),
     format_preferences_clause(coding, plotting, mapping, max_lines, comment_density, approaches),
+    package_choice_clause(package_choices),
     format_image_preferences_clause(img_format, img_quality, img_size),
     build_language_clause(language)
   ), collapse = "\n\n")
@@ -1608,8 +1707,17 @@ inspect_text <- function(fun, max_lines = 300L) {
 inspect_unavailable <- function(e)
   tags$p(em(paste("Not available for this object:", conditionMessage(e))), style = "color: #888;")
 
-# A plain HTML table of the first rows and columns of a data frame
-inspect_html_table <- function(df, max_rows = 200L, max_cols = 60L, partial = FALSE) {
+# A variable name that can be dragged into the prompt box (the browser drops it in as plain text, at the drop point).
+# A name that R would not accept as it stands is put in backticks.
+drag_name <- function(nm) if (identical(make.names(nm), nm)) nm else paste0("`", nm, "`")
+drag_attrs <- function(nm) list(draggable = "true", `data-var` = drag_name(nm), title = "Drag into the prompt box, or double-click",
+  ondragstart = "event.dataTransfer.setData('text/plain', this.getAttribute('data-var')); event.dataTransfer.effectAllowed = 'copy';",
+  ondblclick = "cmInsertVar(this.getAttribute('data-var'));")
+
+# A plain HTML table of the first rows and columns of a data frame. With drag_header or drag_first_col, variable
+# names in the column headings, or in the first column, can be dragged into the prompt box.
+inspect_html_table <- function(df, max_rows = 200L, max_cols = 60L, partial = FALSE,
+                               drag_header = FALSE, drag_first_col = FALSE) {
   n_r <- nrow(df); n_c <- ncol(df)
   df  <- df[seq_len(min(n_r, max_rows)), seq_len(min(n_c, max_cols)), drop = FALSE]
   cells <- lapply(df, function(col) tryCatch({
@@ -1619,12 +1727,19 @@ inspect_html_table <- function(df, max_rows = 200L, max_cols = 60L, partial = FA
     v[is.na(col)] <- NA_character_
     substr(v, 1, 60)
   }, error = function(e) rep("?", nrow(df))))
-  head_row <- tags$tr(lapply(names(df), function(n) tags$th(n, style = "white-space: nowrap; padding: 2px 8px; position: sticky; top: 0; background: #eee;")))
+  head_row <- tags$tr(lapply(names(df), function(n) {
+    th <- tags$th(n, style = paste0("white-space: nowrap; padding: 2px 8px; position: sticky; top: 0; background: #eee;",
+                                    if (drag_header) " cursor: grab;"))
+    if (drag_header) th <- do.call(tagAppendAttributes, c(list(th), drag_attrs(n)))
+    th }))
   body_rows <- lapply(seq_len(nrow(df)), function(i)
-    tags$tr(lapply(cells, function(cv) {
-      x <- cv[i]
-      if (is.na(x)) tags$td("NA", style = "color: #aaa; font-style: italic; padding: 1px 8px; white-space: nowrap;")
-      else tags$td(x, style = "padding: 1px 8px; white-space: nowrap;")
+    tags$tr(lapply(seq_along(cells), function(j) {
+      x <- cells[[j]][i]
+      td <- if (is.na(x)) tags$td("NA", style = "color: #aaa; font-style: italic; padding: 1px 8px; white-space: nowrap;")
+            else tags$td(x, style = "padding: 1px 8px; white-space: nowrap;")
+      if (drag_first_col && j == 1L && !is.na(x))
+        td <- do.call(tagAppendAttributes, c(list(td), drag_attrs(x), list(style = "cursor: grab;")))
+      td
     })))
   tagList(
     tags$p(style = "font-size: 0.8em; color: #777; margin: 0 0 4px 0;",
@@ -1678,13 +1793,14 @@ inspect_description_tab <- function(descr, cols) {
   rows <- unlist(lapply(groups, function(g) c(
     list(tags$tr(tags$th(colspan = 2, g, style = "text-align: left; padding: 8px 8px 2px 8px; color: #555; border-bottom: 1px solid #ccc;"))),
     lapply(Filter(function(x) identical(x$group %||% "", g), v), function(x)
-      tags$tr(tags$td(tags$code(x$name), style = "vertical-align: top; padding: 3px 10px 3px 8px; white-space: nowrap;"),
+      tags$tr(do.call(tagAppendAttributes, c(list(tags$td(tags$code(x$name), style = "vertical-align: top; padding: 3px 10px 3px 8px; white-space: nowrap; cursor: grab;")),
+                                             drag_attrs(x$name))),
               tags$td(x$description, style = "padding: 3px 8px;"))))), recursive = FALSE)
   extra <- setdiff(cols, vapply(descr$variables, function(x) x$name, ""))
   tabPanel("Variable description", tags$div(style = "padding-top: 8px;",
     tags$p(style = "font-size: 0.85em; color: #555; margin: 0 0 6px 0;",
            "Klausmate knows where this dataset came from, so here is what each variable means. ",
-           "Variables you have added or renamed are not described."),
+           "Variables you have added or renamed are not described. Drag a variable name into the prompt box, or double-click it, to use it."),
     tags$div(style = "max-height: 380px; overflow: auto; border: 1px solid #ddd; font-size: 0.88em;",
              tags$table(style = "border-collapse: collapse; width: 100%;", tags$tbody(rows))),
     if (length(extra) > 0)
@@ -1726,8 +1842,10 @@ inspect_panels <- function(obj, descr = NULL) {
     panels[[length(panels) + 1L]] <<- tabPanel(title, tags$div(style = "padding-top: 8px;",
       tryCatch(build(), error = function(e) inspect_unavailable(e))))
   if (!is.null(df)) {
-    add("Table",     function() inspect_html_table(df, partial = isTRUE(attr(obj, "cm_partial"))))
-    add("Variables", function() inspect_html_table(inspect_variables(df)))
+    add("Table",     function() inspect_html_table(df, partial = isTRUE(attr(obj, "cm_partial")), drag_header = TRUE))
+    add("Variables", function() tagList(
+      tags$p(style = "font-size: 0.8em; color: #777; margin: 0 0 4px 0;", "Drag a variable name into the prompt box, or double-click it, to use it."),
+      inspect_html_table(inspect_variables(df), drag_first_col = TRUE)))
     if (!is.null(descr)) {
       tp <- tryCatch(inspect_description_tab(descr, c(names(df), if (inherits(obj, "sf")) attr(obj, "sf_column"))),
                      error = function(e) NULL)
@@ -1791,6 +1909,7 @@ fetch_dataset_manifest <- function() {
              bytes = as.numeric(vapply(ds, function(d) as.numeric(d$bytes %||% 0), 0)), sha256 = field("sha256"),
              source = field("source"), retrieved = field("retrieved"), licence = field("licence"),
              licence_url = field("licence_url"), attribution = field("attribution"), notice = field("notice"),
+             credit_short = field("credit_short"),
              stringsAsFactors = FALSE) |>
     transform(variables = I(lapply(ds, function(d) d$variables)))     # plain-English descriptions of the columns, where given
 }
@@ -2753,6 +2872,24 @@ ui <- fluidPage(
         p.style.right = 'auto';
       });
       document.addEventListener('mouseup', function() { drag = null; });
+      // Double-clicking a variable name puts it into the prompt box, at the cursor (where it was when the student last
+      // left the box, or the end), with a space before it if needed. Dragging it there does the same.
+      var caret = null;
+      document.addEventListener('focusout', function(e) {
+        if (e.target && e.target.id === 'prompt') caret = {a: e.target.selectionStart, b: e.target.selectionEnd};
+      });
+      window.cmInsertVar = function(name) {
+        var p = document.getElementById('prompt');
+        if (!p || p.readOnly || p.disabled || !name) return;
+        var v = p.value, a = caret ? Math.min(caret.a, v.length) : v.length, b = caret ? Math.min(caret.b, v.length) : v.length;
+        var pre = v.slice(0, a), post = v.slice(b);
+        var ins = (pre.length > 0 && !/\\s$/.test(pre) ? ' ' : '') + name + (post.length > 0 && !/^\\s/.test(post) ? ' ' : '');
+        p.value = pre + ins + post;
+        var pos = (pre + ins).length; caret = {a: pos, b: pos};
+        p.dispatchEvent(new Event('input', {bubbles: true}));
+        p.focus(); p.setSelectionRange(pos, pos);
+        if (window.getSelection) window.getSelection().removeAllRanges();
+      };
     })();
   ")),
 
@@ -3908,8 +4045,17 @@ HELP_TEXTS <- list(
     "datasets (Load Package Data > Klausmate (online datasets)) there is also a Variable description tab that",
     "says in plain English what each variable means. The window can be dragged by its title bar and stays open",
     "while you work; it closes with its Close button, or when you press Answer, Ask for Code, Run, Pause or Quit.",
+    "Variable names (in the Table headings, the Variables tab and the Variable description tab) can be dragged into the",
+    "prompt box, or double-clicked to put them in at the cursor.",
     "It is shown on your own",
     "screen only and nothing is sent to Claude. If an item cannot be shown you are simply told so."
+  ),
+  pkg_choice_ok = paste(
+    "Use this package — Klausmate writes the code with the package you ticked, and uses it for similar requests until you",
+    "close Klausmate. To use a different package later, just name it in your prompt."
+  ),
+  pkg_choice_cancel = paste(
+    "Cancel — Closes this question without asking for code; your prompt stays as it is."
   ),
   inspect_close_btn = paste(
     "Close — Closes the Look-at window. The window also closes when you press Answer, Ask for Code, Run,",
@@ -4052,7 +4198,9 @@ HELP_TEXTS <- list(
   new_conversation = paste(
     "New Conversation — Starts a fresh session, clearing the Code editor,",
     "R output, Past code, and Past prompts. The current conversation is saved",
-    "to Past conversations and the code log is saved automatically.",
+    "to Past conversations and the code log is saved automatically. Any package",
+    "choices you made are forgotten, so you will be asked afresh; recalling a past",
+    "conversation brings its choices back.",
     "Each new conversation counts towards the limit set by your key; the number",
     "remaining is shown beneath this button."
   ),
@@ -4841,7 +4989,8 @@ server <- function(input, output, session) {
       answer_latest = answer_latest(),
       answer_hist   = answer_hist(),
       interactions  = interactions(),
-      active_code_id = active_code_id()
+      active_code_id = active_code_id(),
+      pkg_choices   = .cm$pkg_choices        # the packages chosen in this conversation
     )
     saved_conversations(c(list(entry), saved_conversations()))
     show_past_convs_tab()
@@ -5686,6 +5835,7 @@ server <- function(input, output, session) {
     unconf_code(recalled$unconf %||% list())
     selected_files(  recalled$files   %||% character(0))
     selected_objects(recalled$objects %||% character(0))
+    .cm$pkg_choices <- recalled$pkg_choices %||% list()      # the package choices made in that conversation
     # Restore log entries so the notebook continues from where this conversation left off
     all_log_entries(recalled$log_entries %||% list())
     held_explain(NULL)
@@ -6222,7 +6372,7 @@ server <- function(input, output, session) {
                                           uses_sf = spatial_online,
                                           code = online_dataset_code(mr, final),
                                           known = list(title = mr$title, attribution = mr$attribution, variables = mr$variables[[1]]),
-                                          credit = paste(c(mr$attribution, if (nzchar(mr$notice)) mr$notice), collapse = " "))
+                                          credit = if (nzchar(mr$credit_short)) mr$credit_short else mr$attribution)
         next
       }
       info <- pkgdata_load_pkg(pk)
@@ -6312,8 +6462,9 @@ server <- function(input, output, session) {
     # Data from Klausmate's online list comes with credit wording that should travel with it
     credits <- unique(Filter(function(x) !is.null(x) && nzchar(x), lapply(plan, function(it) it$credit)))
     if (length(credits) > 0)
-      showNotification(tagList(tags$strong("Please credit the data: "), paste(unlist(credits), collapse = " ")),
-                       type = "message", duration = 15)
+      showNotification(tagList(tags$strong("Please credit the data: "), paste(unlist(credits), collapse = " "),
+                               tags$br(), tags$em("The full credit wording is in your code log.")),
+                       type = "message", duration = NULL)      # short, so it stays until closed
   }
 
 
@@ -6519,6 +6670,8 @@ server <- function(input, output, session) {
     unlink(pause_file())
     saved
   } else NULL
+
+  if (!is.null(ps)) .cm$pkg_choices <- ps$pkg_choices %||% list()      # package choices survive a Pause
 
   # --- Answer view state ------------------------------------------------
   # The tabs follow the most recent kind of ask: "code" shows Code / R output /
@@ -7402,6 +7555,7 @@ server <- function(input, output, session) {
     # Auto-save code log for this conversation before clearing
     if (length(full_log()) > 0) do_save_log()
     conv_count_rv(conv_count_rv() + 1L)
+    .cm$pkg_choices <- list()                # a new conversation asks about packages afresh
     hide_changes_tab()
     conversation_history(list())
     run_history(list())
@@ -7949,7 +8103,8 @@ server <- function(input, output, session) {
                                               approaches = list(spatial = prefs$spatial, stats = prefs$stats,
                                                                 modelling = prefs$modelling, pipeline = prefs$pipeline,
                                                                 tables = prefs$tables, strings = prefs$strings),
-                                              consistency = prefs$consistency)
+                                              consistency = prefs$consistency,
+                                              package_choices = .cm$pkg_choices)
         ),
         error = function(e) list(text = "", stop_reason = "error")
       )
@@ -8086,10 +8241,44 @@ server <- function(input, output, session) {
     if (!is.null(autorun_text)) do_run_code(autorun_text)
   }
 
+  # Before code is asked for: if the request is a kind of analysis that more than one package does well, and the student
+  # has not already chosen (or named a package in the prompt), ask which they prefer. The choice is remembered until the
+  # app is closed; a package named in a later prompt replaces it.
+  pkg_pending <- reactiveVal(NULL)
   observeEvent(input$ask_code, {
     req(input$prompt)
-    do_ask_code(input$prompt)
+    pr <- input$prompt
+    m  <- pkg_task_match(pr)
+    if (is.null(m)) return(do_ask_code(pr))
+    if (length(m$named) == 1L) { .cm$pkg_choices[[m$id]] <- m$named; return(do_ask_code(pr)) }   # the prompt names one
+    if (length(m$named) > 1L || !is.null(.cm$pkg_choices[[m$id]]) ||
+        (isTRUE(m$task$bayes_skip) && identical(prefs$stats, "Bayesian"))) return(do_ask_code(pr))
+    pkg_pending(list(id = m$id, prompt = pr))
+    t   <- m$task; rec <- pkg_recommended(t, prefs$coding)
+    showModal(modalDialog(
+      title = "Which package would you like to use?",
+      tags$p(HTML(paste0("Your request looks like <strong>", t$label, "</strong>. There is more than one good package for this in R. ",
+                         "Klausmate will use your choice for similar requests until you close it; to use a different one, ",
+                         "just name the package in your prompt."))),
+      radioButtons("pkg_choice_radio", NULL,
+        choiceNames = lapply(t$options, function(o) tagList(
+          tags$strong(o$package),
+          if (identical(o$package, rec)) tags$span(" (recommended)", style = "color: #2e7d32;"),
+          if (!nzchar(system.file(package = o$package))) tags$span(" (not installed yet; Klausmate will offer to install it)", style = "color: #888;"),
+          tags$br(), tags$span(o$blurb, style = "font-size: 0.9em; color: #555;"))),
+        choiceValues = vapply(t$options, function(o) o$package, ""), selected = rec, width = "100%"),
+      footer = tagList(actionButton("pkg_choice_ok", "Use this package", class = "btn-primary"),
+                       actionButton("pkg_choice_cancel", "Cancel")),
+      easyClose = FALSE))
   })
+  observeEvent(input$pkg_choice_ok, {
+    p <- pkg_pending(); req(p)
+    removeModal()
+    if (!is.null(input$pkg_choice_radio) && nzchar(input$pkg_choice_radio)) .cm$pkg_choices[[p$id]] <- input$pkg_choice_radio
+    pkg_pending(NULL)
+    do_ask_code(p$prompt)
+  })
+  observeEvent(input$pkg_choice_cancel, { removeModal(); pkg_pending(NULL) })
 
   observeEvent(input$oos_ok_code, {
     removeModal()
@@ -9337,7 +9526,8 @@ server <- function(input, output, session) {
       interactions         = interactions(),
       active_code_id       = active_code_id(),
       placeholder_map      = placeholder_map(),
-      ask_mode             = ask_mode()
+      ask_mode             = ask_mode(),
+      pkg_choices          = .cm$pkg_choices
     )
     if (length(full_log()) > 0) do_save_log()
     tryCatch(

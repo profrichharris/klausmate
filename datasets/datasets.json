@@ -40,7 +40,8 @@
           "group": "Geometry",
           "description": "The outline of the tract (a polygon), in NAD83 longitude and latitude, for mapping. Tracts here are selected where they touch the City of Chicago boundary and are not cut to it, so they can include suburban land and part of Lake Michigan beyond the city limits."
         }
-      ]
+      ],
+      "credit_short": "US Census Bureau (public domain)."
     },
     {
       "id": "chicago_boundary",
@@ -70,7 +71,8 @@
           "group": "Geometry",
           "description": "The City of Chicago boundary as a single polygon, in NAD83 longitude and latitude. It is the Census Bureau's cartographic boundary (a simplified outline that excludes the part of Lake Michigan inside the legal city limits), so it is useful for drawing the city but is not exactly the legal boundary."
         }
-      ]
+      ],
+      "credit_short": "US Census Bureau (public domain)."
     },
     {
       "id": "childhood_lottery",
@@ -1245,7 +1247,8 @@
           "group": "Local authority",
           "description": "The outline of the authority (a polygon), in British National Grid coordinates (EPSG:27700), simplified to 100 m for teaching, so it is good for mapping but not for precise boundary work."
         }
-      ]
+      ],
+      "credit_short": "Children's Commissioner for England, The Childhood Lottery (2026), and Office for National Statistics boundaries (Open Government Licence v3.0)."
     },
     {
       "id": "childhood_lottery_metrics",
@@ -1315,7 +1318,8 @@
           "group": "The metric dictionary",
           "description": "Extra notes from the Commissioner, such as the share of authorities that said yes to a yes/no question."
         }
-      ]
+      ],
+      "credit_short": "Children's Commissioner for England, The Childhood Lottery (2026)."
     },
     {
       "id": "birmingham_lsoa_2001_2011",
@@ -1540,7 +1544,8 @@
           "group": "Higher-level variables (the same value for every LSOA in the area)",
           "description": "Valid votes as a percentage of the registered electorate in the constituency at the 2024 general election."
         }
-      ]
+      ],
+      "credit_short": "Office for National Statistics, Ministry of Housing, Communities and Local Government and House of Commons Library (Open Government Licence v3.0; Open Parliament Licence v3.0)."
     },
     {
       "id": "birmingham_lsoa_2011_2021",
@@ -1765,7 +1770,8 @@
           "group": "Higher-level variables (the same value for every LSOA in the area)",
           "description": "Valid votes as a percentage of the registered electorate in the constituency at the 2024 general election."
         }
-      ]
+      ],
+      "credit_short": "Office for National Statistics, Ministry of Housing, Communities and Local Government and House of Commons Library (Open Government Licence v3.0; Open Parliament Licence v3.0)."
     }
   ]
 }

@@ -17,7 +17,7 @@ ALLOWED_LICENCES <- c(
   "free-with-credit" # published free to download with no formal licence: credit the source in "attribution" and say so in "notice"
 )
 REQUIRED <- c("id", "title", "description", "file", "format", "object", "source", "retrieved", "licence",
-              "licence_id", "licence_url", "attribution", "reviewed")
+              "licence_id", "licence_url", "attribution", "credit_short", "reviewed")
 
 dir  <- "datasets"
 path <- file.path(dir, "datasets.json")
