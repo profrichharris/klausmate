@@ -5,20 +5,42 @@
     {
       "id": "chicago_tracts_income",
       "title": "Chicago census tracts: median household income",
-      "description": "856 census tracts in the City of Chicago with median household income (US dollars), as polygons.",
+      "description": "856 census tracts that intersect the City of Chicago boundary, with median household income (US dollars), as polygons. The tracts are whole tracts, so some extend beyond the city limits and over Lake Michigan.",
       "file": "chicago_tracts_income.gpkg",
       "format": "gpkg",
       "object": "chicago_tracts_income",
       "bytes": 466944,
       "sha256": "2cb932434d29901d5b6d404d3be233df6181b14fde673fa781e7cbb0a0c7adc9",
-      "source": "US Census Bureau: American Community Survey 2018-2022 5-year estimates (table B19013) with 2022 TIGER/Line census tract boundaries, clipped to the City of Chicago boundary. Retrieved with the tidycensus and tigris R packages.",
+      "source": "US Census Bureau: American Community Survey 2018-2022 5-year estimates (table B19013) with 2022 TIGER/Line census tract boundaries, selected where they intersect the City of Chicago boundary (the tracts are not cut at the boundary). Retrieved with the tidycensus and tigris R packages.",
       "retrieved": "2026-06-24",
       "licence": "Public domain (work of the US federal government)",
       "licence_id": "public-domain",
       "licence_url": "https://www.usa.gov/government-works",
       "attribution": "Source: US Census Bureau, 2018-2022 American Community Survey 5-year estimates (median household income, table B19013) and 2022 TIGER/Line census tract boundaries.",
       "notice": "This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau.",
-      "reviewed": "2026-10-22"
+      "reviewed": "2026-10-22",
+      "variables": [
+        {
+          "name": "GEOID",
+          "group": "Identifiers",
+          "description": "The tract's unique 11-digit census code: 2 digits for the state (17 = Illinois), 3 for the county (031 = Cook County) and 6 for the tract. Use it to join other US Census data to these tracts. It is text, not a number, so keep any leading zeros."
+        },
+        {
+          "name": "NAME",
+          "group": "Identifiers",
+          "description": "The tract's name, for example 'Census Tract 7401; Cook County; Illinois'. Tract numbers are only unique within a county."
+        },
+        {
+          "name": "median_income",
+          "group": "Income",
+          "description": "Median household income of the tract, in US dollars: the income that splits the tract's households into a richer half and a poorer half. It is an estimate from the American Community Survey 2018-2022 five-year data (table B19013), adjusted to 2022 dollars. Because it comes from a sample survey, each figure carries a margin of error that is not included here. The Census Bureau reports incomes of $250,000 or more as 250,001, so that value means 'at least $250,000' (one tract here)."
+        },
+        {
+          "name": "geometry",
+          "group": "Geometry",
+          "description": "The outline of the tract (a polygon), in NAD83 longitude and latitude, for mapping. Tracts here are selected where they touch the City of Chicago boundary and are not cut to it, so they can include suburban land and part of Lake Michigan beyond the city limits."
+        }
+      ]
     },
     {
       "id": "chicago_boundary",
@@ -36,7 +58,19 @@
       "licence_url": "https://www.usa.gov/government-works",
       "attribution": "Source: US Census Bureau, 2022 TIGER/Line cartographic boundary file (places).",
       "notice": "",
-      "reviewed": "2026-10-22"
+      "reviewed": "2026-10-22",
+      "variables": [
+        {
+          "name": "NAME",
+          "group": "Identifiers",
+          "description": "The name of the place: Chicago."
+        },
+        {
+          "name": "geometry",
+          "group": "Geometry",
+          "description": "The City of Chicago boundary as a single polygon, in NAD83 longitude and latitude. It is the Census Bureau's cartographic boundary (a simplified outline that excludes the part of Lake Michigan inside the legal city limits), so it is useful for drawing the city but is not exactly the legal boundary."
+        }
+      ]
     },
     {
       "id": "childhood_lottery",
@@ -54,7 +88,1164 @@
       "notice": "The Children's Commissioner publishes this dataset for free download but states no formal licence (\"All rights reserved\"). Klausmate redistributes it, unaltered in content, for teaching with the source credited. Boundaries contain OS data © Crown copyright and database right 2025.",
       "reviewed": "2026-10-22",
       "bytes": 1327104,
-      "sha256": "7726611e036031e298c9384a409d8a86e1ec61ba467237a7c0d7de7f24efe896"
+      "sha256": "7726611e036031e298c9384a409d8a86e1ec61ba467237a7c0d7de7f24efe896",
+      "variables": [
+        {
+          "name": "code",
+          "group": "Local authority",
+          "description": "The ONS code of the upper-tier local authority (a county or unitary authority) that the row describes."
+        },
+        {
+          "name": "name",
+          "group": "Local authority",
+          "description": "The name of the upper-tier local authority."
+        },
+        {
+          "name": "region",
+          "group": "Local authority",
+          "description": "The region of England the authority is in."
+        },
+        {
+          "name": "rural_urban",
+          "group": "Local authority",
+          "description": "Whether the authority is classed as Urban or Rural in the Children's Commissioner's workbook."
+        },
+        {
+          "name": "n_missing_metrics",
+          "group": "Local authority",
+          "description": "How many of the 128 metrics have no value for this authority."
+        },
+        {
+          "name": "pct_missing_metrics",
+          "group": "Local authority",
+          "description": "The same count as a percentage of the 128 metrics."
+        },
+        {
+          "name": "world_access_to_green_spaces_within_15_minutes_value",
+          "group": "Pillar: Better world",
+          "description": "Access to green spaces within 15 minutes. Local authorities with the highest percentage access to green space under 15 minutes, 2025 (higher is better). Measured as: percentage. Source: Defra. England average: 68. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "world_access_to_libraries_value",
+          "group": "Pillar: Better world",
+          "description": "Access to libraries. Libraries in the local authority per 10,000 children, 2023 (higher is better). Measured as: rate per 10,000 children (0 to 17). Source: Arts Council. England average: 2.2."
+        },
+        {
+          "name": "world_access_to_libraries_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Access to libraries', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "world_access_to_parks_and_play_areas_value",
+          "group": "Pillar: Better world",
+          "description": "Access to parks and play areas. Parks and play areas per 10,000 children, 2024 (higher is better). Measured as: rate per 10,000 children (0 to 17). Source: ONS. England average: 37. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "world_access_to_play_areas_value",
+          "group": "Pillar: Better world",
+          "description": "Access to play areas. Number of play areas in the local authority as a rate per 10,000 children in the local authority, 2024 (higher is better). Measured as: rate per 10,000 children (0 to 17). Source: ONS. England average: 25."
+        },
+        {
+          "name": "world_access_to_play_areas_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Access to play areas', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "world_access_to_public_sport_and_leisure_value",
+          "group": "Pillar: Better world",
+          "description": "Access to public sport and leisure facilities. Publicly accessible sport and leisure facilities in the local authority per 10,000 children, 2023 (higher is better). Measured as: rate per 10,000 children (0 to 17). Source: Sport England. England average: 59."
+        },
+        {
+          "name": "world_access_to_public_sport_and_leisure_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Access to public sport and leisure facilities', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "world_levels_of_youth_services_spending_value",
+          "group": "Pillar: Better world",
+          "description": "Levels of youth services spending. Local authority spending in 2024-25 on youth services per person aged 13 to 19. Measured as: spend (£) per child (13 to 19). Source: DfE. England average: 92."
+        },
+        {
+          "name": "world_levels_of_youth_services_spending_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Levels of youth services spending', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "world_children_dont_feel_people_who_run_the_value",
+          "group": "Pillar: Better world",
+          "description": "Children don't feel people who run the country listen to their views. Percent of children who disagreed or strongly disagreed that 'People who run the country listen to your views' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 52."
+        },
+        {
+          "name": "world_children_dont_feel_people_who_run_the_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Children don't feel people who run the country listen to their views', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "world_children_dont_feel_like_that_can_make_a_value",
+          "group": "Pillar: Better world",
+          "description": "Children don't feel like that can make a difference on things that matter to them. Percent of children who disagreed or strongly disagreed that 'You feel like you can make a difference to things you care about' (primary age) or 'You feel empowered to change issues that you care about' (secondary age) in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 22."
+        },
+        {
+          "name": "world_children_dont_feel_like_that_can_make_a_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Children don't feel like that can make a difference on things that matter to them', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "world_children_dont_feel_they_are_treated_fairly_value",
+          "group": "Pillar: Better world",
+          "description": "Children don't feel they are treated fairly. Percent of children who disagreed or strongly disagreed that 'You are treated fairly' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 14."
+        },
+        {
+          "name": "world_children_dont_feel_they_are_treated_fairly_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Children don't feel they are treated fairly', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "world_children_dont_have_fun_activities_near_where_value",
+          "group": "Pillar: Better world",
+          "description": "Children don't have fun activities near where they live. Percent of children who disagreed or strongly disagreed that 'You have fun activities to do near where you live' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 15."
+        },
+        {
+          "name": "world_children_dont_have_fun_activities_near_where_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Children don't have fun activities near where they live', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "world_access_to_a_youth_council_value",
+          "group": "Pillar: Better world",
+          "description": "Access to a Youth Council. Whether or not the local authority told the Children's Commissioner in 2025 that it provides the opportunity for children and young people to participate in a youth council. Measured as: local authority response. Source: Children's Commissioner. England average: 89. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 90% of local authorities reported that they have a youth council."
+        },
+        {
+          "name": "world_access_to_a_youth_council_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Access to a Youth Council', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "world_access_to_youth_hubs_value",
+          "group": "Pillar: Better world",
+          "description": "Access to youth hubs. Whether or not the local authority told the Children's Commissioner in 2025 that it provides at least one youth hub. Measured as: local authority response. Source: Children's Commissioner. England average: 53. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 54% of local authorities reported that they have a youth hub."
+        },
+        {
+          "name": "world_access_to_youth_hubs_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Access to youth hubs', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "world_access_to_youth_clubs_or_centres_value",
+          "group": "Pillar: Better world",
+          "description": "Access to youth clubs or centres. Whether or not the local authority told the Children's Commissioner in 2025 that it provides at least one youth club or centre. Measured as: local authority response. Source: Children's Commissioner. England average: 77. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 78% of local authorities reported that they have a youth club or centre."
+        },
+        {
+          "name": "world_access_to_youth_clubs_or_centres_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Access to youth clubs or centres', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "world_access_to_targeted_support_or_youth_group_value",
+          "group": "Pillar: Better world",
+          "description": "Access to targeted support or youth group for LGBTQ+. Whether or not the local authority told the Children's Commissioner in 2025 that it provides targeted support or a youth group for children who are LGBTQ+. Measured as: local authority response. Source: Children's Commissioner. England average: 58. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 59% of local authorities reported that they have a targeted support or youth group for LGBTQ+ children."
+        },
+        {
+          "name": "world_access_to_targeted_support_or_youth_group_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Access to targeted support or youth group for LGBTQ+', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "world_access_to_targeted_support_or_youth_group_1_value",
+          "group": "Pillar: Better world",
+          "description": "Access to targeted support or youth group for Gypsy, Roma and Traveller (GRT). Whether or not the local authority told the Children's Commissioner in 2025 that it provides targeted support or a youth group for children who are from Gypsy, Roma and Traveller backgrounds. Measured as: local authority response. Source: Children's Commissioner. England average: 44. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 45% of local authorities reported that they have a targeted support or youth group for GRT children."
+        },
+        {
+          "name": "world_access_to_targeted_support_or_youth_group_1_score",
+          "group": "Pillar: Better world",
+          "description": "Score for 'Access to targeted support or youth group for Gypsy, Roma and Traveller (GRT)', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "world_access_to_public_transport_value",
+          "group": "Pillar: Better world",
+          "description": "Access to public transport. Public transport financial support offered to children, scored 0 to 10 based on age range(s) covered and extent of subsidy or discount (higher is better). Measured as: indexed score. Source: Children's Commissioner. England average: 24. The value is an index built from the authority's responses, not a count or rate. Note: 25% of local authorities reported they did not offer any financial support options for children's use of public transport in their area. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "family_relative_child_poverty_0_to_15_value",
+          "group": "Pillar: Family",
+          "description": "Relative child poverty (0 to 15). Percent of children (aged 0 to 15) living in families in relative low income in 2024-24 (lower is better). Measured as: percentage. Source: DWP. England average: 27."
+        },
+        {
+          "name": "family_relative_child_poverty_0_to_15_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Relative child poverty (0 to 15)', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_breakfast_provision_by_schools_value",
+          "group": "Pillar: Family",
+          "description": "Breakfast provision by schools. Percent of schools in the local authority that told the Children's Commissioner that they had breakfast provision in Summer term 2024. Measured as: percentage. Source: Children's Commissioner. England average: 94."
+        },
+        {
+          "name": "family_breakfast_provision_by_schools_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Breakfast provision by schools', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_free_foods_provided_in_schools_value",
+          "group": "Pillar: Family",
+          "description": "Free foods provided in schools. Percent of schools in the local authority that told the Children's Commissioner that they had free food provision in Summer term 2024 (higher is better). Measured as: percentage. Source: Children's Commissioner. England average: 41."
+        },
+        {
+          "name": "family_free_foods_provided_in_schools_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Free foods provided in schools', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_wrap_around_childcare_provided_in_school_value",
+          "group": "Pillar: Family",
+          "description": "Wrap around childcare provided in school. Percent of schools in the local authority that told the Children's Commissioner that they had wraparound childcare provision in Summer term 2024 (higher is better). Measured as: percentage. Source: Children's Commissioner. England average: 63."
+        },
+        {
+          "name": "family_wrap_around_childcare_provided_in_school_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Wrap around childcare provided in school', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_children_living_in_temporary_accommodation_value",
+          "group": "Pillar: Family",
+          "description": "Children living in temporary accommodation (incl. B&Bs). Children living in temporary accommodation as a rate per 10,000 children in 2025 (lower is better). Measured as: rate per 10,000 children (0 to 18). Source: MHCLG. England average: 147."
+        },
+        {
+          "name": "family_children_living_in_temporary_accommodation_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Children living in temporary accommodation (incl. B&Bs)', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_households_left_homeless_after_prevention_value",
+          "group": "Pillar: Family",
+          "description": "Households left homeless after prevention duties ended. Percent of households with children who were unaccommodated after the expiry of the local authority's duty to help people threatened with homelessness (lower is better). Measured as: percentage. Source: MHCLG. England average: 34.5."
+        },
+        {
+          "name": "family_households_left_homeless_after_prevention_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Households left homeless after prevention duties ended', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_households_left_homeless_after_relief_duties_value",
+          "group": "Pillar: Family",
+          "description": "Households left homeless after relief duties ended. Percent of households with children who were unaccommodated after the expiry of the local authority's duty to help homeless people (lower is better). Measured as: percentage. Source: MHCLG. England average: 57.3."
+        },
+        {
+          "name": "family_households_left_homeless_after_relief_duties_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Households left homeless after relief duties ended', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_children_achieving_a_good_level_value",
+          "group": "Pillar: Family",
+          "description": "Children achieving a good level of development (EYFS). Percent of all children assessed who, by the end of Reception (aged 4 or 5), had achieved at least the expected level of development in 2024-25 (higher is better). Measured as: percentage. Source: DfE. England average: 68.3."
+        },
+        {
+          "name": "family_children_achieving_a_good_level_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Children achieving a good level of development (EYFS)', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_access_to_child_development_reviews_at_2_to_value",
+          "group": "Pillar: Family",
+          "description": "Access to child development reviews at 2 to 2 and a half years. Percent of eligible children who received a health visitor check at 2 to 2 and a half years of age in 2024-25 (higher is better). Measured as: percentage. Source: DfE. England average: 80.8."
+        },
+        {
+          "name": "family_access_to_child_development_reviews_at_2_to_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Access to child development reviews at 2 to 2 and a half years', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_identification_of_young_carers_value",
+          "group": "Pillar: Family",
+          "description": "Identification of young carers. Percentage of young carers reported by schools, 2025/26. Measured as: percentage. Source: DfE. England average: 1.1. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "family_level_of_family_support_services_funding_value",
+          "group": "Pillar: Family",
+          "description": "Level of family support services funding. Local authority spending on targeted and universal family support as a percent of all children and young people's spending, 2024-25. Measured as: percentage. Source: DfE. England average: 7.6. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "family_children_who_dont_live_with_people_who_make_value",
+          "group": "Pillar: Family",
+          "description": "Children who don't live with people who make them feel loved and cared for. Percent of children who disagreed or strongly disagreed that 'You live with people who make you feel loved and cared for' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 2."
+        },
+        {
+          "name": "family_children_who_dont_live_with_people_who_make_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Children who don't live with people who make them feel loved and cared for', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_children_who_dont_feel_that_their_family_has_value",
+          "group": "Pillar: Family",
+          "description": "Children who don't feel that their family has everything they need to support them. Percent of children who disagreed or strongly disagreed that 'Your family has everything they need to support you' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 5."
+        },
+        {
+          "name": "family_children_who_dont_feel_that_their_family_has_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Children who don't feel that their family has everything they need to support them', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_children_who_feel_they_dont_have_somewhere_value",
+          "group": "Pillar: Family",
+          "description": "Children who feel they don't have somewhere to call home. Percent of children who disagreed or strongly disagreed that 'You have somewhere to call home' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 2."
+        },
+        {
+          "name": "family_children_who_feel_they_dont_have_somewhere_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Children who feel they don't have somewhere to call home', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_access_to_targeted_support_or_youth_group_value",
+          "group": "Pillar: Family",
+          "description": "Access to targeted support or youth group: children from low income families. Whether the local authority told the Children's Commissioner in 2025 that it provides targeted support or a youth group for children from low income families. Measured as: local authority response. Source: Children's Commissioner. England average: 68. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 68% of local authorities reported that they have a targeted support or youth group for children in low income families."
+        },
+        {
+          "name": "family_access_to_targeted_support_or_youth_group_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Access to targeted support or youth group: children from low income families', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "family_access_to_a_specialist_or_targeted_support_value",
+          "group": "Pillar: Family",
+          "description": "Access to a specialist or targeted support group for young carers. Whether the local authority told the Children's Commissioner in 2025 that it provides targeted support or a youth group for young carers. Measured as: local authority response. Source: Children's Commissioner. England average: 93. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 94% of local authorities reported that they have a targeted support or youth group for young carers."
+        },
+        {
+          "name": "family_access_to_a_specialist_or_targeted_support_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Access to a specialist or targeted support group for young carers', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "family_access_to_family_hubs_value",
+          "group": "Pillar: Family",
+          "description": "Access to family hubs. Whether or not the local authority told the Children's Commissioner in 2025 it had a family hub service (higher is better). Measured as: local authority response. Source: Children's Commissioner. England average: 90. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 90% of local authorities reported that they have family hubs. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "family_access_to_childrens_centres_value",
+          "group": "Pillar: Family",
+          "description": "Access to children's centres. Whether or not the local authority told the Children's Commissioner in 2025 it had a children's centre service (higher is better). Measured as: local authority response. Source: Children's Commissioner. England average: 58. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 59% of local authorities reported that they have children's centres. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "family_access_to_family_hubs_and_or_childrens_value",
+          "group": "Pillar: Family",
+          "description": "Access to family hubs and/or children's centres. Whether the local authority told the Children's Commissioner in 2025 that it provides at least one family hub and/or children's centre. Measured as: local authority response. Source: Children's Commissioner. England average: 97. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 98% of local authorities reported that they have family hubs and/or children's centres."
+        },
+        {
+          "name": "family_access_to_family_hubs_and_or_childrens_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Access to family hubs and/or children's centres', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "family_schools_with_a_dedicated_staff_member_value",
+          "group": "Pillar: Family",
+          "description": "Schools with a dedicated staff member supporting young carers. Percent of schools in the local authority that told the Children's Commissioner they had a dedicated member of staff to support young carers in Summer term 2024 (higher is better). Measured as: percentage. Source: Children's Commissioner. England average: 27."
+        },
+        {
+          "name": "family_schools_with_a_dedicated_staff_member_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Schools with a dedicated staff member supporting young carers', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "family_access_to_childcare_age_0_to_7_value",
+          "group": "Pillar: Family",
+          "description": "Access to childcare (age 0 to 7). NA. Measured as: rate per 100 children. Source: NA."
+        },
+        {
+          "name": "family_access_to_childcare_age_0_to_7_score",
+          "group": "Pillar: Family",
+          "description": "Score for 'Access to childcare (age 0 to 7)', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_attendance_at_nhs_dental_visits_value",
+          "group": "Pillar: Health",
+          "description": "Attendance at NHS Dental Visits. Percent of children who in 2024-25 had seen an NHS dentist in the last 12 months (higher is better). Measured as: percentage. Source: NHS Business Services Authority. England average: 57."
+        },
+        {
+          "name": "health_attendance_at_nhs_dental_visits_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Attendance at NHS Dental Visits', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_childhood_vaccination_coverage_value",
+          "group": "Pillar: Health",
+          "description": "Childhood vaccination coverage. Percent of eligible children who received the MMR vaccine in 2024-25 (higher is better). Measured as: percentage. Source: UKHSA. England average: 83."
+        },
+        {
+          "name": "health_childhood_vaccination_coverage_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Childhood vaccination coverage', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_adolescent_vaccination_coverage_td_ipv_value",
+          "group": "Pillar: Health",
+          "description": "Adolescent vaccination coverage (Td/IPV). Percent of eligible children who received the Td/IPV (tetanus, diphtheria and polio) vaccine in 2024-25 (higher is better). Measured as: percentage. Source: UKHSA. England average: 71.7."
+        },
+        {
+          "name": "health_adolescent_vaccination_coverage_td_ipv_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Adolescent vaccination coverage (Td/IPV)', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_adolescent_vaccination_coverage_hpv_value",
+          "group": "Pillar: Health",
+          "description": "Adolescent vaccination coverage (HPV). Percent of eligible children who received the HPV (human papillomavirus) vaccine in 2024-25 (higher is better). Measured as: percentage. Source: UKHSA. England average: 69.6."
+        },
+        {
+          "name": "health_adolescent_vaccination_coverage_hpv_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Adolescent vaccination coverage (HPV)', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_low_birthweight_value",
+          "group": "Pillar: Health",
+          "description": "Low birthweight. Percent of babies born weighing less than 2.5kg, 2025 (lower is better). Measured as: percentage. Source: ONS. England average: 7. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "health_children_who_were_underweight_in_year_6_value",
+          "group": "Pillar: Health",
+          "description": "Children who were underweight in year 6. Percent of year 6 children (aged 10 to 11) who were underweight in 2024/25 (lower is better). Measured as: percentage. Source: OHID. England average: 1.6."
+        },
+        {
+          "name": "health_children_who_were_underweight_in_year_6_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Children who were underweight in year 6', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_children_who_were_overweight_or_obese_value",
+          "group": "Pillar: Health",
+          "description": "Children who were overweight or obese in year 6. Percent of year 6 children (aged 10 to 11) who were overweight or obese in 2024/25 (lower is better). Measured as: percentage. Source: OHID. England average: 36.1."
+        },
+        {
+          "name": "health_children_who_were_overweight_or_obese_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Children who were overweight or obese in year 6', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_hospital_admissions_for_accidents_and_value",
+          "group": "Pillar: Health",
+          "description": "Hospital admissions for accidents and injuries (age 0 to 14). Children aged 0 to 14 admitted to hospital in 2024-25 for unintentional and deliberate injuries as a rate per 10,000 children under 15 (lower is better). Measured as: rate per 10,000 children. Source: OHID. England average: 68.5."
+        },
+        {
+          "name": "health_hospital_admissions_for_accidents_and_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Hospital admissions for accidents and injuries (age 0 to 14)', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_children_in_substance_misuse_treatment_age_value",
+          "group": "Pillar: Health",
+          "description": "Children in substance misuse treatment (age 14 to 17). Children in substance misuse treatment per 1,000 14-17 year olds, 2024-25. Measured as: rate per 1,000 children. Source: OHID. England average: 5.8. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "health_access_to_mental_health_support_teams_value",
+          "group": "Pillar: Health",
+          "description": "Access to Mental Health Support Teams. Percent of pupils or learners reached by settings in the Mental Health Support Team programme in 2024-25 (higher is better). Measured as: percentage. Source: DfE. England average: 52."
+        },
+        {
+          "name": "health_access_to_mental_health_support_teams_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Access to Mental Health Support Teams', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_children_with_disabilities_and_health_needs_value",
+          "group": "Pillar: Health",
+          "description": "Children with disabilities and health needs: DLA statistics. Children claiming Disability Living Allowance per 10,000 children, 2025. Measured as: rate per 10,000 children (0 to 17). Source: DWP. England average: 721. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "health_children_with_disabilities_and_health_needs_1_value",
+          "group": "Pillar: Health",
+          "description": "Children with disabilities and health needs: LA spending. Spending on children with disabilities as a percent of all children and young people's spending, 2024-25. Measured as: percentage. Source: DfE. England average: 2.6. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "health_children_who_dont_feel_they_have_access_to_value",
+          "group": "Pillar: Health",
+          "description": "Children who don't feel they have access to good healthcare. Percent of children (aged 12-18) who disagreed or strongly disagreed that 'You have access to good healthcare' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 5."
+        },
+        {
+          "name": "health_children_who_dont_feel_they_have_access_to_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Children who don't feel they have access to good healthcare', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_children_who_feel_they_dont_have_a_healthy_value",
+          "group": "Pillar: Health",
+          "description": "Children who feel they don't have a healthy diet. Percent of children (aged 12 to 18) who disagreed or strongly disagreed that 'You have a healthy diet' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 11."
+        },
+        {
+          "name": "health_children_who_feel_they_dont_have_a_healthy_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Children who feel they don't have a healthy diet', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_children_who_dont_feel_they_have_someone_value",
+          "group": "Pillar: Health",
+          "description": "Children who don't feel they have someone supportive to talk to. Percent of children (aged 12 to 18) who disagreed or strongly disagreed that 'You have someone supportive to talk to about how you feel' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 8.3."
+        },
+        {
+          "name": "health_children_who_dont_feel_they_have_someone_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Children who don't feel they have someone supportive to talk to', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_health_visitor_age_0_to_5_caseload_value",
+          "group": "Pillar: Health",
+          "description": "Health Visitor (age 0 to 5) caseload. Health visitors (FTE) per 1,000 children aged 0 to 5, 2025 (higher is better). Measured as: rate per 1,000 children. Source: Children's Commissioner. England average: 3.1. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "health_school_nurse_age_5_to_19_workforce_value",
+          "group": "Pillar: Health",
+          "description": "School Nurse (age 5 to 19) workforce. School Nurses per 10,000 children and young people aged 5 to 19, 2025 (higher is better). Measured as: rate per 10,000 children. Source: Children's Commissioner. England average: 3.2. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "health_access_to_substance_misuse_services_value",
+          "group": "Pillar: Health",
+          "description": "Access to substance misuse services. Whether or not the local authority told the Children's Commissioner in 2025 that it provides substance abuse services for children and young people. Measured as: local authority response. Source: Children's Commissioner. England average: 96. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 97% of local authorities reported that they have substance misuse services for children."
+        },
+        {
+          "name": "health_access_to_substance_misuse_services_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Access to substance misuse services', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "health_access_to_early_support_hubs_mental_health_value",
+          "group": "Pillar: Health",
+          "description": "Access to Early Support Hubs (Mental Health Drop in). Whether or not the local authority told the Children's Commissioner in 2025 it has an early support hub or a mental health drop-in service available for children and young people. Measured as: local authority response. Source: Children's Commissioner. England average: 42. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 43% of local authorities reported that they have an early support hub or a mental health drop in for children."
+        },
+        {
+          "name": "health_access_to_early_support_hubs_mental_health_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Access to Early Support Hubs (Mental Health Drop in)', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "health_access_to_bereavement_service_value",
+          "group": "Pillar: Health",
+          "description": "Access to bereavement service. Whether or not the local authority told the Children's Commissioner in 2025 that it has a specialist support offer to children and young people who have experienced a bereavement. Measured as: local authority response. Source: Children's Commissioner. England average: 51. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 53% of local authorities reported that they have a bereavement service for children."
+        },
+        {
+          "name": "health_access_to_bereavement_service_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Access to bereavement service', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "health_inpatient_hospitalisations_for_mental_health_value",
+          "group": "Pillar: Health",
+          "description": "Inpatient hospitalisations for mental health. Rate of inpatient hospitalisations for mental health per 10,000 children aged 0 to 17. Measured as: rate per 10,000 children (0 to 17). Source: OHID. England average: 8."
+        },
+        {
+          "name": "health_inpatient_hospitalisations_for_mental_health_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Inpatient hospitalisations for mental health', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "health_children_with_disabilities_and_health_needs_2_value",
+          "group": "Pillar: Health",
+          "description": "Children with disabilities and health needs: Children's Disability Register. Percent of children on local authority's children's disability register, 2025. Measured as: percentage. Source: Children's Commissioner. England average: 1.2. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "health_access_to_targeted_support_or_youth_group_value",
+          "group": "Pillar: Health",
+          "description": "Access to targeted support or youth group: children with SEND or health needs. Whether the local authority told the Children's Commissioner in 2025 it provides targeted support or a youth group for children with special educational needs (SEN), disabilities or additional health needs. Measured as: local authority response. Source: Children's Commissioner. England average: 92. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 93% of local authorities reported that they have targeted support or youth group for children with special educational needs (SEN), disabilities or additional health needs."
+        },
+        {
+          "name": "health_access_to_targeted_support_or_youth_group_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Access to targeted support or youth group: children with SEND or health needs', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "health_child_mortality_deaths_of_0_to_19s_value",
+          "group": "Pillar: Health",
+          "description": "Child mortality (deaths of 0 to 19s). Number of deaths of 0 to 19 year olds in 2024 as a rate per 10,000 children aged 0 to 17 (lower is better). Measured as: rate per 10,000 children. Source: ONS. England average: 3.3."
+        },
+        {
+          "name": "health_child_mortality_deaths_of_0_to_19s_score",
+          "group": "Pillar: Health",
+          "description": "Score for 'Child mortality (deaths of 0 to 19s)', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_children_missing_from_education_cme_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Children missing from Education (CME). Percent of children aged 5 to 16 who were missing education in 2024/25 (lower is better). Measured as: percentage. Source: DfE. England average: 1.6."
+        },
+        {
+          "name": "edu_children_missing_from_education_cme_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Children missing from Education (CME)', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_availability_of_post_16_provision_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Availability of post 16 provision. Schools and colleges serving those who are age 16 or above in 2026 as a rate per 1,000 young people aged 17 to 19 (higher is better). Measured as: rate per 1,000 children (17 to 19). Source: DfE. England average: 1.2."
+        },
+        {
+          "name": "edu_availability_of_post_16_provision_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Availability of post 16 provision', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_electively_home_education_children_ehe_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Electively home education children (EHE). Percent of children electively home educated, 2024/25. Measured as: percentage. Source: DfE. England average: 2. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "edu_unauthorised_absence_rate_in_mainstream_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Unauthorised absence rate in mainstream schools. Percent unauthorised absence rate in state-funded mainstream schools in 2024/25 (lower is better). Measured as: percentage. Source: DfE. England average: 2.3."
+        },
+        {
+          "name": "edu_unauthorised_absence_rate_in_mainstream_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Unauthorised absence rate in mainstream schools', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_unauthorised_absence_rate_in_state_funded_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Unauthorised absence rate in state funded alternative provisions. Percent unauthorised absence rate in state-funded alternative provision in 2024/25 (lower is better). Measured as: percentage. Source: DfE. England average: 19.1."
+        },
+        {
+          "name": "edu_unauthorised_absence_rate_in_state_funded_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Unauthorised absence rate in state funded alternative provisions', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_unauthorised_absence_rate_in_special_schools_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Unauthorised absence rate in special schools. Percent unauthorised absence rate in state-funded special schools in 2024/25 (lower is better). Measured as: percentage. Source: DfE. England average: 3.4."
+        },
+        {
+          "name": "edu_unauthorised_absence_rate_in_special_schools_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Unauthorised absence rate in special schools', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_exclusion_rate_in_mainstream_schools_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Exclusion rate in mainstream schools. Permanent exclusions of pupils from primary and secondary mainstream schools in 2024/25 as a rate per 10,000 children (lower is better). Measured as: rate per 10,000 pupils (5 to 16). Source: DfE. England average: 12.5."
+        },
+        {
+          "name": "edu_exclusion_rate_in_mainstream_schools_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Exclusion rate in mainstream schools', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_level_of_sen_support_in_mainstream_schools_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Level of SEN support in mainstream schools. Percentage of pupils with Special Educational Needs Support (excluding EHCPs), 2025/26. Measured as: percentage. Source: DfE. England average: 13.6. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "edu_percentage_of_education_health_and_care_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Percentage of Education, Health and Care Plans (EHCPs) in mainstream education. Percent of children with Education, Health and Care plans in state-funded mainstream education, 2025/26. Measured as: percentage. Source: DfE. England average: 58. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "edu_timeliness_of_education_health_and_care_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Timeliness of Education, Health and Care Plans issued. Percent of Education, Health and Care Plans (EHCPs) completed within 20 weeks in 2025 (higher is better). Measured as: percentage. Source: DfE. England average: 46.4."
+        },
+        {
+          "name": "edu_timeliness_of_education_health_and_care_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Timeliness of Education, Health and Care Plans issued', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_average_attainment_8_score_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Average Attainment 8 Score. Average attainment of pupils at Key Stage 4, out of a maximum possible score of 90 in 2024/25 (higher is better). Measured as: average score. Source: DfE. England average: 46."
+        },
+        {
+          "name": "edu_average_attainment_8_score_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Average Attainment 8 Score', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_percentage_getting_a_good_grade_in_english_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Percentage getting a good grade in English and Maths (Pass 5). Percent of pupils living in the local authority who achieved a grade 5 or better in both English and Maths GCSEs in 2024/25 (higher is better). Measured as: percentage. Source: DfE. England average: 45.4."
+        },
+        {
+          "name": "edu_percentage_getting_a_good_grade_in_english_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Percentage getting a good grade in English and Maths (Pass 5)', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_participation_in_applied_general_courses_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Participation in Applied General courses. Percent of Applied General students among total students at the end of 16-18 study, 2024/25. Measured as: percentage. Source: DfE. England average: 22. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "edu_participation_in_apprenticeships_under_19s_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Participation in Apprenticeships (under 19s). Percent of under 19 Apprentices among total Apprentices, 2025/26. Measured as: percentage. Source: DfE. England average: 14.9. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "edu_young_people_not_in_education_employment_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Young people not in education, employment or training (NEET). Percent of 16 and 17 year olds not in education, employment, or training (NEET) in 2026 (lower is better). Measured as: percentage. Source: DfE. England average: 3."
+        },
+        {
+          "name": "edu_young_people_not_in_education_employment_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Young people not in education, employment or training (NEET)', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_children_who_do_not_enjoy_school_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Children who do not enjoy school. Percent of children who disagreed or strongly disagreed that 'You enjoy school' (primary age) or 'You enjoy school or college' (secondary age) in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 25."
+        },
+        {
+          "name": "edu_children_who_do_not_enjoy_school_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Children who do not enjoy school', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_children_who_do_not_feel_they_have_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Children who do not feel they have supportive teachers. Percent of children who disagreed or strongly disagreed that 'You have great teachers who support you' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 10."
+        },
+        {
+          "name": "edu_children_who_do_not_feel_they_have_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Children who do not feel they have supportive teachers', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_children_who_do_not_know_about_money_or_life_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Children who do not know about money or life skills. Percent of children aged 12 to 18 who disagreed or strongly disagreed that 'You know about money and life skills' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 12."
+        },
+        {
+          "name": "edu_children_who_do_not_know_about_money_or_life_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Children who do not know about money or life skills', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_children_who_do_not_feel_they_have_the_same_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Children who do not feel they have the same opportunities as other children. Percent of children who disagreed or strongly disagreed that 'You have the same opportunities as other children' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 14."
+        },
+        {
+          "name": "edu_children_who_do_not_feel_they_have_the_same_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Children who do not feel they have the same opportunities as other children', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_children_who_do_not_feel_they_know_about_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Children who do not feel they know about good jobs for when they are older. Percent of children aged 6 to 11 who disagreed or strongly disagreed that 'You know about good jobs for when you are older' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 6."
+        },
+        {
+          "name": "edu_children_who_do_not_feel_they_know_about_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Children who do not feel they know about good jobs for when they are older', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_children_who_do_not_feel_they_know_about_1_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Children who do not feel they know about apprenticeships, university options and career paths. Percent of children aged 12 to 18 who disagreed or strongly disagreed that 'You know about apprenticeships, university options and career paths' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 13. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "edu_targeted_support_or_youth_group_for_home_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Targeted support or youth group for home educated children. Whether the local authority told the Children's Commissioner in 2025 it provides targeted support or a youth group for home educated children. Measured as: local authority response. Source: Children's Commissioner. England average: 53. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 54% of local authorities reported that they have targeted support or youth group for electively home educated children."
+        },
+        {
+          "name": "edu_targeted_support_or_youth_group_for_home_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Targeted support or youth group for home educated children', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "edu_access_to_a_local_authority_educational_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Access to a local authority Educational Psychology Team. Whether or not the local authority told the Children's Commissioner in 2025 it provides an educational psychology service. Measured as: local authority response. Source: Children's Commissioner. England average: 94. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 95% of local authorities reported that they provide a local authority educational psychology service."
+        },
+        {
+          "name": "edu_access_to_a_local_authority_educational_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Access to a local authority Educational Psychology Team', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "edu_use_of_unregulated_alternative_provision_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Use of unregulated alternative provision. Placements in unregistered alternative provision divided by total pupils within the local authority in 2024/25 multiplied by 10,000 (lower is better). Measured as: rate per 10,000 (pupil population). Source: DfE. England average: 29."
+        },
+        {
+          "name": "edu_use_of_unregulated_alternative_provision_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'Use of unregulated alternative provision', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "edu_participation_in_t_level_courses_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Participation in T level courses. Percent of T level students among total students at the end of 16-18 study, 2024/25. Measured as: percentage. Source: DfE. England average: 4.3. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "edu_a_level_average_scores_value",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "A level average scores. NA. Measured as: per a level student. Source: NA."
+        },
+        {
+          "name": "edu_a_level_average_scores_score",
+          "group": "Pillar: Education, jobs and skills",
+          "description": "Score for 'A level average scores', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "care_children_in_need_value",
+          "group": "Pillar: Care",
+          "description": "Children in Need. Children in need per 10,000 children, 2025. Measured as: rate per 10,000 children (0 to 17). Source: DfE. England average: 153. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "care_children_on_child_protection_plans_value",
+          "group": "Pillar: Care",
+          "description": "Children on Child Protection Plans. Children on child protection plans per 10,000 children, 2025. Measured as: rate per 10,000 children (0 to 17). Source: DfE. England average: 44. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "care_looked_after_children_value",
+          "group": "Pillar: Care",
+          "description": "Looked After Children. Looked after children per 10,000 children, 2025. Measured as: rate per 10,000 children (0 to 17). Source: DfE. England average: 73. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "care_proportion_of_unknown_or_unreported_distance_value",
+          "group": "Pillar: Care",
+          "description": "Proportion of unknown or unreported distance in children social care placements. Percent of data missing on area of care placements, 2025 (lower is better). Measured as: percentage. Source: DfE. England average: 8.9. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "care_use_of_out_of_area_placements_value",
+          "group": "Pillar: Care",
+          "description": "Use of out of area placements. The percent of looked after children who were in a placement outside their home local authority in 2025 (lower is better). Measured as: percentage. Source: DfE. England average: 49.2."
+        },
+        {
+          "name": "care_use_of_out_of_area_placements_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Use of out of area placements', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "care_number_of_unaccompanied_asylum_seeking_value",
+          "group": "Pillar: Care",
+          "description": "Number of unaccompanied asylum seeking children. Unaccompanied asylum seeking children as a percent of all looked after children, 2025. Measured as: percentage. Source: DfE. England average: 8. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "care_care_placement_instability_value",
+          "group": "Pillar: Care",
+          "description": "Care placement instability. The percent of looked after children who had three or more placements in 2025 (lower is better). Measured as: percentage. Source: DfE. England average: 10."
+        },
+        {
+          "name": "care_care_placement_instability_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Care placement instability', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "care_school_placement_instability_value",
+          "group": "Pillar: Care",
+          "description": "School placement instability. The percent of looked after children who had one or more mid-year school moves in 2025 (lower is better). Measured as: percentage. Source: DfE. England average: 8."
+        },
+        {
+          "name": "care_school_placement_instability_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'School placement instability', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "care_social_worker_caseload_value",
+          "group": "Pillar: Care",
+          "description": "Social worker caseload. Social worker average caseloads per FTE social worker, 2025 (lower is better). Measured as: average caseload per social worker. Source: DfE. England average: 15.2. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "care_social_worker_turnover_value",
+          "group": "Pillar: Care",
+          "description": "Social worker turnover. Social worker turnover percentage of FTE social workers, 2025 (lower is better). Measured as: turnover rate. Source: DfE. England average: 11.8. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "care_social_worker_instability_value",
+          "group": "Pillar: Care",
+          "description": "Social worker instability. The percent of looked after children who had three or more social workers during 2024-25 (lower is better). Measured as: percentage. Source: DfE. England average: 24."
+        },
+        {
+          "name": "care_social_worker_instability_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Social worker instability', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "care_looked_after_childrens_average_attainment_8_value",
+          "group": "Pillar: Care",
+          "description": "Looked after children's average Attainment 8 score. Average score out of 90 for looked after children in Attainment 8 at Key Stage 4 (higher is better). Measured as: average score. Source: DfE. England average: 17.3. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "care_number_of_care_leavers_17_to_21_value",
+          "group": "Pillar: Care",
+          "description": "Number of care leavers (17 to 21). Care leavers aged 17 to 21 per 1,000 young people, 2025. Measured as: rate per 1,000 (17 to 21). Source: DfE. England average: 17. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "care_percent_of_care_leavers_in_touch_with_local_value",
+          "group": "Pillar: Care",
+          "description": "Percent of care leavers in touch with local authority. Percent of care leavers aged 17 to 21 in touch with their local authority in 2025 (higher is better). Measured as: percentage. Source: DfE. England average: 93."
+        },
+        {
+          "name": "care_percent_of_care_leavers_in_touch_with_local_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Percent of care leavers in touch with local authority', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "care_number_of_care_leavers_22_to_25_value",
+          "group": "Pillar: Care",
+          "description": "Number of care leavers (22 to 25). Care leavers aged 22 to 25 per 1,000 young people, 2025. Measured as: rate per 1,000 (22 to 25). Source: DfE. England average: 16. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "care_percent_of_care_leavers_in_suitable_value",
+          "group": "Pillar: Care",
+          "description": "Percent of care leavers in suitable accommodation. The percent of care leavers aged 17 to 21 who were in suitable accommodation in 2025 (higher is better). Measured as: percentage. Source: DfE. England average: 89."
+        },
+        {
+          "name": "care_percent_of_care_leavers_in_suitable_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Percent of care leavers in suitable accommodation', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "care_percent_of_care_leavers_not_in_education_value",
+          "group": "Pillar: Care",
+          "description": "Percent of care leavers not in education, employment or training. The percent of care leavers aged 17 to 21 who were not in education, employment or training in 2025 (lower is better). Measured as: percentage. Source: DfE. England average: 40."
+        },
+        {
+          "name": "care_percent_of_care_leavers_not_in_education_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Percent of care leavers not in education, employment or training', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "care_access_to_a_child_contact_centre_value",
+          "group": "Pillar: Care",
+          "description": "Access to a child contact centre. Whether or not the local authority told the Children's Commissioner in 2025 that it had a child contact centre (higher is better). Measured as: local authority response. Source: Children's Commissioner. England average: 95. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 97% of local authorities reported that they provide a child contact centre. This metric is shown for information and is not scored or included in the overall score."
+        },
+        {
+          "name": "care_access_to_children_in_care_council_value",
+          "group": "Pillar: Care",
+          "description": "Access to Children in Care Council. Whether or not the local authority told the Children's Commissioner in 2025 it provides a Children in Care council. Measured as: local authority response. Source: Children's Commissioner. England average: 82. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 83% of local authorities reported that they provide a children in care council."
+        },
+        {
+          "name": "care_access_to_children_in_care_council_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Access to Children in Care Council', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "care_access_to_specialist_and_targeted_support_value",
+          "group": "Pillar: Care",
+          "description": "Access to specialist and targeted support for looked after children. Whether or not the local authority told the Children's Commissioner in 2025 it provides targeted support or a youth group for looked after children. Measured as: local authority response. Source: Children's Commissioner. England average: 91. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 92% of local authorities reported that they provide targeted support or youth group for looked after children."
+        },
+        {
+          "name": "care_access_to_specialist_and_targeted_support_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Access to specialist and targeted support for looked after children', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "care_access_to_independent_advocacy_services_for_value",
+          "group": "Pillar: Care",
+          "description": "Access to independent advocacy services for looked after children. Whether or not the local authority told the Children's Commissioner in 2025 it provides access to an independent advocate service for looked after children. Measured as: local authority response. Source: Children's Commissioner. England average: 99. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 100% of local authorities reported that they provide independent advocacy for looked after children."
+        },
+        {
+          "name": "care_access_to_independent_advocacy_services_for_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Access to independent advocacy services for looked after children', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "care_access_to_independent_advocacy_services_for_1_value",
+          "group": "Pillar: Care",
+          "description": "Access to independent advocacy services for wider groups. Whether or not the local authority told the Children's Commissioner in 2025 it provides access to an independent advocate service for six groups of vulnerable children (higher is better). Measured as: indexed score. Source: Children's Commissioner. England average: 47. The value is an index built from the authority's responses, not a count or rate. Note: 48% of local authorities reported that they provide independent advocacy for all the wider (non statutory) groups of children."
+        },
+        {
+          "name": "care_access_to_independent_advocacy_services_for_1_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Access to independent advocacy services for wider groups', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "care_access_to_independent_advocacy_services_for_2_value",
+          "group": "Pillar: Care",
+          "description": "Access to independent advocacy services for care leavers. Whether or not the local authority told the Children's Commissioner in 2025 it provides access to an independent advocate service for care leavers. Measured as: local authority response. Source: Children's Commissioner. England average: 93. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 94% of local authorities reported that they provide independent advocacy for care leavers."
+        },
+        {
+          "name": "care_access_to_independent_advocacy_services_for_2_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Access to independent advocacy services for care leavers', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "care_access_to_specialist_and_targeted_support_1_value",
+          "group": "Pillar: Care",
+          "description": "Access to specialist and targeted support for care leavers. Whether or not the local authority told the Children's Commissioner in 2025 it provides targeted support or a youth group for care leavers. Measured as: local authority response. Source: Children's Commissioner. England average: 91. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 92% of local authorities reported that they provide targeted support or youth group for care leavers."
+        },
+        {
+          "name": "care_access_to_specialist_and_targeted_support_1_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Access to specialist and targeted support for care leavers', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "care_specialist_and_targeted_support_for_uasc_value",
+          "group": "Pillar: Care",
+          "description": "Specialist and targeted support for UASC. Whether or not the local authority told the Children's Commissioner in 2025 it provides targeted support or a youth group for asylum seeking children. Measured as: local authority response. Source: Children's Commissioner. England average: 75. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 77% of local authorities reported that they provide targeted support or youth group for UASC."
+        },
+        {
+          "name": "care_specialist_and_targeted_support_for_uasc_score",
+          "group": "Pillar: Care",
+          "description": "Score for 'Specialist and targeted support for UASC', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "comm_number_of_children_who_went_missing_value",
+          "group": "Pillar: Community",
+          "description": "Number of children who went missing. Number of children who went missing in 2024-25 as recorded by police forces as a rate per 10,000 children (lower is better). Measured as: rate per 10,000 children (0 to 17). Source: National Crime Agency. England average: 55."
+        },
+        {
+          "name": "comm_number_of_children_who_went_missing_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Number of children who went missing', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "comm_number_of_children_stopped_and_searched_value",
+          "group": "Pillar: Community",
+          "description": "Number of children stopped and searched. Number of children who were stopped and searched by the police forces in 2024-25 as a rate per 10,000 children (lower is better). Measured as: rate per 10,000 children (0-17). Source: Home Office. England average: 81."
+        },
+        {
+          "name": "comm_number_of_children_stopped_and_searched_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Number of children stopped and searched', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "comm_number_of_arrests_of_children_value",
+          "group": "Pillar: Community",
+          "description": "Number of arrests of children. Number of child arrests by the police forces covering local authorities in 2024-25 as a rate per 10,000 children (lower is better). Measured as: rate per 10,000 children (0-17). Source: Home Office. England average: 47."
+        },
+        {
+          "name": "comm_number_of_arrests_of_children_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Number of arrests of children', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "comm_use_of_force_by_police_against_children_value",
+          "group": "Pillar: Community",
+          "description": "Use of force by police against children. Use of force by police forces against children as a rate per 10,000 children, in the local authorities covered by police forces. Measured as: rate per 10,000 children (0-17). Source: Home Office. England average: 69."
+        },
+        {
+          "name": "comm_use_of_force_by_police_against_children_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Use of force by police against children', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "comm_victims_of_exploitation_referred_to_the_value",
+          "group": "Pillar: Community",
+          "description": "Victims of exploitation referred to the National Referral Mechanism. Number of potential child victims of modern slavery referred to the National Referral Mechanism in 2024 by police force per 10,000 children (lower is better). Measured as: rate per 10,000 children (0 to 17). Source: Home Office. England average: 4.5."
+        },
+        {
+          "name": "comm_victims_of_exploitation_referred_to_the_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Victims of exploitation referred to the National Referral Mechanism', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "comm_children_who_feel_unsafe_in_their_local_area_value",
+          "group": "Pillar: Community",
+          "description": "Children who feel unsafe in their local area. Percent of children who disagreed or strongly disagreed that 'You feel safe in your local area' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 12.3."
+        },
+        {
+          "name": "comm_children_who_feel_unsafe_in_their_local_area_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Children who feel unsafe in their local area', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "comm_children_who_feel_unsafe_online_value",
+          "group": "Pillar: Community",
+          "description": "Children who feel unsafe online. Percent of children who disagreed or strongly disagreed that 'You feel safe when you go online' in the Children's Commissioner's survey The Big Ambition in 2024 (lower is better). Measured as: percentage. Source: Children's Commissioner. England average: 8.8."
+        },
+        {
+          "name": "comm_children_who_feel_unsafe_online_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Children who feel unsafe online', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "comm_police_community_support_officer_pcso_value",
+          "group": "Pillar: Community",
+          "description": "Police Community Support Officer (PCSO) or Safer Schools Police Officer (SSO) in schools. Percentage of schools in the local authority that have a Police Community Support Officer (PCSO) or Safer Schools Police Officer (SSO). Measured as: percentage. Source: Children's Commissioner. England average: 3."
+        },
+        {
+          "name": "comm_police_community_support_officer_pcso_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Police Community Support Officer (PCSO) or Safer Schools Police Officer (SSO) in schools', from 1 (worst) to 10 (best): authorities are placed in ten roughly equal groups, like deciles, taking into account whether a higher or lower value is better for this metric. It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "comm_access_to_return_home_interview_services_value",
+          "group": "Pillar: Community",
+          "description": "Access to Return Home Interview Services. Whether local authorities told the Children's Commissioner in 2025 they offer a return home interview service for children after they go missing. Measured as: local authority response. Source: Children's Commissioner. England average: 93. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 94% of local authorities reported that they provide access to return home interviews for children."
+        },
+        {
+          "name": "comm_access_to_return_home_interview_services_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Access to Return Home Interview Services', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "comm_access_to_child_independent_domestic_value",
+          "group": "Pillar: Community",
+          "description": "Access to Child Independent Domestic Violence Advisors (CIDVA). Whether local authorities told the Children's Commissioner in 2025 they provide access to Child Independent Domestic Violence Advisors (CIDVA). Measured as: local authority response. Source: Children's Commissioner. England average: 48. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 50% of local authorities reported that they provide access to CIDVAs."
+        },
+        {
+          "name": "comm_access_to_child_independent_domestic_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Access to Child Independent Domestic Violence Advisors (CIDVA)', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "comm_access_to_child_independent_sexual_violence_value",
+          "group": "Pillar: Community",
+          "description": "Access to Child Independent Sexual Violence Advisors (CISVA). Whether local authorities told the Children's Commissioner in 2025 they provide access to Child Independent Sexual Violence Advisors (CISVA). Measured as: local authority response. Source: Children's Commissioner. England average: 32. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 33% of local authorities reported that they provide access to CISVAs."
+        },
+        {
+          "name": "comm_access_to_child_independent_sexual_violence_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Access to Child Independent Sexual Violence Advisors (CISVA)', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "comm_access_to_targeted_support_or_youth_group_value",
+          "group": "Pillar: Community",
+          "description": "Access to targeted support or youth group for children at risk of sexual exploitation. Whether or not the local authority told the Children's Commissioner in 2025 it provides targeted support or a youth group for children at risk of sexual exploitation. Measured as: local authority response. Source: Children's Commissioner. England average: 84. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 86% of local authorities reported that they provide targeted support or youth group for children at risk of sexual exploitation."
+        },
+        {
+          "name": "comm_access_to_targeted_support_or_youth_group_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Access to targeted support or youth group for children at risk of sexual exploitation', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "comm_access_to_targeted_or_youth_group_for_value",
+          "group": "Pillar: Community",
+          "description": "Access to targeted or youth group for children at risk of criminal exploitation. Whether or not the local authority told the Children's Commissioner in 2025 it provides targeted support or a youth group for children at risk of criminal exploitation. Measured as: local authority response. Source: Children's Commissioner. England average: 86. The value is the authority's yes/no answer, coded 1 for yes and 0 for no. Note: 89% of local authorities reported that they provide targeted support or youth group for children at risk of criminal exploitation."
+        },
+        {
+          "name": "comm_access_to_targeted_or_youth_group_for_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Access to targeted or youth group for children at risk of criminal exploitation', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "comm_recording_of_vulnerability_of_children_who_value",
+          "group": "Pillar: Community",
+          "description": "Recording of vulnerability of children who are stopped and searched. Number of additional vulnerability characteristics recorded by the police force covering the local authority when conducting stop and search on children (out of eight), as reported to Children's Commissioner in 2024-25. Measured as: indexed score. Source: Children's Commissioner. England average: 3.2. The value is an index built from the authority's responses, not a count or rate. Note: Mean indexed score."
+        },
+        {
+          "name": "comm_recording_of_vulnerability_of_children_who_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Recording of vulnerability of children who are stopped and searched', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "comm_vulnerability_of_children_recorded_value",
+          "group": "Pillar: Community",
+          "description": "Vulnerability of children recorded in custody. Number of groups of vulnerable children, up to six, that the local authority told the Children's Commissioner in 2025 it provided access to an independent advocate service for, scored out of 10 (higher is better). Measured as: indexed score. Source: Children's Commissioner. England average: 7.7. The value is an index built from the authority's responses, not a count or rate. Note: Mean indexed score."
+        },
+        {
+          "name": "comm_vulnerability_of_children_recorded_score",
+          "group": "Pillar: Community",
+          "description": "Score for 'Vulnerability of children recorded in custody', from 0 (worst) to 10 (best), based on the authority's response. For a plain yes/no question the score is 10 for yes and 0 for no."
+        },
+        {
+          "name": "overall_value",
+          "group": "Overall",
+          "description": "Overall score (out of 960). The local authority's total overall score across all scored metrics. Measured as: overall score. Source: Various. England average: 585."
+        },
+        {
+          "name": "overall_score",
+          "group": "Overall",
+          "description": "The overall score as a score from 1 to 10: authorities are ranked on the total and placed in ten roughly equal groups, 10 being the best (about 15 authorities in each). It is a relative position, not a measure of how far apart authorities are."
+        },
+        {
+          "name": "geometry",
+          "group": "Local authority",
+          "description": "The outline of the authority (a polygon), in British National Grid coordinates (EPSG:27700), simplified to 100 m for teaching, so it is good for mapping but not for precise boundary work."
+        }
+      ]
     },
     {
       "id": "childhood_lottery_metrics",
@@ -72,25 +1263,509 @@
       "notice": "The Children's Commissioner publishes this dataset for free download but states no formal licence (\"All rights reserved\"). Klausmate redistributes it, unaltered in content, for teaching with the source credited. ",
       "reviewed": "2026-10-22",
       "bytes": 45581,
-      "sha256": "a72c022e1bf55133d34a1889bf0bf121b8d7d35918b846279843f14eeaae5333"
+      "sha256": "a72c022e1bf55133d34a1889bf0bf121b8d7d35918b846279843f14eeaae5333",
+      "variables": [
+        {
+          "name": "pillar",
+          "group": "The metric dictionary",
+          "description": "The theme the metric belongs to: Better world, Family, Health, Education jobs and skills, Care, Community, or Overall total score."
+        },
+        {
+          "name": "metric",
+          "group": "The metric dictionary",
+          "description": "The name of the metric as the Children's Commissioner gives it."
+        },
+        {
+          "name": "value_col",
+          "group": "The metric dictionary",
+          "description": "The name of the column in the childhood_lottery data that holds this metric's value (the raw measure)."
+        },
+        {
+          "name": "score_col",
+          "group": "The metric dictionary",
+          "description": "The name of the column that holds the metric's 0 to 10 score. It is blank when the metric is not scored."
+        },
+        {
+          "name": "description",
+          "group": "The metric dictionary",
+          "description": "What the metric measures, the year, and which direction is better, in the Commissioner's words."
+        },
+        {
+          "name": "value_type",
+          "group": "The metric dictionary",
+          "description": "The unit of the value, for example a percentage, a rate per 10,000 children, or a yes/no response."
+        },
+        {
+          "name": "scored",
+          "group": "The metric dictionary",
+          "description": "Yes if the metric is turned into a score and counts towards the overall score; No if it is shown for information only."
+        },
+        {
+          "name": "source",
+          "group": "The metric dictionary",
+          "description": "The organisation that produced the underlying data, for example DfE, ONS or Defra."
+        },
+        {
+          "name": "england_average",
+          "group": "The metric dictionary",
+          "description": "The average for England, in the metric's own units, where the Commissioner gives one."
+        },
+        {
+          "name": "notes",
+          "group": "The metric dictionary",
+          "description": "Extra notes from the Commissioner, such as the share of authorities that said yes to a yes/no question."
+        }
+      ]
     },
     {
-      "id": "birmingham_lsoa",
-      "title": "Birmingham LSOAs: change in the share of the Black African population 2011-2021, for multilevel modelling",
-      "description": "659 Lower layer Super Output Areas (2021) in Birmingham (polygons), the modelling rows for a multilevel model: the outcome y_change (the change from 2011 to 2021 in the percentage of Birmingham's Black African population living in the LSOA, in percentage points) and a normalised version, the 2011 Black African percentage, the 2025 IMD score, plus the MSOA ethnic diversity, ward tenure and constituency 2024 vote variables copied down, with MSOA, ward and constituency codes. Counts are whole numbers and other numbers are rounded to three decimal places.",
-      "file": "birmingham_lsoa.gpkg",
+      "id": "birmingham_lsoa_2001_2011",
+      "title": "Birmingham LSOAs: change in the share of the Black African population 2001-2011, for multilevel modelling",
+      "description": "659 Lower layer Super Output Areas (2021 geography) in Birmingham (polygons), the modelling rows for a multilevel model: the outcome y_change (the change from 2001 to 2011 in the percentage of Birmingham's Black African population living in the LSOA, in percentage points) and a normalised version (asinh(y_change / 0.05), the same in both periods), the 2001 Black African percentage, the IMD 2010 score (also as twentieths of Birmingham's LSOAs, imd_q20_2010) and the 2025 score, rank, decile and twentieths (imd_q20_2025), plus the MSOA ethnic diversity, ward tenure and constituency 2019 (notional) and 2024 vote variables copied down, with MSOA, ward and constituency codes. Both datasets use the same 2021 LSOAs, 2021 MSOAs, 2022 wards and 2024 constituencies, so the variance at each level can be compared between the two periods. Counts are whole numbers and other numbers are rounded to three decimal places.",
+      "file": "birmingham_lsoa_2001_2011.gpkg",
       "format": "gpkg",
-      "object": "birmingham_lsoa",
-      "source": "Office for National Statistics (via Nomis): Census 2021 tables TS021 (ethnic group) and TS054 (tenure) and Census 2011 tables KS201EW (ethnic group) and KS402EW (tenure) for Birmingham; ONS lookups between 2011 and 2021 output areas, and from output areas to LSOAs, MSOAs, wards and 2024 constituencies; MHCLG English Indices of Deprivation 2025 (File 7); ONS December 2021 LSOA boundaries (BGC, generalised and clipped), British National Grid. House of Commons Library, Election Results (general election 4 July 2024, https://electionresults.parliament.uk), under the Open Parliament Licence v3.0. Built with tools/prepare_birmingham.R.",
+      "object": "birmingham_lsoa_2001_2011",
+      "source": "Office for National Statistics (via Nomis): Census 2001 tables KS006 (ethnic group) and KS018 (tenure, output areas), Census 2011 tables KS201EW (ethnic group) and KS402EW (tenure, output areas) and Census 2021 tables TS021 (ethnic group) and TS054 (tenure) for the fixed geography for Birmingham; ONS lookups between 2001, 2011 and 2021 output areas, and from output areas to LSOAs, MSOAs, wards and 2024 constituencies; MHCLG English Indices of Deprivation 2010 (all domains file, 2001 LSOAs); MHCLG English Indices of Deprivation 2025 (File 7); ONS December 2021 LSOA boundaries (BGC, generalised and clipped), British National Grid. House of Commons Library, Election Results (general elections 12 December 2019, notional result on the 2024 boundaries, and 4 July 2024, https://electionresults.parliament.uk), under the Open Parliament Licence v3.0. Built with tools/prepare_birmingham.R.",
       "retrieved": "2026-11-03",
       "licence_id": "ogl",
       "licence_url": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
       "reviewed": "2026-11-03",
       "licence": "Open Government Licence v3.0; election results under the Open Parliament Licence v3.0",
-      "attribution": "Source: Office for National Statistics (Census 2011 and 2021, via Nomis; 2021 boundaries and lookups) and Ministry of Housing, Communities and Local Government (English Indices of Deprivation 2025), licensed under the Open Government Licence v3.0. Contains National Statistics data © Crown copyright and database right 2026. Contains OS data © Crown copyright and database right 2026. Contains Parliamentary information licensed under the Open Parliament Licence v3.0 (House of Commons Library, 2024 general election results).",
-      "notice": "Both licences require the attribution shown. The Census, IMD and boundary data are Crown copyright and licensed under the Open Government Licence v3.0; the 2024 election results are Parliamentary copyright and licensed under the Open Parliament Licence v3.0.",
-      "bytes": 851968,
-      "sha256": "a308c3f6ef8e946af3a79e019e2188f0d4afa4145d608b4fb5fec78d29268b1b"
+      "attribution": "Source: Office for National Statistics (Census 2001, 2011 and 2021, via Nomis; 2021 boundaries and lookups) and the Department for Communities and Local Government / Ministry of Housing, Communities and Local Government (English Indices of Deprivation 2010 and 2025), licensed under the Open Government Licence v3.0. Contains National Statistics data © Crown copyright and database right 2026. Contains OS data © Crown copyright and database right 2026. Contains Parliamentary information licensed under the Open Parliament Licence v3.0 (House of Commons Library, 2019 notional and 2024 general election results).",
+      "notice": "Both licences require the attribution shown. The Census, IMD and boundary data are Crown copyright and licensed under the Open Government Licence v3.0; the 2019 and 2024 election results are Parliamentary copyright and licensed under the Open Parliament Licence v3.0.",
+      "bytes": 880640,
+      "sha256": "5a844b8e317109b19eaee92245fdb2e554a47cc4b75a51e2c3c6c1cee0358929",
+      "variables": [
+        {
+          "name": "lsoa21cd",
+          "group": "Places and codes",
+          "description": "Code of the LSOA (Lower layer Super Output Area, 2021 boundaries): a small area, typically with 1,000 to 3,000 residents. Each row of the data is one LSOA. Use the code to join other data to these rows."
+        },
+        {
+          "name": "lsoa21nm",
+          "group": "Places and codes",
+          "description": "Name of the LSOA, for example 'Birmingham 050F'."
+        },
+        {
+          "name": "msoa21cd",
+          "group": "Places and codes",
+          "description": "Code of the MSOA (Middle layer Super Output Area, 2021) that contains the LSOA. An MSOA is made up of several LSOAs (usually five) and typically has 5,000 to 15,000 residents. Useful as a grouping level in a multilevel model."
+        },
+        {
+          "name": "msoa21nm",
+          "group": "Places and codes",
+          "description": "Name of the MSOA, for example 'Birmingham 050'."
+        },
+        {
+          "name": "ward22cd",
+          "group": "Places and codes",
+          "description": "Code of the electoral ward (2022 boundaries) where most of the LSOA's residents live. Wards and LSOAs do not always fit exactly (about a quarter of these LSOAs have residents in more than one ward), so each LSOA is given its main ward. MSOAs and wards also overlap, so they are crossed rather than nested."
+        },
+        {
+          "name": "ward22nm",
+          "group": "Places and codes",
+          "description": "Name of that ward."
+        },
+        {
+          "name": "pcon_cd",
+          "group": "Places and codes",
+          "description": "Code of the parliamentary constituency (2024 boundaries) where most of the LSOA's residents live. There are 10 in the data. Hodge Hill and Solihull North also covers part of Solihull, outside Birmingham."
+        },
+        {
+          "name": "pcon_nm",
+          "group": "Places and codes",
+          "description": "Name of that constituency."
+        },
+        {
+          "name": "geometry",
+          "group": "Places and codes",
+          "description": "The outline of the LSOA, held in British National Grid coordinates (EPSG:27700), for mapping."
+        },
+        {
+          "name": "pop_2001",
+          "group": "Counts",
+          "description": "Number of usual residents of the LSOA at the 2001 census. The 2001 census counted people in older output areas, so the counts have been re-allocated to the 2021 LSOAs in proportion to population and rounded to whole numbers; they can differ slightly from published figures where area boundaries changed."
+        },
+        {
+          "name": "pop_2011",
+          "group": "Counts",
+          "description": "Number of usual residents of the LSOA at the 2011 census. The 2011 census counted people in older output areas, so the counts have been re-allocated to the 2021 LSOAs in proportion to population and rounded to whole numbers; they can differ slightly from published figures where area boundaries changed."
+        },
+        {
+          "name": "ba_2001",
+          "group": "Counts",
+          "description": "Number of residents of the LSOA who gave their ethnic group as Black African at the 2001 census. The 2001 census counted people in older output areas, so the counts have been re-allocated to the 2021 LSOAs in proportion to population and rounded to whole numbers; they can differ slightly from published figures where area boundaries changed."
+        },
+        {
+          "name": "ba_2011",
+          "group": "Counts",
+          "description": "Number of residents of the LSOA who gave their ethnic group as Black African at the 2011 census. The 2011 census counted people in older output areas, so the counts have been re-allocated to the 2021 LSOAs in proportion to population and rounded to whole numbers; they can differ slightly from published figures where area boundaries changed."
+        },
+        {
+          "name": "pop_2022",
+          "group": "Counts",
+          "description": "Estimated number of residents in mid-2022, taken from the Index of Multiple Deprivation 2025 data."
+        },
+        {
+          "name": "pct_ba_2001",
+          "group": "The outcome: change in the Black African population",
+          "description": "Black African residents as a percentage of all residents of the LSOA in 2001: 100 × ba_2001 / pop_2001. This describes the make-up of the area. It is not the same as the LSOA's share of the city's group (ba_share)."
+        },
+        {
+          "name": "pct_ba_2011",
+          "group": "The outcome: change in the Black African population",
+          "description": "Black African residents as a percentage of all residents of the LSOA in 2011: 100 × ba_2011 / pop_2011."
+        },
+        {
+          "name": "ba_share_2001",
+          "group": "The outcome: change in the Black African population",
+          "description": "The LSOA's share of Birmingham's whole Black African population in 2001: 100 × ba_2001 divided by the city total. The shares add up to 100 across the LSOAs."
+        },
+        {
+          "name": "ba_share_2011",
+          "group": "The outcome: change in the Black African population",
+          "description": "The LSOA's share of Birmingham's whole Black African population in 2011."
+        },
+        {
+          "name": "y_change",
+          "group": "The outcome: change in the Black African population",
+          "description": "The outcome. ba_share_2011 minus ba_share_2001, in percentage points. A positive value means the LSOA now holds a larger share of the city's Black African population than before; a negative value, a smaller share. This is a change in share, so an LSOA can gain residents and still have a negative value if the city's group grew faster. It adds up to zero across Birmingham."
+        },
+        {
+          "name": "y_change_asinh",
+          "group": "The outcome: change in the Black African population",
+          "description": "y_change on a transformed scale: asinh(y_change / 0.05), the same in both Birmingham files. Most changes are small and a few are large; the transformation pulls in the extremes so that the outcome behaves better in a linear model. Zero still means no change and the sign is kept, but the units are no longer percentage points."
+        },
+        {
+          "name": "imd_score_2010",
+          "group": "Deprivation (small-area, England)",
+          "description": "Index of Multiple Deprivation score from the 2010 release: the higher the score, the more deprived the area. It was published for older LSOAs, and has been carried to the 2021 LSOAs through output areas as a population-weighted average where LSOAs changed. Scores from different releases are on different scales, so compare ranks or groups rather than raw values across releases."
+        },
+        {
+          "name": "imd_q20_2010",
+          "group": "Deprivation (small-area, England)",
+          "description": "The 2010 score as twentieths of Birmingham's own LSOAs: 1 is the most deprived twentieth and 20 the least deprived, with about 33 LSOAs in each. It is relative to Birmingham, not England, and is intended as a grouping variable."
+        },
+        {
+          "name": "imd_score_2025",
+          "group": "Deprivation (small-area, England)",
+          "description": "Index of Multiple Deprivation 2025 score, published for the 2021 LSOAs: the higher, the more deprived."
+        },
+        {
+          "name": "imd_rank_2025",
+          "group": "Deprivation (small-area, England)",
+          "description": "IMD 2025 rank among all 33,755 LSOAs in England. 1 is the most deprived."
+        },
+        {
+          "name": "imd_decile_2025",
+          "group": "Deprivation (small-area, England)",
+          "description": "IMD 2025 decile for England: 1 is the most deprived 10% of LSOAs in England, 10 the least deprived. Most Birmingham LSOAs fall in the lower deciles."
+        },
+        {
+          "name": "imd_q20_2025",
+          "group": "Deprivation (small-area, England)",
+          "description": "The IMD 2025 score as twentieths of Birmingham's own LSOAs: 1 is the most deprived twentieth and 20 the least deprived, about 33 LSOAs each. Relative to Birmingham, not England."
+        },
+        {
+          "name": "msoa_div_2001",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Ethnic diversity of the MSOA in 2001, measured by the Simpson index: 1 minus the sum of the squared shares of 13 ethnic groups that can be compared across the censuses. It is the chance that two randomly chosen residents belong to different groups: 0 means everyone is in one group and values near 1 mean many groups of similar size. It includes the Black African group, so it is partly related to the outcome."
+        },
+        {
+          "name": "msoa_div_2011",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "The same diversity measure for the MSOA in 2011."
+        },
+        {
+          "name": "msoa_div_chg",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "msoa_div_2011 minus msoa_div_2001: the change in diversity."
+        },
+        {
+          "name": "ward_social_2001",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Percentage of households in the ward in 2001 that rent from a council or housing association (social renting). The 2001 figure has been rebuilt for the 2022 wards from small areas. All LSOAs in a ward share one value."
+        },
+        {
+          "name": "ward_social_2011",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Percentage of households in the ward in 2011 that were social renters."
+        },
+        {
+          "name": "ward_social_chg",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "ward_social_2011 minus ward_social_2001, in percentage points."
+        },
+        {
+          "name": "ward_private_2001",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Percentage of households in the ward in 2001 that rent from a private landlord or letting agency. (Other private renting and living rent-free are not included, so that the measure matches across censuses.)"
+        },
+        {
+          "name": "ward_private_2011",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Percentage of households in the ward in 2011 that rented from a private landlord or letting agency."
+        },
+        {
+          "name": "ward_private_chg",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "ward_private_2011 minus ward_private_2001, in percentage points."
+        },
+        {
+          "name": "pcon_labour_2019",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Labour's percentage of the valid votes in the constituency at the 2019 general election (a 'notional' result: the House of Commons Library re-worked it onto the 2024 constituency boundaries). The same for every LSOA in a constituency, and the same in both Birmingham files."
+        },
+        {
+          "name": "pcon_conservative_2019",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "The Conservatives' percentage of the valid votes in the constituency at the 2019 general election (a 'notional' result: the House of Commons Library re-worked it onto the 2024 constituency boundaries)."
+        },
+        {
+          "name": "pcon_turnout_2019",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Valid votes as a percentage of the registered electorate in the constituency at the 2019 general election (a 'notional' result: the House of Commons Library re-worked it onto the 2024 constituency boundaries)."
+        },
+        {
+          "name": "pcon_labour_2024",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Labour's percentage of the valid votes in the constituency at the 2024 general election. The same for every LSOA in a constituency, and the same in both Birmingham files."
+        },
+        {
+          "name": "pcon_conservative_2024",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "The Conservatives' percentage of the valid votes in the constituency at the 2024 general election."
+        },
+        {
+          "name": "pcon_turnout_2024",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Valid votes as a percentage of the registered electorate in the constituency at the 2024 general election."
+        }
+      ]
+    },
+    {
+      "id": "birmingham_lsoa_2011_2021",
+      "title": "Birmingham LSOAs: change in the share of the Black African population 2011-2021, for multilevel modelling",
+      "description": "659 Lower layer Super Output Areas (2021 geography) in Birmingham (polygons), the modelling rows for a multilevel model: the outcome y_change (the change from 2011 to 2021 in the percentage of Birmingham's Black African population living in the LSOA, in percentage points) and a normalised version (asinh(y_change / 0.05), the same in both periods), the 2011 Black African percentage, the IMD 2019 score (also as twentieths of Birmingham's LSOAs, imd_q20_2019) and the 2025 score, rank, decile and twentieths (imd_q20_2025), plus the MSOA ethnic diversity, ward tenure and constituency 2019 (notional) and 2024 vote variables copied down, with MSOA, ward and constituency codes. Both datasets use the same 2021 LSOAs, 2021 MSOAs, 2022 wards and 2024 constituencies, so the variance at each level can be compared between the two periods. Counts are whole numbers and other numbers are rounded to three decimal places.",
+      "file": "birmingham_lsoa_2011_2021.gpkg",
+      "format": "gpkg",
+      "object": "birmingham_lsoa_2011_2021",
+      "source": "Office for National Statistics (via Nomis): Census 2011 tables KS201EW (ethnic group) and KS402EW (tenure, output areas) and Census 2021 tables TS021 (ethnic group) and TS054 (tenure) for Birmingham; ONS lookups between 2001, 2011 and 2021 output areas, and from output areas to LSOAs, MSOAs, wards and 2024 constituencies; MHCLG English Indices of Deprivation 2019 (File 7, 2011 LSOAs); MHCLG English Indices of Deprivation 2025 (File 7); ONS December 2021 LSOA boundaries (BGC, generalised and clipped), British National Grid. House of Commons Library, Election Results (general elections 12 December 2019, notional result on the 2024 boundaries, and 4 July 2024, https://electionresults.parliament.uk), under the Open Parliament Licence v3.0. Built with tools/prepare_birmingham.R.",
+      "retrieved": "2026-11-03",
+      "licence_id": "ogl",
+      "licence_url": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+      "reviewed": "2026-11-03",
+      "licence": "Open Government Licence v3.0; election results under the Open Parliament Licence v3.0",
+      "attribution": "Source: Office for National Statistics (Census 2011 and 2021, via Nomis; 2021 boundaries and lookups) and the Department for Communities and Local Government / Ministry of Housing, Communities and Local Government (English Indices of Deprivation 2019 and 2025), licensed under the Open Government Licence v3.0. Contains National Statistics data © Crown copyright and database right 2026. Contains OS data © Crown copyright and database right 2026. Contains Parliamentary information licensed under the Open Parliament Licence v3.0 (House of Commons Library, 2019 notional and 2024 general election results).",
+      "notice": "Both licences require the attribution shown. The Census, IMD and boundary data are Crown copyright and licensed under the Open Government Licence v3.0; the 2019 and 2024 election results are Parliamentary copyright and licensed under the Open Parliament Licence v3.0.",
+      "bytes": 888832,
+      "sha256": "f491e87c31884024795f8789fe8a69ebd82d8746084428d49732d8057566a372",
+      "variables": [
+        {
+          "name": "lsoa21cd",
+          "group": "Places and codes",
+          "description": "Code of the LSOA (Lower layer Super Output Area, 2021 boundaries): a small area, typically with 1,000 to 3,000 residents. Each row of the data is one LSOA. Use the code to join other data to these rows."
+        },
+        {
+          "name": "lsoa21nm",
+          "group": "Places and codes",
+          "description": "Name of the LSOA, for example 'Birmingham 050F'."
+        },
+        {
+          "name": "msoa21cd",
+          "group": "Places and codes",
+          "description": "Code of the MSOA (Middle layer Super Output Area, 2021) that contains the LSOA. An MSOA is made up of several LSOAs (usually five) and typically has 5,000 to 15,000 residents. Useful as a grouping level in a multilevel model."
+        },
+        {
+          "name": "msoa21nm",
+          "group": "Places and codes",
+          "description": "Name of the MSOA, for example 'Birmingham 050'."
+        },
+        {
+          "name": "ward22cd",
+          "group": "Places and codes",
+          "description": "Code of the electoral ward (2022 boundaries) where most of the LSOA's residents live. Wards and LSOAs do not always fit exactly (about a quarter of these LSOAs have residents in more than one ward), so each LSOA is given its main ward. MSOAs and wards also overlap, so they are crossed rather than nested."
+        },
+        {
+          "name": "ward22nm",
+          "group": "Places and codes",
+          "description": "Name of that ward."
+        },
+        {
+          "name": "pcon_cd",
+          "group": "Places and codes",
+          "description": "Code of the parliamentary constituency (2024 boundaries) where most of the LSOA's residents live. There are 10 in the data. Hodge Hill and Solihull North also covers part of Solihull, outside Birmingham."
+        },
+        {
+          "name": "pcon_nm",
+          "group": "Places and codes",
+          "description": "Name of that constituency."
+        },
+        {
+          "name": "geometry",
+          "group": "Places and codes",
+          "description": "The outline of the LSOA, held in British National Grid coordinates (EPSG:27700), for mapping."
+        },
+        {
+          "name": "pop_2011",
+          "group": "Counts",
+          "description": "Number of usual residents of the LSOA at the 2011 census. The 2011 census counted people in older output areas, so the counts have been re-allocated to the 2021 LSOAs in proportion to population and rounded to whole numbers; they can differ slightly from published figures where area boundaries changed."
+        },
+        {
+          "name": "pop_2021",
+          "group": "Counts",
+          "description": "Number of usual residents of the LSOA at the 2021 census. The 2021 figures are as published by the Office for National Statistics."
+        },
+        {
+          "name": "ba_2011",
+          "group": "Counts",
+          "description": "Number of residents of the LSOA who gave their ethnic group as Black African at the 2011 census. The 2011 census counted people in older output areas, so the counts have been re-allocated to the 2021 LSOAs in proportion to population and rounded to whole numbers; they can differ slightly from published figures where area boundaries changed."
+        },
+        {
+          "name": "ba_2021",
+          "group": "Counts",
+          "description": "Number of residents of the LSOA who gave their ethnic group as Black African at the 2021 census. The 2021 figures are as published by the Office for National Statistics."
+        },
+        {
+          "name": "pop_2022",
+          "group": "Counts",
+          "description": "Estimated number of residents in mid-2022, taken from the Index of Multiple Deprivation 2025 data."
+        },
+        {
+          "name": "pct_ba_2011",
+          "group": "The outcome: change in the Black African population",
+          "description": "Black African residents as a percentage of all residents of the LSOA in 2011: 100 × ba_2011 / pop_2011. This describes the make-up of the area. It is not the same as the LSOA's share of the city's group (ba_share)."
+        },
+        {
+          "name": "pct_ba_2021",
+          "group": "The outcome: change in the Black African population",
+          "description": "Black African residents as a percentage of all residents of the LSOA in 2021: 100 × ba_2021 / pop_2021."
+        },
+        {
+          "name": "ba_share_2011",
+          "group": "The outcome: change in the Black African population",
+          "description": "The LSOA's share of Birmingham's whole Black African population in 2011: 100 × ba_2011 divided by the city total. The shares add up to 100 across the LSOAs."
+        },
+        {
+          "name": "ba_share_2021",
+          "group": "The outcome: change in the Black African population",
+          "description": "The LSOA's share of Birmingham's whole Black African population in 2021."
+        },
+        {
+          "name": "y_change",
+          "group": "The outcome: change in the Black African population",
+          "description": "The outcome. ba_share_2021 minus ba_share_2011, in percentage points. A positive value means the LSOA now holds a larger share of the city's Black African population than before; a negative value, a smaller share. This is a change in share, so an LSOA can gain residents and still have a negative value if the city's group grew faster. It adds up to zero across Birmingham."
+        },
+        {
+          "name": "y_change_asinh",
+          "group": "The outcome: change in the Black African population",
+          "description": "y_change on a transformed scale: asinh(y_change / 0.05), the same in both Birmingham files. Most changes are small and a few are large; the transformation pulls in the extremes so that the outcome behaves better in a linear model. Zero still means no change and the sign is kept, but the units are no longer percentage points."
+        },
+        {
+          "name": "imd_score_2019",
+          "group": "Deprivation (small-area, England)",
+          "description": "Index of Multiple Deprivation score from the 2019 release: the higher the score, the more deprived the area. It was published for older LSOAs, and has been carried to the 2021 LSOAs through output areas as a population-weighted average where LSOAs changed. Scores from different releases are on different scales, so compare ranks or groups rather than raw values across releases."
+        },
+        {
+          "name": "imd_q20_2019",
+          "group": "Deprivation (small-area, England)",
+          "description": "The 2019 score as twentieths of Birmingham's own LSOAs: 1 is the most deprived twentieth and 20 the least deprived, with about 33 LSOAs in each. It is relative to Birmingham, not England, and is intended as a grouping variable."
+        },
+        {
+          "name": "imd_score_2025",
+          "group": "Deprivation (small-area, England)",
+          "description": "Index of Multiple Deprivation 2025 score, published for the 2021 LSOAs: the higher, the more deprived."
+        },
+        {
+          "name": "imd_rank_2025",
+          "group": "Deprivation (small-area, England)",
+          "description": "IMD 2025 rank among all 33,755 LSOAs in England. 1 is the most deprived."
+        },
+        {
+          "name": "imd_decile_2025",
+          "group": "Deprivation (small-area, England)",
+          "description": "IMD 2025 decile for England: 1 is the most deprived 10% of LSOAs in England, 10 the least deprived. Most Birmingham LSOAs fall in the lower deciles."
+        },
+        {
+          "name": "imd_q20_2025",
+          "group": "Deprivation (small-area, England)",
+          "description": "The IMD 2025 score as twentieths of Birmingham's own LSOAs: 1 is the most deprived twentieth and 20 the least deprived, about 33 LSOAs each. Relative to Birmingham, not England."
+        },
+        {
+          "name": "msoa_div_2011",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Ethnic diversity of the MSOA in 2011, measured by the Simpson index: 1 minus the sum of the squared shares of 13 ethnic groups that can be compared across the censuses. It is the chance that two randomly chosen residents belong to different groups: 0 means everyone is in one group and values near 1 mean many groups of similar size. It includes the Black African group, so it is partly related to the outcome."
+        },
+        {
+          "name": "msoa_div_2021",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "The same diversity measure for the MSOA in 2021."
+        },
+        {
+          "name": "msoa_div_chg",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "msoa_div_2021 minus msoa_div_2011: the change in diversity."
+        },
+        {
+          "name": "ward_social_2011",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Percentage of households in the ward in 2011 that rent from a council or housing association (social renting). The 2011 figure has been rebuilt for the 2022 wards from small areas. All LSOAs in a ward share one value."
+        },
+        {
+          "name": "ward_social_2021",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Percentage of households in the ward in 2021 that were social renters."
+        },
+        {
+          "name": "ward_social_chg",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "ward_social_2021 minus ward_social_2011, in percentage points."
+        },
+        {
+          "name": "ward_private_2011",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Percentage of households in the ward in 2011 that rent from a private landlord or letting agency. (Other private renting and living rent-free are not included, so that the measure matches across censuses.)"
+        },
+        {
+          "name": "ward_private_2021",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Percentage of households in the ward in 2021 that rented from a private landlord or letting agency."
+        },
+        {
+          "name": "ward_private_chg",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "ward_private_2021 minus ward_private_2011, in percentage points."
+        },
+        {
+          "name": "pcon_labour_2019",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Labour's percentage of the valid votes in the constituency at the 2019 general election (a 'notional' result: the House of Commons Library re-worked it onto the 2024 constituency boundaries). The same for every LSOA in a constituency, and the same in both Birmingham files."
+        },
+        {
+          "name": "pcon_conservative_2019",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "The Conservatives' percentage of the valid votes in the constituency at the 2019 general election (a 'notional' result: the House of Commons Library re-worked it onto the 2024 constituency boundaries)."
+        },
+        {
+          "name": "pcon_turnout_2019",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Valid votes as a percentage of the registered electorate in the constituency at the 2019 general election (a 'notional' result: the House of Commons Library re-worked it onto the 2024 constituency boundaries)."
+        },
+        {
+          "name": "pcon_labour_2024",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Labour's percentage of the valid votes in the constituency at the 2024 general election. The same for every LSOA in a constituency, and the same in both Birmingham files."
+        },
+        {
+          "name": "pcon_conservative_2024",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "The Conservatives' percentage of the valid votes in the constituency at the 2024 general election."
+        },
+        {
+          "name": "pcon_turnout_2024",
+          "group": "Higher-level variables (the same value for every LSOA in the area)",
+          "description": "Valid votes as a percentage of the registered electorate in the constituency at the 2024 general election."
+        }
+      ]
     }
   ]
 }

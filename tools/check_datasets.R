@@ -46,6 +46,21 @@ for (i in seq_along(m$datasets)) {
     if (!identical(as.numeric(d$bytes), as.numeric(file.size(f)))) problems <- c(problems, sprintf("%s: size is out of date", id))
     if (!identical(d$sha256, sha(f))) problems <- c(problems, sprintf("%s: checksum is out of date", id))
   }
+  # Variable descriptions (shown in the Look-at window): every column described once, and nothing described that is absent
+  if (length(d$variables) > 0) {
+    vn <- vapply(d$variables, function(v) v$name %||% "", "")
+    vd <- vapply(d$variables, function(v) v$description %||% "", "")
+    if (any(!nzchar(vn)) || any(!nzchar(vd))) problems <- c(problems, sprintf("%s: a variable has no name or description", id))
+    if (anyDuplicated(vn)) problems <- c(problems, sprintf("%s: variable described twice: %s", id, paste(unique(vn[duplicated(vn)]), collapse = ", ")))
+    cols <- tryCatch({
+      if (tolower(d$format) == "csv") names(utils::read.csv(f, nrows = 1, check.names = FALSE))
+      else if (requireNamespace("sf", quietly = TRUE)) { g <- sf::st_read(f, quiet = TRUE); c(setdiff(names(g), attr(g, "sf_column")), attr(g, "sf_column")) }
+      else NULL }, error = function(e) NULL)
+    if (!is.null(cols)) {
+      if (length(setdiff(cols, vn)) > 0) problems <- c(problems, sprintf("%s: columns without a description: %s", id, paste(setdiff(cols, vn), collapse = ", ")))
+      if (length(setdiff(vn, cols)) > 0) problems <- c(problems, sprintf("%s: described but not in the file: %s", id, paste(setdiff(vn, cols), collapse = ", ")))
+    }
+  }
 }
 listed <- vapply(m$datasets, function(d) d$file %||% "", "")
 unlisted <- setdiff(list.files(dir, pattern = "\\.(gpkg|geojson|csv|zip|shp|dbf|shx|prj)$"), listed)

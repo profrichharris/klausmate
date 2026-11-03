@@ -38,6 +38,7 @@ CM_NEEDS <- c(
 # setwd() typed in the Quick Console); klaus() applies the final value to the R
 # session when the app closes.
 .cm <- new.env()
+.cm$known_data <- list()     # objects loaded from Klausmate's online datasets: name -> title, attribution, variable descriptions
 .cm$root <- normalizePath(getOption(".klausmate_project_root", getwd()),
                           winslash = "/", mustWork = FALSE)
 project_root <- function() {
@@ -1667,9 +1668,36 @@ inspect_read_file <- function(path) {
     stop("No preview is available for .", ext, " files."))
 }
 
+# For Klausmate's own online datasets only, whose origin is known: a plain-English description of each variable,
+# grouped by theme. `descr` is list(title, attribution, variables = list(list(name, group, description), ...)).
+# Only variables that are still in the object are shown; columns the student added are listed at the end.
+inspect_description_tab <- function(descr, cols) {
+  v <- Filter(function(x) x$name %in% cols, descr$variables)
+  if (length(v) == 0) return(NULL)
+  groups <- unique(vapply(v, function(x) x$group %||% "", ""))
+  rows <- unlist(lapply(groups, function(g) c(
+    list(tags$tr(tags$th(colspan = 2, g, style = "text-align: left; padding: 8px 8px 2px 8px; color: #555; border-bottom: 1px solid #ccc;"))),
+    lapply(Filter(function(x) identical(x$group %||% "", g), v), function(x)
+      tags$tr(tags$td(tags$code(x$name), style = "vertical-align: top; padding: 3px 10px 3px 8px; white-space: nowrap;"),
+              tags$td(x$description, style = "padding: 3px 8px;"))))), recursive = FALSE)
+  extra <- setdiff(cols, vapply(descr$variables, function(x) x$name, ""))
+  tabPanel("Variable description", tags$div(style = "padding-top: 8px;",
+    tags$p(style = "font-size: 0.85em; color: #555; margin: 0 0 6px 0;",
+           "Klausmate knows where this dataset came from, so here is what each variable means. ",
+           "Variables you have added or renamed are not described."),
+    tags$div(style = "max-height: 380px; overflow: auto; border: 1px solid #ddd; font-size: 0.88em;",
+             tags$table(style = "border-collapse: collapse; width: 100%;", tags$tbody(rows))),
+    if (length(extra) > 0)
+      tags$p(style = "font-size: 0.85em; color: #777; margin-top: 6px;",
+             "Not described (not part of the original dataset): ", paste(extra, collapse = ", "), "."),
+    if (nzchar(descr$attribution %||% ""))
+      tags$p(style = "font-size: 0.8em; color: #777; margin-top: 4px;", descr$attribution)))
+}
+
 # The tabs for one object: Table / Variables / Summary for tabular data, plus Spatial for spatial data and
-# Structure for anything. Each tab is built on its own, so one that fails does not stop the others.
-inspect_panels <- function(obj) {
+# Structure for anything (and Variable description for Klausmate's own datasets). Each tab is built on its own,
+# so one that fails does not stop the others.
+inspect_panels <- function(obj, descr = NULL) {
   df <- NULL; spatial <- NULL
   if (inherits(obj, "sf")) {
     df <- sf::st_drop_geometry(obj)
@@ -1700,6 +1728,11 @@ inspect_panels <- function(obj) {
   if (!is.null(df)) {
     add("Table",     function() inspect_html_table(df, partial = isTRUE(attr(obj, "cm_partial"))))
     add("Variables", function() inspect_html_table(inspect_variables(df)))
+    if (!is.null(descr)) {
+      tp <- tryCatch(inspect_description_tab(descr, c(names(df), if (inherits(obj, "sf")) attr(obj, "sf_column"))),
+                     error = function(e) NULL)
+      if (!is.null(tp)) panels[[length(panels) + 1L]] <- tp
+    }
     add("Summary",   function() inspect_text(function() print(summary(df))))
   } else {
     add("Overview",  function() inspect_text(function() print(obj)))
@@ -1758,7 +1791,8 @@ fetch_dataset_manifest <- function() {
              bytes = as.numeric(vapply(ds, function(d) as.numeric(d$bytes %||% 0), 0)), sha256 = field("sha256"),
              source = field("source"), retrieved = field("retrieved"), licence = field("licence"),
              licence_url = field("licence_url"), attribution = field("attribution"), notice = field("notice"),
-             stringsAsFactors = FALSE)
+             stringsAsFactors = FALSE) |>
+    transform(variables = I(lapply(ds, function(d) d$variables)))     # plain-English descriptions of the columns, where given
 }
 
 fmt_bytes <- function(b) if (is.na(b) || b <= 0) "" else if (b < 1e6) sprintf("%.0f KB", b / 1e3) else sprintf("%.1f MB", b / 1e6)
@@ -3834,7 +3868,9 @@ HELP_TEXTS <- list(
   inspect_item = paste(
     "Look at this (binoculars beside a file or object in the context list) — Opens a window to look at it: its",
     "table (the first 200 rows; for spatial data the attribute table), its variables, a summary and its",
-    "structure; for spatial data also the geometry type, coordinate system and extent. It is shown on your own",
+    "structure; for spatial data also the geometry type, coordinate system and extent. For Klausmate's own",
+    "datasets (Load Package Data > Klausmate (online datasets)) there is also a Variable description tab that",
+    "says in plain English what each variable means. It is shown on your own",
     "screen only and nothing is sent to Claude. If an item cannot be shown you are simply told so."
   ),
   spend_reset = paste(
@@ -4002,6 +4038,11 @@ HELP_TEXTS <- list(
 )
 
 HELP_TAB_TEXTS <- list(
+  "Variable description" = paste(
+    "Variable description tab — Shown when you look at one of Klausmate's own datasets (Load Package Data >",
+    "Klausmate (online datasets)). It says in plain English what each variable means, grouped by theme. Variables",
+    "you have added or renamed are not described."
+  ),
   "Your prompt" = paste(
     "Your Prompt tab — This is where you type your question or instruction for the AI.",
     "Once submitted with Answer or Ask for Code, the prompt box clears ready for the next step."
@@ -6138,6 +6179,7 @@ server <- function(input, output, session) {
         plan[[length(plan) + 1L]] <- list(name = final, package = "Klausmate", key = k, value = val,
                                           uses_sf = spatial_online,
                                           code = online_dataset_code(mr, final),
+                                          known = list(title = mr$title, attribution = mr$attribution, variables = mr$variables[[1]]),
                                           credit = paste(c(mr$attribution, if (nzchar(mr$notice)) mr$notice), collapse = " "))
         next
       }
@@ -6201,7 +6243,10 @@ server <- function(input, output, session) {
   # Copy the chosen datasets into the workspace and add them to the context. The dialog stays open (the
   # student may want to add more); the ticks are cleared. `reopen` redraws it after a replace check.
   commit_pkg_plan <- function(plan, reopen = FALSE) {
-    for (it in plan) assign(it$name, it$value, envir = .GlobalEnv)
+    for (it in plan) {
+      assign(it$name, it$value, envir = .GlobalEnv)
+      .cm$known_data[[it$name]] <- if (length(it$known$variables) > 0) it$known else NULL     # its description tab
+    }
     ad <- pkgdata_added()                     # datasets added for context: hidden from the list while they stay in it
     for (it in plan) if (!is.null(it$key)) ad[it$key] <- it$name
     pkgdata_added(ad)
@@ -6365,7 +6410,8 @@ server <- function(input, output, session) {
       else stop("It is no longer in your workspace.")),
       error = function(e) e)
     if (inherits(obj, "error")) return(cannot(conditionMessage(obj)))
-    panels <- tryCatch(inspect_with_limit(inspect_panels(obj)), error = function(e) e)
+    descr <- if (kind == "obj") .cm$known_data[[nm]] else NULL          # set when loaded from Klausmate's online datasets
+    panels <- tryCatch(inspect_with_limit(inspect_panels(obj, descr)), error = function(e) e)
     if (inherits(panels, "error")) return(cannot(conditionMessage(panels)))
     tryCatch(
       showModal(modalDialog(
