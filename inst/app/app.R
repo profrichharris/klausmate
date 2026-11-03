@@ -2716,7 +2716,8 @@ ui <- fluidPage(
       var mac = /Mac|iPhone|iPad/.test(navigator.platform || '');
       var mod = mac ? '\u2318' : 'Ctrl+', shift = mac ? '\u21E7' : 'Shift+', ret = mac ? '\u21A9' : 'Enter';
       function setTitles() {
-        var t = { ask_code: 'Ask for Code (' + mod + ret + ' in the prompt box; press it again to Run the code)',
+        var t = { ask_code: 'Ask for Code (' + mod + ret + ' in the prompt box; press it again to Run the code; ' +
+                            (mac ? '\u2318\u2303' + ret : 'Ctrl+Alt+Enter') + ' asks for the code and runs it straight away)',
                   ask_plain: 'Answer (' + mod + shift + ret + ' in the prompt box)',
                   run_code: 'Run (' + mod + ret + ' anywhere on the page except the prompt box, where it first asks for code)' };
         Object.keys(t).forEach(function(id) { var b = document.getElementById(id); if (b) b.title = t[id]; });
@@ -2764,6 +2765,19 @@ ui <- fluidPage(
           var next = tabs[((cur < 0 ? 0 : cur) + step + tabs.length) % tabs.length];
           e.preventDefault(); e.stopPropagation();
           next.querySelector('a[data-toggle=tab]').click();
+          return;
+        }
+        // Cmd+Control+Enter (Mac) or Ctrl+Alt+Enter (Windows), in the prompt box: Ask for Code and run the code as soon as it
+        // arrives, for this request only, without changing the AutoRun Code tick box
+        if (e.key === 'Enter' && !e.shiftKey && (mac ? (e.metaKey && e.ctrlKey && !e.altKey) : (e.ctrlKey && e.altKey && !e.metaKey))) {
+          var pt = e.target;
+          if (!pt || !pt.closest || pt.closest('.modal') || !pt.closest('#prompt')) return;
+          e.preventDefault(); e.stopPropagation();
+          var ab = document.getElementById('ask_code');
+          if (!ab || ab.disabled || ab.offsetParent === null) return;
+          pt.dispatchEvent(new Event('change', { bubbles: true }));
+          if (window.Shiny) Shiny.setInputValue('autorun_once', Math.random(), { priority: 'event' });
+          setTimeout(function() { if (!ab.disabled) ab.click(); }, 200);
           return;
         }
         if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key !== 'Enter') return;
@@ -4053,7 +4067,9 @@ HELP_TEXTS <- list(
     "in the Code editor for you to inspect before running. Press Run when you are",
     "ready to execute it. Use Ask for Code when you want to review or edit the code",
     "first. (If AutoRun Code is ticked the code is run for you straight away.)",
-    "Shortcut: Command+Enter (Ctrl+Enter on Windows) in the prompt box. Press it a second time,",
+    "Shortcut: Command+Enter (Ctrl+Enter on Windows) in the prompt box. Command+Control+Enter (Ctrl+Alt+Enter on Windows)",
+    "asks for the code and runs it as soon as it arrives, for that request only, without changing the AutoRun Code tick box.",
+    "Press Command+Enter a second time,",
     "with the same prompt, and the code that was generated is run."
   ),
   autorun_code = paste(
@@ -8185,7 +8201,9 @@ server <- function(input, output, session) {
   })
 
   # --- Ask for Code ----------------------------------------------------------
-  do_ask_code <- function(current_prompt, pref_change = NULL) {
+  autorun_once <- reactiveVal(FALSE)       # set by Cmd+Control+Enter / Ctrl+Alt+Enter: autorun this request only
+  observeEvent(input$autorun_once, autorun_once(TRUE))
+  do_ask_code <- function(current_prompt, pref_change = NULL, autorun = FALSE) {
     # What is shown in Past prompts / the log: for a preference-change rewrite this is a short label,
     # while the full instruction is what Claude is sent
     shown_prompt <- if (!is.null(pref_change)) pref_change$label else current_prompt
@@ -8353,7 +8371,7 @@ server <- function(input, output, session) {
       active_code_id(sq)
       unconf_add(parts$code, shown_prompt, parts$description, "ask", sq)
       # A rewrite triggered by changing Preferences is never auto-run, so a settings change cannot run code by accident
-      if (isTRUE(input$autorun_code) && is.null(pref_change) && nzchar(trimws(parts$code))) autorun_text <- parts$code
+      if ((isTRUE(input$autorun_code) || isTRUE(autorun)) && is.null(pref_change) && nzchar(trimws(parts$code))) autorun_text <- parts$code
     }, finally = { enable("ask_code"); enable("ask_plain") })
     # AutoRun Code: run what was just generated (passed directly, as the editor's own value has not
     # reached the server yet)
@@ -8365,14 +8383,15 @@ server <- function(input, output, session) {
   # app is closed; a package named in a later prompt replaces it.
   pkg_pending <- reactiveVal(NULL)
   observeEvent(input$ask_code, {
+    once <- isolate(autorun_once()); autorun_once(FALSE)       # a one-off AutoRun applies to this request only
     req(input$prompt)
     pr <- input$prompt
     m  <- pkg_task_match(pr)
-    if (is.null(m)) return(do_ask_code(pr))
-    if (length(m$named) == 1L) { .cm$pkg_choices[[m$id]] <- m$named; return(do_ask_code(pr)) }   # the prompt names one
+    if (is.null(m)) return(do_ask_code(pr, autorun = once))
+    if (length(m$named) == 1L) { .cm$pkg_choices[[m$id]] <- m$named; return(do_ask_code(pr, autorun = once)) }   # the prompt names one
     if (length(m$named) > 1L || !is.null(.cm$pkg_choices[[m$id]]) ||
-        (isTRUE(m$task$bayes_skip) && identical(prefs$stats, "Bayesian"))) return(do_ask_code(pr))
-    pkg_pending(list(id = m$id, prompt = pr))
+        (isTRUE(m$task$bayes_skip) && identical(prefs$stats, "Bayesian"))) return(do_ask_code(pr, autorun = once))
+    pkg_pending(list(id = m$id, prompt = pr, autorun = once))
     t   <- m$task; rec <- pkg_recommended(t, prefs$coding)
     showModal(modalDialog(
       title = "Which package would you like to use?",
@@ -8395,7 +8414,7 @@ server <- function(input, output, session) {
     removeModal()
     if (!is.null(input$pkg_choice_radio) && nzchar(input$pkg_choice_radio)) .cm$pkg_choices[[p$id]] <- input$pkg_choice_radio
     pkg_pending(NULL)
-    do_ask_code(p$prompt)
+    do_ask_code(p$prompt, autorun = isTRUE(p$autorun))
   })
   observeEvent(input$pkg_choice_cancel, { removeModal(); pkg_pending(NULL) })
 

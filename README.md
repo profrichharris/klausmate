@@ -51,7 +51,7 @@ instructor (spending, number of conversations, length of code, expiry date).
 
 | Feature | Detail |
 |---|---|
-| **Ask for Code** | Sends your prompt to Claude; the R code lands in the editable code box. Cmd/Ctrl+Enter in the prompt box does the same (pressed again, it runs the code) |
+| **Ask for Code** | Sends your prompt to Claude; the R code lands in the editable code box. Cmd/Ctrl+Enter in the prompt box does the same (pressed again, it runs the code); Cmd+Control+Enter (Ctrl+Alt+Enter on Windows) asks for the code and runs it straight away, without ticking AutoRun Code |
 | **Answer** | A plain-English answer instead of code. Klausmate answers from what it knows about your objects, or runs a short read-only calculation behind the scenes and explains the summary results; "Show my working" reveals the code. Identifying columns are replaced by codes, and only summary results (not individual records) go to Claude |
 | **Run** | Runs the code in your live R session. Output, plots and warnings appear in **R output**; interactive maps and plots appear as thumbnails that expand and can be saved as web pages. Code that runs longer than the limit in Preferences is stopped |
 | **Changes** | When Claude edits code you already have, shows the new code beside the previous code with the differences highlighted |

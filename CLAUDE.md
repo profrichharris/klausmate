@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.9 (2026-11-03)  
-**Current version:** 0.6.9
+**Last released:** 0.6.10 (2026-11-03)  
+**Current version:** 0.6.10
+
+Released in 0.6.10 (no unreleased changes; Cmd+Control+Enter / Ctrl+Alt+Enter asks for code and runs it):
+- **Ask for Code and run it straight away: Cmd+Control+Enter (Mac) / Ctrl+Alt+Enter (Windows and Linux)** in the prompt box (user request): in the keyboard-shortcut `keydown` listener, before the Cmd/Ctrl+Enter handling (which ignores Alt, so the Windows combination is free, and which on the Mac would otherwise treat Cmd+Control+Enter as plain Cmd+Enter). It sends the input `autorun_once` and then presses Ask for Code; the server sets `autorun_once(TRUE)`, the `ask_code` observer takes the flag and clears it, and `do_ask_code(..., autorun = TRUE)` autoruns that request only (the AutoRun Code tick box is not touched). The flag travels through the package-choice question (`pkg_pending$autorun`) and is dropped if that is cancelled. Does nothing outside the prompt box or while Ask for Code is disabled. Tooltip on Ask for Code and its help text mention it. Tested live (Mac, `cmd+ctrl+Return` in the prompt box): the code was generated and run (R output tab, `[1] 1 2 3 4 5`), the tick box stayed off, and a following ordinary Ask for Code was not autorun. The Windows combination was not tried. 
 
 Released in 0.6.9 (no unreleased changes; online datasets listed alphabetically, floating Past code window):
 - **Klausmate's online datasets are listed alphabetically** (user report): `pkgdata_load_pkg(PKGDATA_ONLINE)` sorts its rows by object name (case-insensitive); the manifest is still looked up by id, so the order is free. Checked on the manifest order only, not yet seen in the picker. 
