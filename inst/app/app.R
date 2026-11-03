@@ -3015,6 +3015,23 @@ ui <- fluidPage(
     });
   ")),
 
+  # Load Package Data: the button disables itself the instant it is pressed (the dialog can take a few seconds to
+  # appear the first time) and comes back when a dialog closes, or after 15 s whichever is first
+  tags$script(HTML("
+    (function() {
+      jQuery(document).on('click', '#load_package_data', function() {
+        var b = this; b.disabled = true;
+        setTimeout(function() { b.disabled = false; }, 15000);
+      });
+      jQuery(document).on('hidden.bs.modal', function() {
+        setTimeout(function() {
+          var b = document.getElementById('load_package_data');
+          if (b && !jQuery('.modal.in, .modal.show').length) b.disabled = false;
+        }, 400);
+      });
+    })();
+  ")),
+
   # Answer / Past answers panes: same fixed height as the Code editor, scrolling inside
   tags$style(HTML("
     .cm-answer-pane {
@@ -6144,6 +6161,10 @@ server <- function(input, output, session) {
   # paused, or from the Quick Console, are always picked up.
   pkgdata_cache <- new.env()
   PKG_SKIP_DIRS <- c("R", "help", "html", "Meta", "libs", "doc", "demo", "tests", "www", "data")
+  pkg_scan_cached <- function() {
+    libs <- .libPaths()
+    identical(pkgdata_cache$sig, paste(libs, as.numeric(file.mtime(libs)), collapse = "|")) && !is.null(pkgdata_cache$index)
+  }
   scan_pkg_data <- function() {
     libs <- .libPaths()
     sig  <- paste(libs, as.numeric(file.mtime(libs)), collapse = "|")
@@ -6262,7 +6283,10 @@ server <- function(input, output, session) {
     assign(pkg, info, envir = pkgdata_store)
     info
   }
-  pkgdata_clear_store <- function() { rm(list = ls(pkgdata_store, all.names = TRUE), envir = pkgdata_store) }
+  pkgdata_clear_store <- function() {
+    rm(list = ls(pkgdata_store, all.names = TRUE), envir = pkgdata_store)
+    rm(list = ls(pkgdata_err, all.names = TRUE), envir = pkgdata_err)
+  }
 
   pkgdata_last <- reactiveVal("")      # the package last chosen: reselected when the dialog is opened again
   pkgdata_added <- reactiveVal(character(0))   # key ("package::object") -> name of the object added for context
@@ -6321,17 +6345,60 @@ server <- function(input, output, session) {
                    if (length(pkgs) > 0) setNames(pkgs, paste0(pkgs, " (", counts, ")"))),
       selected = if (cur %in% c(pkgs, if (online) PKGDATA_ONLINE)) cur else "")
   })
+  # The first time the list of installed packages' datasets has to be read, which can take several seconds: a small
+  # "please wait" dialog is shown at once and the real one is built after it has reached the browser. Presses that
+  # arrive meanwhile are ignored.
+  pkgdata_flags <- new.env()
   observeEvent(input$load_package_data, {
+    if (isTRUE(pkgdata_flags$opening)) return()
     pkgdata_sel(character(0)); pkgdata_clear_store()      # the last package is kept (see show_pkgdata_modal)
-    show_pkgdata_modal()
+    if (pkg_scan_cached()) { show_pkgdata_modal(); return() }
+    pkgdata_flags$opening <- TRUE
+    showModal(modalDialog(
+      title = "Load package data",
+      tags$p("Looking for the datasets in the R packages installed on this computer. This can take a few seconds",
+             "the first time; please wait."),
+      footer = NULL, easyClose = FALSE))
+    session$onFlushed(function() {
+      on.exit(pkgdata_flags$opening <- FALSE)
+      tryCatch(show_pkgdata_modal(), error = function(e) {
+        removeModal()
+        showNotification("Klausmate could not read the list of installed packages' datasets.", type = "error")
+      })
+    }, once = TRUE)
   })
   observeEvent(input$pkgdata_cancel, { pkgdata_clear_store(); pkgdata_sel(character(0)); removeModal() })
 
   # Info for the chosen package (loading it on first use)
+  # The dialog is drawn first, with a "fetching / reading" line in the list; the load itself (a download of the
+  # dataset list for Klausmate's online datasets, reading a package's data otherwise) happens after that has reached
+  # the browser, then the list is drawn. A failed load is kept in pkgdata_err and asked for again when the package is
+  # chosen again.
+  pkgdata_err   <- new.env()
+  pkgdata_done  <- reactiveVal("")
+  observeEvent(input$pkgdata_pkg, priority = 10, {
+    v <- input$pkgdata_pkg %||% ""
+    if (nzchar(v)) { rm(list = intersect(v, ls(pkgdata_err)), envir = pkgdata_err); pkgdata_done("") }
+  })
   pkgdata_info <- reactive({
     p <- pkgdata_pkg_val()
     if (!nzchar(p)) return(NULL)
-    withProgress(message = paste0("Reading the ", p, " datasets..."), value = 0.5, pkgdata_load_pkg(p))
+    got <- pkgdata_store[[p]] %||% pkgdata_err[[p]]
+    if (!is.null(got)) return(got)
+    pkgdata_done()                                # re-run when a load finishes
+    if (!identical(pkgdata_flags$sched, p)) {
+      pkgdata_flags$sched <- p
+      session$onFlushed(function() {
+        info <- tryCatch(pkgdata_load_pkg(p), error = function(e) NULL)
+        if (is.null(pkgdata_store[[p]])) {
+          if (is.null(info)) { info <- data.frame(object = character(0)); attr(info, "error") <- "The datasets could not be read." }
+          assign(p, info, envir = pkgdata_err)
+        }
+        if (identical(pkgdata_flags$sched, p)) pkgdata_flags$sched <- ""
+        pkgdata_done(p)
+      }, once = TRUE)
+    }
+    structure(list(), loading = TRUE, pkg = p)
   })
   output$pkgdata_filters <- renderUI({
     pkgdata_redraw()
@@ -6358,6 +6425,11 @@ server <- function(input, output, session) {
   })
   output$pkgdata_items <- renderUI({
     pkgdata_redraw()
+    inf <- pkgdata_info()
+    if (isTRUE(attr(inf, "loading")))
+      return(tags$p(style = "margin-top: 8px; color: #555;", em(
+        if (identical(attr(inf, "pkg"), PKGDATA_ONLINE)) "Fetching the list of Klausmate's online datasets from GitHub..."
+        else paste0("Reading the datasets of ", attr(inf, "pkg"), "..."))))
     d <- pkgdata_shown()
     err <- attr(pkgdata_info(), "error")
     if (!is.null(err))

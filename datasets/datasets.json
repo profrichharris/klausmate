@@ -1411,32 +1411,32 @@
         },
         {
           "name": "pct_ba_2001",
-          "group": "The outcome: change in the Black African population",
+          "group": "Percentages and shares of the Black African population",
           "description": "Black African residents as a percentage of all residents of the LSOA in 2001: 100 × ba_2001 / pop_2001. This describes the make-up of the area. It is not the same as the LSOA's share of the city's group (ba_share)."
         },
         {
           "name": "pct_ba_2011",
-          "group": "The outcome: change in the Black African population",
+          "group": "Percentages and shares of the Black African population",
           "description": "Black African residents as a percentage of all residents of the LSOA in 2011: 100 × ba_2011 / pop_2011."
         },
         {
           "name": "ba_share_2001",
-          "group": "The outcome: change in the Black African population",
+          "group": "Percentages and shares of the Black African population",
           "description": "The LSOA's share of Birmingham's whole Black African population in 2001: 100 × ba_2001 divided by the city total. The shares add up to 100 across the LSOAs."
         },
         {
           "name": "ba_share_2011",
-          "group": "The outcome: change in the Black African population",
+          "group": "Percentages and shares of the Black African population",
           "description": "The LSOA's share of Birmingham's whole Black African population in 2011."
         },
         {
           "name": "y_change",
-          "group": "The outcome: change in the Black African population",
+          "group": "Change variables (the outcomes to model)",
           "description": "The outcome. ba_share_2011 minus ba_share_2001, in percentage points. A positive value means the LSOA now holds a larger share of the city's Black African population than before; a negative value, a smaller share. This is a change in share, so an LSOA can gain residents and still have a negative value if the city's group grew faster. It adds up to zero across Birmingham."
         },
         {
           "name": "y_change_asinh",
-          "group": "The outcome: change in the Black African population",
+          "group": "Change variables (the outcomes to model)",
           "description": "y_change on a transformed scale: asinh(y_change / 0.05), the same in both Birmingham files. Most changes are small and a few are large; the transformation pulls in the extremes so that the outcome behaves better in a linear model. Zero still means no change and the sign is kept, but the units are no longer percentage points."
         },
         {
@@ -1637,32 +1637,32 @@
         },
         {
           "name": "pct_ba_2011",
-          "group": "The outcome: change in the Black African population",
+          "group": "Percentages and shares of the Black African population",
           "description": "Black African residents as a percentage of all residents of the LSOA in 2011: 100 × ba_2011 / pop_2011. This describes the make-up of the area. It is not the same as the LSOA's share of the city's group (ba_share)."
         },
         {
           "name": "pct_ba_2021",
-          "group": "The outcome: change in the Black African population",
+          "group": "Percentages and shares of the Black African population",
           "description": "Black African residents as a percentage of all residents of the LSOA in 2021: 100 × ba_2021 / pop_2021."
         },
         {
           "name": "ba_share_2011",
-          "group": "The outcome: change in the Black African population",
+          "group": "Percentages and shares of the Black African population",
           "description": "The LSOA's share of Birmingham's whole Black African population in 2011: 100 × ba_2011 divided by the city total. The shares add up to 100 across the LSOAs."
         },
         {
           "name": "ba_share_2021",
-          "group": "The outcome: change in the Black African population",
+          "group": "Percentages and shares of the Black African population",
           "description": "The LSOA's share of Birmingham's whole Black African population in 2021."
         },
         {
           "name": "y_change",
-          "group": "The outcome: change in the Black African population",
+          "group": "Change variables (the outcomes to model)",
           "description": "The outcome. ba_share_2021 minus ba_share_2011, in percentage points. A positive value means the LSOA now holds a larger share of the city's Black African population than before; a negative value, a smaller share. This is a change in share, so an LSOA can gain residents and still have a negative value if the city's group grew faster. It adds up to zero across Birmingham."
         },
         {
           "name": "y_change_asinh",
-          "group": "The outcome: change in the Black African population",
+          "group": "Change variables (the outcomes to model)",
           "description": "y_change on a transformed scale: asinh(y_change / 0.05), the same in both Birmingham files. Most changes are small and a few are large; the transformation pulls in the extremes so that the outcome behaves better in a linear model. Zero still means no change and the sign is kept, but the units are no longer percentage points."
         },
         {
