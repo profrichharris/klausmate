@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.7 (2026-11-03)  
-**Current version:** 0.6.7
+**Last released:** 0.6.8 (2026-11-03)  
+**Current version:** 0.6.8
+
+Released in 0.6.8 (no unreleased changes; Output button in Past code):
+- **Output button beside Recall in Past code** (user request): for a confirmed entry whose captured run produced output (`interaction_has_output()`: R output, a plot or widget file that still exists, or warnings; matched through `past_code_interaction()`, the same match Recall uses), an **Output** button (`output_code_<i>`), to the right of Recall, does what Recall does (code back in the editor, entry moved to the top) but goes to the **R output** tab (`recall_interaction(prefer = "output")`). Where there is no output, or the entry is unconfirmed, the button is `visibility: hidden`, `disabled` and `pointer-events: none`, kept in place so the Recall buttons stay lined up. The run currently on screen (not yet captured as an interaction) also gets a visible Output button when its output is loaded (`active_run_matches()` / `active_run_has_output()`); pressing it just goes to the R output tab. Help text via `HELP_ID_PATTERNS["^output_code_"]`. Tested live (two real Ask for Code runs): `print(1:5)` shows Output and it opens the R output tab with `[1] 1 2 3 4 5` and the code restored; `zz <- 5` has a hidden, disabled Output; Recall still goes to the Code tab. Not released.
 
 Released in 0.6.7 (no unreleased changes; short data credit notice, variable names draggable or double-clickable into the prompt, package choice question per conversation):
 - **Short data credit pop-up** (user report: the blue notice after adding the two Birmingham datasets was ~290 words and unreadable): each dataset in `datasets.json` has a `credit_short` (required by `tools/check_datasets.R`); `commit_pkg_plan()` shows `Please credit the data: <short credits, duplicates merged>` plus "The full credit wording is in your code log." with `duration = NULL` (stays until closed). The full attribution and licence notice are still written as comments at the start of the loading code in the code log (`online_dataset_code()`), and appear under About / Licence in Load Package Data and at the foot of the Variable description tab. Tested live: two Birmingham datasets give one three-line notice.

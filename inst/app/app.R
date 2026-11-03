@@ -4321,6 +4321,11 @@ HELP_ID_PATTERNS <- list(
     "R output, plots and warnings come back with it. You are always taken to the Code tab, and",
     "the prompt box is left as it is; recall a prompt from Past prompts to bring its text back."
   ),
+  "^output_code_" = paste(
+    "Output (Past code) — Like Recall, but takes you straight to the R output tab, showing the R output, plots",
+    "and warnings that this code produced, with the code itself back in the Code editor. It only appears for code",
+    "whose run produced some output."
+  ),
   "^recall_unconf_" = paste(
     "Recall (Past code, unconfirmed) — Reloads this earlier code, which was generated or loaded but",
     "has not been run successfully, into the Code editor, with the changes from the previous version if it",
@@ -5552,6 +5557,29 @@ server <- function(input, output, session) {
     }))
   })
 
+  # The captured run behind a confirmed Past code entry (matched on the code that was run), and whether it produced
+  # any output (R output, plots that still exist, widgets, or warnings): the Output button only shows when it did
+  past_code_interaction <- function(entry) {
+    for (r in interactions())
+      if (identical(r$kind, "code") && !is.null(r$last_run_code) &&
+          identical(trimws(r$last_run_code), trimws(entry$code))) return(r)
+    NULL
+  }
+  interaction_has_output <- function(rec) {
+    if (is.null(rec)) return(FALSE)
+    plots <- rec$plots %||% character(0); wd <- rec$widgets %||% character(0)
+    (length(rec$console %||% character(0)) > 0 && any(nzchar(rec$console))) ||
+      any(file.exists(plots)) || any(file.exists(file.path(tempdir(), wd))) ||
+      length(rec$warnings %||% character(0)) > 0
+  }
+
+  # The code that is on screen now (run but not yet captured as a past interaction): its output is in the output tab
+  active_run_matches <- function(entry)
+    !is.null(last_run_code()) && identical(trimws(last_run_code()), trimws(entry$code))
+  active_run_has_output <- function()
+    any(nzchar(console_output_rv())) || length(plot_files_rv()) > 0 || length(widget_files_rv()) > 0 ||
+      length(warnings_rv()) > 0
+
   output$past_code_ui <- renderUI({
     full_history <- run_history()
     # Keep original indices so button IDs match the observer's lookup
@@ -5600,7 +5628,17 @@ server <- function(input, output, session) {
         else
           tags$button("Recall", id = paste0("recall_unconf_", r$e$uid), style = btn_style,
                       onclick = paste0("Shiny.setInputValue('recall_unconf_code', ", as.integer(r$e$uid),
-                                       ", {priority: 'event'});"))
+                                       ", {priority: 'event'});")),
+        {   # Output (to the right of Recall): like Recall, but opens the R output tab. Where the code produced no output the button is hidden and
+            # disabled (kept in place so the Recall buttons stay lined up)
+          has_out <- conf && (interaction_has_output(past_code_interaction(r$e)) ||
+                              (active_run_matches(r$e) && active_run_has_output()))
+          tags$button("Output", id = paste0("output_code_", if (conf) r$i else paste0("u", r$e$uid)),
+                      style = paste0(btn_style, if (!has_out) " visibility: hidden; pointer-events: none;"),
+                      disabled = if (!has_out) NA else NULL,
+                      onclick = if (has_out) paste0("Shiny.setInputValue('output_code_", r$i,
+                                                    "', Math.random(), {priority: 'event'});"))
+        }
       )
     })
     tagList(items)
@@ -5641,6 +5679,21 @@ server <- function(input, output, session) {
       repeat_obs[[key]] <- TRUE
       local({
         ii <- i
+        observeEvent(input[[paste0("output_code_", ii)]], {       # Output: as Recall, but the R output tab comes to the front
+          h <- run_history()
+          if (ii > length(h)) return()
+          entry <- h[[ii]]
+          rec <- past_code_interaction(entry)
+          if (is.null(rec) && active_run_matches(entry) && active_run_has_output()) {   # the run on screen now: its output is already loaded
+            h[[ii]]$ts <- Sys.time(); run_history(h)
+            return(goto_tab("R output"))
+          }
+          req(interaction_has_output(rec))
+          h[[ii]]$ts <- Sys.time()
+          run_history(h)
+          capture_active_code()
+          recall_interaction(rec, code_override = entry$code, prefer = "output")
+        }, ignoreInit = TRUE)
         observeEvent(input[[paste0("repeat_code_", ii)]], {
           h <- run_history()
           if (ii > length(h)) return()
@@ -6774,7 +6827,7 @@ server <- function(input, output, session) {
   # `prefer` decides which tab a code recall opens: "prompt" (from Past prompts) takes the R output if
   # there is any, else the Changes tab if there are changes, else Code; "code" (from Past code)
   # always opens the Code tab. An answer always opens the Answer tab.
-  recall_interaction <- function(rec, code_override = NULL, prefer = c("prompt", "code")) {
+  recall_interaction <- function(rec, code_override = NULL, prefer = c("prompt", "code", "output")) {
     prefer <- match.arg(prefer)
     capture_active_code()
     if (identical(rec$kind, "answer")) {
@@ -6809,7 +6862,7 @@ server <- function(input, output, session) {
     has_output <- (length(rec$console %||% character(0)) > 0 && any(nzchar(rec$console))) ||
                   length(isolate(plot_files_rv())) > 0 || length(rec$warnings %||% character(0)) > 0
     tab <- if (identical(prefer, "code")) "Code"
-           else if (has_output) "R output"
+           else if (has_output || identical(prefer, "output")) "R output"
            else if (!is.null(rec$diff)) "Changes"
            else "Code"
     goto_tab(tab)
