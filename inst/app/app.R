@@ -1804,7 +1804,7 @@ inspect_description_tab <- function(descr, cols) {
   tabPanel("Variable description", tags$div(style = "padding-top: 8px;",
     tags$p(style = "font-size: 0.85em; color: #555; margin: 0 0 6px 0;",
            "Klausmate knows where this dataset came from, so here is what each variable means. ",
-           "Variables you have added or renamed are not described. Drag a variable name into the prompt box, or double-click it, to use it."),
+           "Variables you have added or renamed are not described. Drag a variable name into the prompt box, or double-click it, to use it in the prompt."),
     tags$div(style = "max-height: 380px; overflow: auto; border: 1px solid #ddd; font-size: 0.88em;",
              tags$table(style = "border-collapse: collapse; width: 100%;", tags$tbody(rows))),
     if (length(extra) > 0)
@@ -1848,7 +1848,7 @@ inspect_panels <- function(obj, descr = NULL) {
   if (!is.null(df)) {
     add("Table",     function() inspect_html_table(df, partial = isTRUE(attr(obj, "cm_partial")), drag_header = TRUE))
     add("Variables", function() tagList(
-      tags$p(style = "font-size: 0.8em; color: #777; margin: 0 0 4px 0;", "Drag a variable name into the prompt box, or double-click it, to use it."),
+      tags$p(style = "font-size: 0.8em; color: #777; margin: 0 0 4px 0;", "Drag a variable name into the prompt box, or double-click it, to use it in the prompt."),
       inspect_html_table(inspect_variables(df), drag_first_col = TRUE)))
     if (!is.null(descr)) {
       tp <- tryCatch(inspect_description_tab(descr, c(names(df), if (inherits(obj, "sf")) attr(obj, "sf_column"))),
@@ -2929,6 +2929,34 @@ ui <- fluidPage(
         }
         if (t.closest('.cm-wthumb, img[onclick*=\"plot_expand\"]')) return;     // another thumbnail replaces it
         if (window.jQuery) jQuery('#shiny-modal').modal('hide');
+      }, true);
+      // The floating Past code window closes when anything else takes the focus: a click on any other part of the page
+      // (the prompt box, a button, a tab, Preferences, Help, the Quick Console, Explain...; keyboard shortcuts press
+      // buttons, so they count too). It stays for: itself (title, list, Recall / Output / Close buttons), an expanded
+      // graphic and its controls, an output thumbnail (so a graphic can be expanded), and the Past code tab (whose
+      // own handler shrinks the window into the tab).
+      document.addEventListener('click', function(e) {
+        var p = document.getElementById('pastcode_float');
+        if (!p || getComputedStyle(p).display === 'none') return;
+        var t = e.target; if (!t || !t.closest) return;
+        if (t.closest('#pastcode_float')) return;
+        var m = document.getElementById('shiny-modal');
+        if (m && m.querySelector('.cm-expanded') && m.contains(t)) return;
+        if (t.closest('.cm-wthumb, img[onclick*=\"plot_expand\"]')) return;
+        if (t.closest('#main_tabs a[data-value=\"Past code\"]')) return;
+        p.style.display = 'none';
+        if (window.Shiny) Shiny.setInputValue('pastcode_close', Math.random(), {priority: 'event'});
+      }, true);
+      // The floating Look-at window stays while it is being used or might feed a prompt (itself and its tabs, the prompt
+      // box and Clear, the binoculars buttons that open or replace it); any other click closes it: tabs, buttons,
+      // Preferences, Help, the Quick Console, Explain, the Past code window...
+      document.addEventListener('click', function(e) {
+        var w = document.getElementById('inspect_float');
+        if (!w || getComputedStyle(w).display === 'none') return;
+        var t = e.target; if (!t || !t.closest) return;
+        if (t.closest('#inspect_float, #prompt, #clear_prompt, .cm-inspect')) return;
+        w.style.display = 'none';
+        if (window.Shiny) Shiny.setInputValue('inspect_close', Math.random(), {priority: 'event'});
       }, true);
       // The expanded plot / interactive plot: no backdrop, no focus trap, and the page behind stays usable
       if (window.jQuery) {
