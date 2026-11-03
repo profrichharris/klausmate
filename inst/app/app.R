@@ -25,7 +25,9 @@ CM_NEEDS <- c(
   "klausmate_user_dir",
   "cm_clear_key",
   "cm_get_key",
-  "cm_set_key")
+  "cm_set_key",
+  "km_choices", "km_drop_missing", "km_fallback", "km_groups", "km_needs_setup", "km_refresh_candidates",
+  "km_start_pkg_job", "km_status_load", "km_status_merge", "km_status_save")
 .cm_stale <- tryCatch(
   !all(vapply(CM_NEEDS, exists, logical(1), envir = asNamespace("klausmate"), inherits = FALSE)),
   error = function(e) FALSE)
@@ -362,6 +364,7 @@ approach_clause <- function(approaches, coding) {
   parts <- vapply(names(APPROACH_EXTRAS), function(k) {
     v <- approaches[[k]]
     if (is.null(v) || !nzchar(v)) v <- APPROACH_EXTRAS[[k]]$default
+    if (identical(k, "spatial") && identical(v, "none")) return(NA_character_)   # no spatial package on this computer
     if (identical(v, "Same as Coding")) v <- if (identical(coding, "data.table")) "Base R" else coding
     if (identical(k, "pipeline"))
       v <- switch(v, "|>" = "the native pipe |>", "%>%" = "the magrittr pipe %>%",
@@ -369,6 +372,7 @@ approach_clause <- function(approaches, coding) {
                   v)
     sprintf(APPROACH_EXTRAS[[k]]$text, v)
   }, "")
+  parts <- parts[!is.na(parts)]
   paste0("Further default preferences: ", paste(parts, collapse = "; "), ". ",
          "These are likewise defaults, not requirements; use only what the task needs. ")
 }
@@ -3348,6 +3352,18 @@ ui <- fluidPage(
         window.cmMarkPastCodeSoon = function() { setTimeout(cmMarkPastCode, 60); };
         function cmRegister() {
           if (window.Shiny && Shiny.addCustomMessageHandler) {
+            Shiny.addCustomMessageHandler('cm_setup_overlay', function(msg) {
+              var el = document.getElementById('cm-setup-overlay');
+              if (!msg.show) { if (el) el.style.display = 'none'; return; }
+              if (!el) {
+                el = document.createElement('div'); el.id = 'cm-setup-overlay';
+                el.style.cssText = 'position:fixed;inset:0;z-index:20000;background:rgba(255,255,255,0.96);display:flex;align-items:center;justify-content:center;text-align:center;font-size:16px;color:#222;padding:24px;';
+                el.innerHTML = '<div style=\"max-width:560px;\"><div style=\"font-size:22px;font-weight:600;margin-bottom:12px;\">Setting up Klausmate</div><div id=\"cm-setup-text\"></div><div style=\"margin-top:16px;font-size:13px;color:#666;\">Please wait. This happens only the first time Klausmate runs on this computer.</div></div>';
+                document.body.appendChild(el);
+              }
+              document.getElementById('cm-setup-text').textContent = msg.text || '';
+              el.style.display = 'flex';
+            });
             Shiny.addCustomMessageHandler('cm_highlight_prompt',
               function(msg) { setTimeout(function() { cmHighlight(msg); }, 150); });
             Shiny.addCustomMessageHandler('cm_highlight_pastcode',
@@ -4393,7 +4409,7 @@ HELP_TAB_TEXTS <- list(
 # the help overlay and so behaves normally in Help mode.
 # (pkgdata_*: buttons that live only inside the Load Package Data pop-up, where Help mode is off)
 HELP_EXEMPT <- c("usage_help", "about_klausmate", "tell_more_ok",
-                 "pkgdata_tick_all", "pkgdata_untick_all", "pkgdata_add")
+                 "pkgdata_tick_all", "pkgdata_untick_all", "pkgdata_add", "pref_pkg_recheck")
 
 # Generated ids that follow a pattern (e.g. one Recall button per past code block).
 HELP_ID_PATTERNS <- list(
@@ -4460,7 +4476,15 @@ server <- function(input, output, session) {
     }
   })
 
+  # "A message from Klaus" waits until the first-run package set-up (the overlay) has finished
+  disclaimer_pending <- reactiveVal(FALSE)
+  request_disclaimer <- function() {
+    if (!is.null(isolate(pkg_job())) && identical(pkg_job_flags$mode, "setup")) disclaimer_pending(TRUE)
+    else show_student_disclaimer()
+  }
+
   show_student_disclaimer <- function() {
+    options(.klausmate_disclaimer_shown = TRUE)   # set only when it is really shown (a reload during set-up asks again)
     showModal(modalDialog(
       title = "A message from Klaus",
       tags$p(
@@ -4545,10 +4569,7 @@ server <- function(input, output, session) {
                         !.resuming_pause &&
                         !isTRUE(getOption(".klausmate_disclaimer_shown"))
   if (.disclaimer_needed) {
-    session$onFlushed(function() {
-      show_student_disclaimer()
-      options(.klausmate_disclaimer_shown = TRUE)
-    }, once = TRUE)
+    session$onFlushed(function() request_disclaimer(), once = TRUE)
   }
 
   # On every fresh open (not a pause-resume) the data-protection notice is shown over the prompt box (see the
@@ -4865,10 +4886,7 @@ server <- function(input, output, session) {
     max_lines_cap_val(new_cap)
     prefs$max_lines <- new_cap
     on_success()
-    if (!isTRUE(getOption(".klausmate_disclaimer_shown"))) {
-      show_student_disclaimer()
-      options(.klausmate_disclaimer_shown = TRUE)
-    }
+    if (!isTRUE(getOption(".klausmate_disclaimer_shown"))) request_disclaimer()
   }
 
   observeEvent(input$key_file, {
@@ -7237,6 +7255,7 @@ server <- function(input, output, session) {
     install_pending(NULL); install_pkg_names(character(0))
 
     if (length(still_missing) == 0) {
+      start_pkg_job("refresh")
       output$run_status <- renderUI(
         tags$span("Package installation successful.",
                   style = "color:#1a7a1a; font-weight:bold;")
@@ -7339,7 +7358,7 @@ server <- function(input, output, session) {
     if (identical(prefs$plotting, "ggplot2")) add("ggplot2")
     if (identical(prefs$plotting, "plotly")) add("plotly")
     add(switch(prefs$mapping, tmap = "tmap", ggplot2 = "ggplot2", leaflet = "leaflet", mapsf = "mapsf", character(0)))
-    add(if (identical(prefs$spatial, "terra")) "terra" else "sf")
+    add(switch(prefs$spatial, terra = "terra", none = character(0), "sf"))
     add(switch(prefs$stats, Bayesian = c("brms", "rstanarm"), Resampling = "boot", character(0)))
     add(switch(prefs$modelling, tidymodels = "tidymodels", mlr3 = "mlr3", character(0)))
     add(switch(prefs$tables, gt = "gt", flextable = "flextable", kableExtra = "kableExtra", character(0)))
@@ -7347,15 +7366,143 @@ server <- function(input, output, session) {
       add("stringr", "lubridate")
     unique(pk)
   }
+  # --- Package set-up (see R/pkg_setup.R) ------------------------------------------------------------------
+  # The packages behind the defaults are checked, and installed if missing, the first time Klausmate runs on a
+  # computer (again after an R upgrade, or after an attempt that failed only for lack of a connection). Options
+  # whose packages do not work are removed from Preferences and the default falls back to another option in the
+  # group. Later, packages that have become available are added back (defaults are never changed by that).
+  pkg_status <- reactiveVal({
+    st <- klausmate:::km_status_load()
+    if (!is.null(st)) { st <- klausmate:::km_drop_missing(st); klausmate:::km_status_save(st) }
+    st
+  })
+  pkg_job       <- reactiveVal(NULL)
+  pkg_job_flags <- new.env()
+  pref_choices  <- function(g) klausmate:::km_choices(g, pkg_status())
+
+  # Make the preferences and the drop-downs agree with what is available
+  apply_pkg_status <- function(st) {
+    for (g in names(klausmate:::km_groups())) {
+      ch  <- klausmate:::km_choices(g, st)
+      cur <- isolate(prefs[[g]])
+      if (!(cur %in% unname(ch))) { cur <- klausmate:::km_fallback(g, st); prefs[[g]] <- cur }
+      updateSelectInput(session, paste0("pref_", g), choices = ch, selected = cur)
+    }
+  }
+
+  # Which Preferences choices are hidden, and because of which packages, in words a student can follow
+  PKG_GROUP_LABELS <- c(coding = "Coding", plotting = "Plotting", mapping = "Mapping",
+                        spatial = "Spatial data", strings = "Strings and dates")
+  pkg_hidden_lines <- function(st) {
+    grs <- klausmate:::km_groups()
+    out <- character(0)
+    for (g in names(grs)) {
+      hid <- setdiff(grs[[g]]$options, unname(klausmate:::km_choices(g, st)))
+      if (length(hid) == 0L) next
+      # "A (needs B)" only when B is something other than A itself; options with the same need are listed together
+      need <- vapply(hid, function(o)
+        paste(setdiff(intersect(names(st$failed), grs[[g]]$pkgs[[o]]), o), collapse = ", "), "")
+      parts <- vapply(unique(need), function(nd) {
+        o <- hid[need == nd]
+        if (!nzchar(nd)) paste(o, collapse = ", ")
+        else paste0(paste(o, collapse = ", "), if (length(o) > 1L) " (need " else " (needs ", nd, ")")
+      }, "")
+      out <- c(out, paste0(PKG_GROUP_LABELS[[g]], ": ", paste(parts, collapse = "; ")))
+    }
+    out
+  }
+
+  start_pkg_job <- function(mode, notify = FALSE) {
+    if (!is.null(isolate(pkg_job()))) return(invisible(NULL))
+    st <- isolate(pkg_status())
+    if (mode == "refresh" && length(klausmate:::km_refresh_candidates(st)) == 0L) return(invisible(NULL))
+    proc <- tryCatch(klausmate:::km_start_pkg_job(mode, st, repos = get_cran_repos()), error = function(e) NULL)
+    if (is.null(proc)) return(invisible(NULL))
+    pkg_job_flags$overlay <- FALSE
+    pkg_job_flags$mode <- mode
+    if (notify) showNotification("Checking packages\u2026", id = "pkg_check_note", duration = NULL, type = "message")
+    pkg_job(proc)
+  }
+
+  observe({
+    proc <- pkg_job()
+    if (is.null(proc)) return()
+    invalidateLater(1000, session)
+    out <- tryCatch(proc$read_output(), error = function(e) "")
+    m <- regmatches(out, gregexpr("KM_INSTALL: [^\n]*", out))[[1]]
+    if (length(m) > 0L) {
+      pk <- trimws(sub("KM_INSTALL:", "", m[length(m)]))
+      pkg_job_flags$overlay <- TRUE
+      session$sendCustomMessage("cm_setup_overlay", list(
+        show = TRUE,
+        text = paste0("Installing the R packages Klausmate needs for its default settings: ", gsub(" +", ", ", pk),
+                      ". This can take several minutes.")))
+    }
+    if (proc$is_alive()) return()
+    pkg_job(NULL)
+    res <- tryCatch(proc$get_result(), error = function(e) NULL)
+    session$sendCustomMessage("cm_setup_overlay", list(show = FALSE))
+    removeNotification("pkg_check_note")
+    pkg_job_flags$mode <- NULL
+    if (isolate(disclaimer_pending())) { disclaimer_pending(FALSE); show_student_disclaimer() }
+    if (is.null(res)) return()
+    st <- klausmate:::km_status_merge(isolate(pkg_status()), res)
+    klausmate:::km_status_save(st)
+    pkg_status(st)
+    apply_pkg_status(st)
+    bad <- res$failed[names(res$failed) %in% klausmate:::km_default_pkgs()]
+    empty <- Filter(function(g) identical(unname(klausmate:::km_choices(g, st)), "none"), c("spatial"))
+    if (length(bad) > 0L) {
+      offline <- all(unname(bad) == "offline")
+      hid <- pkg_hidden_lines(st)
+      showNotification(
+        tagList(
+          paste0(if (offline) "There is no internet connection, so the R package(s) " else "Klausmate could not install or load the R package(s) ",
+                 paste(names(bad), collapse = ", "),
+                 if (offline) " could not be installed. Klausmate will try again next time it starts." else "."),
+          if (length(hid) > 0L)
+            tagList(tags$br(), "These choices in Preferences are hidden because of that:",
+                    tags$ul(style = "margin: 4px 0 0 0; padding-left: 18px;", lapply(hid, tags$li))),
+          if (length(empty) > 0L) tagList(tags$strong("No spatial packages available."))),
+        type = "warning", duration = 30)
+    } else if (isTRUE(pkg_job_flags$overlay)) {
+      showNotification("Klausmate is set up. The default packages are installed.", type = "message", duration = 6)
+    }
+  })
+
+  observeEvent(TRUE, {
+    st <- isolate(pkg_status())
+    if (klausmate:::km_needs_setup(st)) start_pkg_job("setup")
+    else { apply_pkg_status(st); start_pkg_job("refresh") }
+  }, once = TRUE)
+  observeEvent(input$pref_pkg_recheck, start_pkg_job("setup", notify = TRUE))
+  session$onSessionEnded(function() {
+    j <- isolate(pkg_job())
+    if (!is.null(j)) tryCatch(j$kill(), error = function(e) NULL)
+  })
+
   output$pref_pkg_note <- renderUI({
     miss <- Filter(function(x) !requireNamespace(x, quietly = TRUE), pref_packages())
-    tags$p(style = "font-size: 0.85em; color: #666;",
-      "Some choices need extra R packages. Klausmate asks before installing anything, the first time code needs it. ",
-      if (length(miss) > 0)
-        tagList("Not installed on this computer yet for your current choices: ",
-                tags$strong(paste0(paste(miss, collapse = ", "), ".")), " "),
-      if (isTRUE(prefs$stats == "Bayesian"))
-        "Bayesian packages also need a C++ compiler and can take several minutes to build the first time.")
+    st   <- pkg_status()
+    hid  <- pkg_hidden_lines(st)
+    none <- Filter(function(g) identical(unname(klausmate:::km_choices(g, st)), "none"), "spatial")
+    tagList(
+      tags$p(style = "font-size: 0.85em; color: #666;",
+        "Some choices need extra R packages. Klausmate asks before installing anything, the first time code needs it. ",
+        if (length(miss) > 0)
+          tagList("Not installed on this computer yet for your current choices: ",
+                  tags$strong(paste0(paste(miss, collapse = ", "), ".")), " "),
+        if (isTRUE(prefs$stats == "Bayesian"))
+          "Bayesian packages also need a C++ compiler and can take several minutes to build the first time."),
+      if (length(hid) > 0L || length(none) > 0L)
+        tags$div(style = "font-size: 0.85em; color: #8a4b00;",
+          if (length(none) > 0L) tags$p(style = "margin: 0 0 4px 0;", tags$strong("No spatial packages available.")),
+          if (length(hid) > 0L)
+            tagList(tags$p(style = "margin: 0;", "These choices are hidden because the R packages they need are not available on this computer:"),
+                    tags$ul(style = "margin: 2px 0 8px 0; padding-left: 18px;", lapply(hid, tags$li)))),
+      tags$p(style = "font-size: 0.85em;",
+        actionLink("pref_pkg_recheck", "Check for packages again"),
+        " (installs the packages for the default settings if they are missing)."))
   })
 
   # One line above the tabs saying which prompt produced what is showing (code view: the prompt behind the
@@ -7391,6 +7538,7 @@ server <- function(input, output, session) {
     setNames(lapply(names(PREF_RELEVANT), function(k) isolate(prefs[[k]])), names(PREF_RELEVANT))
 
   show_preferences_modal <- function() {
+    start_pkg_job("refresh")      # quietly adds back any package that has become available
     pref_snapshot(relevant_prefs())
     lang         <- prefs$language
     lang_choices <- if (tolower(lang) == "english") "English" else c(lang, "English")
@@ -7411,16 +7559,16 @@ server <- function(input, output, session) {
       tags$h5("Preferred approach for..."),
       tags$div(class = "pref-grid pref-grid-3",
         selectInput("pref_coding", "Coding:",
-                    choices = c("tidyverse", "Base R", "data.table"), selected = prefs$coding, width = "100%"),
+                    choices = pref_choices("coding"), selected = prefs$coding, width = "100%"),
         selectInput("pref_pipeline", APPROACH_EXTRAS$pipeline$label,
                     choices = APPROACH_EXTRAS$pipeline$choices, selected = prefs$pipeline, width = "100%"),
         selectInput("pref_plotting", "Plotting:",
-                    choices = c("ggplot2", "Base R", "plotly"), selected = prefs$plotting, width = "100%"),
+                    choices = pref_choices("plotting"), selected = prefs$plotting, width = "100%"),
         selectInput("pref_mapping", "Mapping:",
-                    choices = c("tmap", "ggplot2", "leaflet", "mapsf", "Base R"),
+                    choices = pref_choices("mapping"),
                     selected = prefs$mapping, width = "100%"),
         selectInput("pref_spatial", APPROACH_EXTRAS$spatial$label,
-                    choices = APPROACH_EXTRAS$spatial$choices, selected = prefs$spatial, width = "100%"),
+                    choices = pref_choices("spatial"), selected = prefs$spatial, width = "100%"),
         selectInput("pref_stats", APPROACH_EXTRAS$stats$label,
                     choices = APPROACH_EXTRAS$stats$choices, selected = prefs$stats, width = "100%"),
         selectInput("pref_modelling", APPROACH_EXTRAS$modelling$label,
@@ -7428,7 +7576,7 @@ server <- function(input, output, session) {
         selectInput("pref_tables", APPROACH_EXTRAS$tables$label,
                     choices = APPROACH_EXTRAS$tables$choices, selected = prefs$tables, width = "100%"),
         selectInput("pref_strings", APPROACH_EXTRAS$strings$label,
-                    choices = APPROACH_EXTRAS$strings$choices, selected = prefs$strings, width = "100%")),
+                    choices = pref_choices("strings"), selected = prefs$strings, width = "100%")),
       tags$p(em(
         "These are defaults Claude will lean towards, not hard rules — ",
         "you can always ask for something different in your prompt."
