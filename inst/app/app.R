@@ -6011,9 +6011,11 @@ server <- function(input, output, session) {
     # Load most recent code into editor
     codes <- recalled$codes
     ask_code_entries <- Filter(function(e) identical(e$source, "ask_code"), codes)
-    if (length(ask_code_entries) > 0)
-      updateAceEditor(session, "code_editor", value = ask_code_entries[[length(ask_code_entries)]]$code)
-    else
+    if (length(ask_code_entries) > 0) {
+      last_entry <- ask_code_entries[[length(ask_code_entries)]]
+      updateAceEditor(session, "code_editor", value = last_entry$code)
+      last_prompt_for_code(last_entry$prompt %||% "")     # the prompt behind the code now on view (Past prompts highlights it)
+    } else
       updateAceEditor(session, "code_editor", value = "")
     output$run_status <- renderUI(NULL)
     answer_latest(recalled$answer_latest)

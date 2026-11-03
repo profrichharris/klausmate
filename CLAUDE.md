@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.11 (2026-11-03)  
-**Current version:** 0.6.11
+**Last released:** 0.6.12 (2026-11-03)  
+**Current version:** 0.6.12
+
+Released in 0.6.12 (no unreleased changes; Past prompts highlight correct after recalling a past conversation):
+- **Recalling a past conversation now leaves the right prompt highlighted in Past prompts** (found by testing the highlights with Past conversations): `confirm_recall_conv` set `last_prompt_for_code("")` and loaded the conversation's latest code into the editor, so Past prompts had no row highlighted although the code on view had a prompt. It now sets `last_prompt_for_code()` to the prompt of that code entry (`last_entry$prompt`). The Past code highlight was already right (it matches on the editor's code). Tested live (two real Ask for Code runs, New conversation, Recall conversation): the plot entry is highlighted in Past code and its prompt in Past prompts; Output on the print entry then moves both.
 
 Released in 0.6.11 (no unreleased changes; data credit notice fades after 20 s, Past prompts and Past code highlights follow what is on view):
 - **The Past code entry behind what is on view is highlighted yellow** (user request), in the Past code tab and in the floating Past code window: rows carry `class = "cm-code-row"` and `data-ck` (`c<i>` for a confirmed entry, `u<uid>` for an unconfirmed one); an `observeEvent` on `input$code_editor`, `run_history()`, `unconf_code()` and `ask_mode()` finds the entry whose code equals the code in the editor (trimmed; if several, the one the list shows first: newest `ts`, then latest) and sends `cm_highlight_pastcode`; the browser marks every row with that key (`.cm-code-row.cm-hl`, same yellow as the Past prompts highlight) and marks again whenever either list is redrawn (`shiny:value` for `past_code_ui` / `past_code_float_ui`) or a tab is shown, because a hidden list is only drawn when it is shown. No mark in the Answer view or when the code in the editor has been edited so that it matches no entry. Usually the top row, a different row after Recall in Past prompts (or Past conversations). Tested live (two real Ask for Code runs): top row marked after the runs; Output on the first entry marked it in the tab and the floating window; Recall of the plot entry in the window marked it; recalling the print prompt through Past prompts marked the second row; editing the code removed the mark. 
