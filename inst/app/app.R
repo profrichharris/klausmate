@@ -2873,6 +2873,12 @@ ui <- fluidPage(
     .cm-float .cm-float-body { padding: 8px 12px; max-height: 70vh; overflow: auto; }
     #pastcode_float .cm-float-body { max-height: 190px; padding: 4px 12px; }
     .cm-float .cm-float-foot { padding: 6px 12px; text-align: right; border-top: 1px solid #ddd; }
+    /* An expanded plot is a Bootstrap modal, but it does not block the page: the area around it lets clicks through,
+       so a floating panel under it can be clicked (it is then brought in front of the plot) and dragged. */
+    #shiny-modal.cm-nonmodal { pointer-events: none; }
+    #shiny-modal.cm-nonmodal .modal-dialog { pointer-events: auto; }
+    body.cm-nonmodal-open > .modal-backdrop { display: none; }
+    body.cm-nonmodal-open { overflow: auto !important; padding-right: 0 !important; }
   ")),
   tags$div(id = "inspect_float", class = "cm-float",
     tags$div(id = "inspect_float_inner", uiOutput("inspect_float_ui"))),
@@ -2901,6 +2907,33 @@ ui <- fluidPage(
         p.style.right = 'auto'; p.style.bottom = 'auto'; p.setAttribute('data-moved', '1');
       });
       document.addEventListener('mouseup', function() { drag = null; });
+      // Pressing on a floating panel brings it in front of everything, including an expanded plot (which is above the
+      // panels when it opens), and it stays there while the plot is replaced by another
+      var floatZ = 1060;
+      document.addEventListener('mousedown', function(e) {
+        var f = e.target.closest && e.target.closest('.cm-float');
+        if (f && f.style.zIndex !== String(floatZ)) f.style.zIndex = String(++floatZ);
+      }, true);
+      // The expanded plot / interactive plot: no backdrop, no focus trap, and the page behind stays usable
+      if (window.jQuery) {
+        jQuery(document).on('shown.bs.modal', function() {
+          var m = document.getElementById('shiny-modal');
+          if (m && m.querySelector('.cm-expanded')) {
+            m.classList.add('cm-nonmodal'); document.body.classList.add('cm-nonmodal-open');
+            jQuery(document).off('focusin.bs.modal');
+          }
+        });
+        jQuery(document).on('hidden.bs.modal', function() {
+          setTimeout(function() {
+            var m = document.getElementById('shiny-modal');
+            if (!m || !m.querySelector('.cm-expanded')) {
+              document.body.classList.remove('cm-nonmodal-open');
+              if (m) m.classList.remove('cm-nonmodal');
+              if (window.Shiny) Shiny.setInputValue('expanded_closed', Math.random(), {priority: 'event'});
+            }
+          }, 120);
+        });
+      }
       // The Past code panel first appears just above the row of tabs (Code, R output, Past code), so it does not cover them,
       // unless the student has already moved it
       window.cmPlacePastFloat = function() {
@@ -5150,16 +5183,36 @@ server <- function(input, output, session) {
   expanded_plot  <- reactiveVal(NULL)   # full path of the PNG being shown
   pending_export <- reactiveVal(NULL)   # list(snippet = <block appended>, full = <editor text after>)
   export_ext     <- function(fmt) switch(fmt, jpg = "jpg", tif = "tif", fmt)
-  observeEvent(input$plot_expand, {
-    f <- plot_files_rv()
-    f <- f[basename(f) == input$plot_expand]
-    req(length(f) == 1)
+  # What is expanded now (NULL = nothing): list(kind = "plot"/"widget", map = TRUE/FALSE, idx = its position among the
+  # outputs of its kind). When another earlier output is recalled while one is expanded, the recalled output
+  # replaces it, choosing the same kind of thing (a map for a map; see pick_expand_target()).
+  expanded_info <- reactiveVal(NULL)
+  observeEvent(input$expanded_closed, expanded_info(NULL))
+  # Is this output a map? From the class of the object that drew it, or the code that drew it, or (for a page) its text
+  output_is_map <- function(kind, key) {
+    info <- if (identical(kind, "plot")) get0(key, envir = plot_code_cache, inherits = FALSE)
+            else get0(key, envir = widget_code_cache, inherits = FALSE)
+    if (!is.null(info) &&
+        (any(info$cls %in% c("tmap", "leaflet", "mapview", "sf", "sfc")) ||
+         grepl("\\btm_|tmap_|leaflet|mapview|geom_sf|st_geometry|mapsf|mf_map", info$code %||% "")))
+      return(TRUE)
+    if (identical(kind, "widget")) {
+      f <- file.path(tempdir(), key)
+      if (file.exists(f)) {
+        head <- tryCatch(readChar(f, min(file.size(f), 300000), useBytes = TRUE), error = function(e) "")
+        return(isTRUE(grepl("leaflet", head, ignore.case = TRUE)))
+      }
+    }
+    FALSE
+  }
+  expand_plot <- function(f) {
     expanded_plot(f)
+    expanded_info(list(kind = "plot", map = output_is_map("plot", f), idx = match(f, isolate(plot_files_rv()))))
     has_code <- exists(f, envir = plot_code_cache, inherits = FALSE)
     showModal(modalDialog(
       title = "Plot",
       size  = "l",
-      tags$div(style = "text-align: center; max-height: 45vh; overflow: auto;",
+      tags$div(class = "cm-expanded", style = "text-align: center; max-height: 45vh; overflow: auto;",
         tags$img(src = paste0("/klausmate_plots/", basename(f)),
                  style = "max-width: 100%; height: auto; border: 1px solid #ddd;")),
       tags$hr(),
@@ -5197,6 +5250,12 @@ server <- function(input, output, session) {
         modalButton("Close")),
       easyClose = TRUE
     ))
+  }
+  observeEvent(input$plot_expand, {
+    f <- plot_files_rv()
+    f <- f[basename(f) == input$plot_expand]
+    req(length(f) == 1)
+    expand_plot(f)
   })
   plot_exp_file <- reactive({
     nm  <- trimws(basename(input$plot_exp_name %||% ""))
@@ -5269,16 +5328,15 @@ server <- function(input, output, session) {
   # Expand an interactive plot: the page itself, interactive, with the link to open it in its own tab and the
   # option to add code that saves it as a web page (an .html file that can be opened in any browser or shared)
   expanded_widget <- reactiveVal(NULL)     # path of the page, relative to tempdir()
-  observeEvent(input$widget_expand, {
-    rel <- input$widget_expand
-    req(nzchar(rel), file.exists(file.path(tempdir(), rel)))
+  expand_widget <- function(rel) {
     expanded_widget(rel)
+    expanded_info(list(kind = "widget", map = output_is_map("widget", rel), idx = match(rel, isolate(widget_files_rv()))))
     src      <- paste0("/klausmate_plots/", rel)
     has_code <- exists(rel, envir = widget_code_cache, inherits = FALSE)
     n        <- match(rel, widget_files_rv())
     showModal(modalDialog(
       title = "Interactive plot", size = "l",
-      tags$div(style = "font-size: 0.85em; margin-bottom: 4px;",
+      tags$div(class = "cm-expanded", style = "font-size: 0.85em; margin-bottom: 4px;",
         tags$a("Open in a new browser tab", href = src, target = "_blank", rel = "noopener"),
         tags$span(style = "color: #888;", " (a map needs an internet connection for its background tiles)")),
       tags$iframe(src = src, style = "width: 100%; height: 48vh; border: 1px solid #ddd; border-radius: 4px; background: #fff;"),
@@ -5296,7 +5354,45 @@ server <- function(input, output, session) {
         if (has_code) actionButton("widget_exp_add", "Add to code", class = "btn-primary"),
         modalButton("Close")),
       easyClose = TRUE))
+  }
+  observeEvent(input$widget_expand, {
+    rel <- input$widget_expand
+    req(nzchar(rel), file.exists(file.path(tempdir(), rel)))
+    expand_widget(rel)
   })
+
+  # An output is expanded and another earlier one is recalled: show the recalled one in its place, preferring the same
+  # kind of thing. A map is replaced by a map (a static map or an interactive one, whichever the recalled code made;
+  # the same kind first), anything else by the same kind of output at the same position, then the first of that kind,
+  # then whatever there is. Nothing to show: the expanded window is closed.
+  pick_expand_target <- function(prev, plots, widgets) {
+    cand <- c(lapply(plots, function(f) list(kind = "plot", key = f)),
+              lapply(widgets, function(w) list(kind = "widget", key = w)))
+    if (length(cand) == 0L) return(NULL)
+    for (i in seq_along(cand)) cand[[i]]$map <- output_is_map(cand[[i]]$kind, cand[[i]]$key)
+    pos <- function(kind) { k <- which(vapply(cand, function(x) x$kind == kind, logical(1))); k }
+    if (isTRUE(prev$map)) {
+      m <- which(vapply(cand, function(x) isTRUE(x$map), logical(1)))
+      same <- m[vapply(cand[m], function(x) x$kind == prev$kind, logical(1))]
+      if (length(same) > 0L) return(cand[[same[1L]]])
+      if (length(m) > 0L) return(cand[[m[1L]]])
+    }
+    same <- pos(prev$kind)
+    if (length(same) > 0L) {
+      nonmap <- same[!vapply(cand[same], function(x) isTRUE(x$map), logical(1))]
+      pool <- if (length(nonmap) > 0L && !isTRUE(prev$map)) nonmap else same
+      return(cand[[pool[min(max(1L, prev$idx %||% 1L), length(pool))]]])
+    }
+    cand[[1L]]
+  }
+  reexpand_after_recall <- function() {
+    prev <- isolate(expanded_info())
+    if (is.null(prev)) return(invisible(NULL))
+    tgt <- pick_expand_target(prev, isolate(plot_files_rv()), isolate(widget_files_rv()))
+    if (is.null(tgt)) { removeModal(); expanded_info(NULL); return(invisible(NULL)) }
+    if (identical(tgt$kind, "plot")) expand_plot(tgt$key) else expand_widget(tgt$key)
+    invisible(NULL)
+  }
   widget_exp_file <- reactive({
     nm <- trimws(basename(input$widget_exp_name %||% ""))
     nm <- sub("\\.[A-Za-z0-9]{1,4}$", "", nm)
@@ -5686,7 +5782,10 @@ server <- function(input, output, session) {
   observeEvent(input$pastcode_close,     { pastcode_float_open(FALSE); shinyjs::hide("pastcode_float") })
   observeEvent(input$pastcode_close_btn, { pastcode_float_open(FALSE); shinyjs::hide("pastcode_float") })
   for (b in c("ask_plain", "ask_code", "run_code", "pause_app", "quit"))
-    local({ bid <- b; observeEvent(input[[bid]], { pastcode_float_open(FALSE); shinyjs::hide("pastcode_float") }, ignoreInit = TRUE) })
+    local({ bid <- b; observeEvent(input[[bid]], {
+      pastcode_float_open(FALSE); shinyjs::hide("pastcode_float")
+      if (!is.null(isolate(expanded_info()))) { removeModal(); expanded_info(NULL) }   # an expanded output goes too
+    }, ignoreInit = TRUE) })
 
   # The captured run behind a confirmed Past code entry (matched on the code that was run), and whether it produced
   # any output (R output, plots that still exist, widgets, or warnings): the Output button only shows when it did
@@ -7066,6 +7165,7 @@ server <- function(input, output, session) {
     goto_tab(tab)
     output$run_status <- renderUI(NULL)
     active_code_id(rec$seq)
+    reexpand_after_recall()      # an expanded output is replaced by the recalled one (same kind if possible)
     invisible(NULL)
   }
 
