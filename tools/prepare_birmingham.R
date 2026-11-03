@@ -1,209 +1,179 @@
-# Builds the Birmingham multilevel-modelling datasets in datasets/:
-#   birmingham_lsoa.gpkg   639 LSOAs (the modelling rows), with the MSOA, ward and constituency variables copied down
-#   birmingham_lsoa_table.csv   the same rows as a plain table (no geometry; join to the map on lsoa11cd)
-#   birmingham_msoa.gpkg   132 MSOAs      birmingham_wards.gpkg   40 wards      birmingham_constituencies.gpkg   10 constituencies
-#   birmingham_dictionary.csv   what every column means
+# Builds the Birmingham multilevel-modelling dataset in datasets/:
+#   birmingham_lsoa.gpkg   659 LSOAs (2021) as an sf object: the modelling rows, with the MSOA, ward and constituency
+#                          variables copied down. Numbers are rounded to 3 decimal places and counts to whole numbers.
 #   Rscript tools/prepare_birmingham.R <source folder> <output folder>
 #
+# The outcome is the change between the 2011 and 2021 censuses (an earlier version used 2001 and 2011).
+#
 # The source folder holds files fetched from these places (all Birmingham only, E08000025):
-#   nomis2/   Nomis (https://www.nomisweb.co.uk/api/v01/dataset/<id>.data.csv, geography=E08000025TYPE<n>), Census
-#             tables: NM_608_1 KS201EW ethnic group 2011 (rural_urban=0) at LSOA (TYPE298), MSOA (297) and ward (295),
-#             NM_1606_1 KS006 ethnic group 2001 at 2001 output areas (310), NM_1626_1 KS018 tenure 2001 at 2001 OAs,
-#             NM_619_1 KS402EW tenure 2011 at ward (295), and the 2011 usual residents of each 2011 OA (TYPE299, cell=0)
-#   ons/      ONS Open Geography Portal lookups (ArcGIS feature services, LAD11CD = 'E08000025'): OA01_OA11_LAD11,
-#             OA11_LSOA11_MSOA11_LAD11, OA11_WD11_LAD11 and WD17_PCON17_LAD17
-#   imd/      English Indices of Deprivation 2019, File 7 (GOV.UK), kept for Birmingham: imd2019_birmingham.csv
-#   bdy/      ONS boundaries as GeoJSON: lsoa11, msoa11 (BGC), ward11 (GCB) and pcon (Dec 2017 BGC)
-#   elec/     birmingham_2010_results.csv, made from the Commons Library Election Results site (election pages 2647-2655, 3162)
+#   nomis/    Nomis (https://www.nomisweb.co.uk/api/v01/dataset/<id>.data.csv, geography=E08000025TYPE<n>), Census tables:
+#             NM_2041_1 TS021 ethnic group 2021 at OA (TYPE150), LSOA (151), MSOA (152) and 2022 ward (153);
+#             NM_2072_1 TS054 tenure 2021 at 2022 ward (153);
+#             NM_608_1 KS201EW ethnic group 2011 (rural_urban=0) and NM_619_1 KS402EW tenure 2011 at 2011 OA (299)
+#   ons/      ONS Open Geography Portal lookups (ArcGIS feature services): OA11_OA21_LAD22_EW_LU_Exact_fit_V3,
+#             OA21_LAD22_LSOA21_MSOA21_LEP22_EN_LU_V2, OA21_WD22_LTLA22_UTLA22_RGN22_CTRY22_EW_LU_v2 and OA21_PCON25_LAD21_EW_LU
+#   imd/      English Indices of Deprivation 2025, File 7 (GOV.UK), kept for Birmingham: imd2025_birmingham.csv
+#   bdy/      ONS Lower layer Super Output Areas (December 2021) BGC boundaries as GeoJSON: lsoa21.geojson
+#   elec/     birmingham_2024_results.csv, made from candidacies.csv on the Commons Library Election Results site
+#             (https://electionresults.parliament.uk/general-elections/6/candidacies.csv)
 args <- commandArgs(trailingOnly = TRUE)
 src <- args[1]; out <- args[2]
 library(sf)
 rd  <- function(f) read.csv(file.path(src, f), stringsAsFactors = FALSE, check.names = FALSE)
-mat <- function(f, geo = "GEOGRAPHY_CODE", cell) { d <- rd(f); xtabs(d$OBS_VALUE ~ d[[geo]] + d[[cell]]) }
-Y_SCALE <- 0.1          # c in asinh(y / c), percentage points
+mat <- function(f, cell, geo = "GEOGRAPHY_CODE", keep = NULL) {
+  d <- rd(f); if (!is.null(keep)) d <- d[d[[names(keep)]] == keep[[1]], ]
+  unclass(xtabs(d$OBS_VALUE ~ d[[geo]] + d[[cell]]))
+}
+Y_SCALE <- 0.03         # c in asinh(y / c), percentage points (about the median size of a change)
 
 # --- Lookups ------------------------------------------------------------------------------------------------------
-oa    <- rd("ons/oa11_lsoa_msoa.csv")
-oawd  <- rd("ons/oa11_wd11.csv")
-wdpc  <- rd("ons/wd17_pcon17.csv")
-lk    <- rd("ons/oa01_oa11.csv")
-pop11 <- rd("nomis2/ks201_2011_oa_total.csv"); pop11 <- setNames(pop11$OBS_VALUE, pop11$GEOGRAPHY_CODE)
-stopifnot(setequal(names(pop11), oa$OA11CD), setequal(oawd$WD11CD, wdpc$WD17CD))
+oa    <- rd("ons/oa21_lsoa21_msoa21.csv")
+oawd  <- rd("ons/oa21_wd22.csv")
+oapc  <- rd("ons/oa21_pcon.csv")
+lk    <- rd("ons/oa11_oa21.csv")
+e21   <- mat("nomis/ts021_2021_oa.csv", "C2021_ETH_20_NAME")
+pop21 <- e21[, "Total: All usual residents"]
+stopifnot(setequal(rownames(e21), oa$OA21CD), setequal(oawd$OA21CD, oa$OA21CD), setequal(oapc$OA21CD, oa$OA21CD))
 
-# 2001 counts are held for 2001 output areas, which are split or merged in 2011 for a few. Each 2001 OA's count is
-# shared among the 2011 OAs it became in proportion to their 2011 population (merged OAs simply add up).
-lk$w   <- pop11[lk$OA11CD]
-lk$wt  <- ifelse(ave(lk$w, lk$OA01CD, FUN = sum) > 0, lk$w / ave(lk$w, lk$OA01CD, FUN = sum), 1 / ave(lk$w, lk$OA01CD, FUN = length))
-to_oa11 <- function(m) { stopifnot(all(lk$OA01CD %in% rownames(m)))
-                         rowsum(m[lk$OA01CD, , drop = FALSE] * lk$wt, lk$OA11CD) }
-up <- function(m11, key) rowsum(m11, key[rownames(m11)])      # sum 2011 OA rows to a larger area
+# 2011 counts are held for 2011 output areas, which are split or merged in 2021 for a few. Each 2011 OA's count is
+# shared among the 2021 OAs it became in proportion to their 2021 population (merged OAs simply add up).
+lk$w   <- pop21[lk$OA21CD]
+lk$tot <- ave(lk$w, lk$OA11CD, FUN = sum)
+lk$wt  <- ifelse(lk$tot > 0, lk$w / lk$tot, 1 / ave(lk$w, lk$OA11CD, FUN = length))
+to_oa21 <- function(m) { stopifnot(all(lk$OA11CD %in% rownames(m)))
+                         rowsum(m[lk$OA11CD, , drop = FALSE] * lk$wt, lk$OA21CD) }
+up <- function(m21, key) rowsum(m21, key[rownames(m21)])      # sum 2021 OA rows to a larger area
 
-# --- Ethnic group, in groups that exist in both censuses --------------------------------------------------------------
+# --- Ethnic group, in groups that exist in both censuses ----------------------------------------------------------------
 GROUPS <- c("white_british", "white_irish", "white_other", "mixed", "indian", "pakistani", "bangladeshi", "chinese",
             "other_asian", "black_african", "black_caribbean", "black_other", "other_ethnic")
-e01 <- mat("nomis2/ks006_2001_oa.csv", cell = "C_ETHPUK11_CODE")
-h01 <- cbind(total = e01[, "0"], white_british = e01[, "1"], white_irish = e01[, "2"], white_other = e01[, "3"],
-             mixed = e01[, "4"] + e01[, "5"] + e01[, "6"] + e01[, "7"], indian = e01[, "8"], pakistani = e01[, "9"],
-             bangladeshi = e01[, "10"], chinese = e01[, "15"], other_asian = e01[, "11"], black_african = e01[, "13"],
-             black_caribbean = e01[, "12"], black_other = e01[, "14"], other_ethnic = e01[, "16"])
 harm11 <- function(e) { k <- function(i) e[, sprintf("KS201EW%04d", i)]
   cbind(total = k(1), white_british = k(2), white_irish = k(3), white_other = k(4) + k(5),
         mixed = k(6) + k(7) + k(8) + k(9), indian = k(10), pakistani = k(11), bangladeshi = k(12), chinese = k(13),
         other_asian = k(14), black_african = k(15), black_caribbean = k(16), black_other = k(17),
         other_ethnic = k(18) + k(19)) }
-eth01_oa <- to_oa11(h01)
-stopifnot(abs(sum(eth01_oa[, "black_african"]) - sum(h01[, "black_african"])) < 1e-6)
-eth11_lsoa <- harm11(mat("nomis2/ks201_2011_lsoa.csv", cell = "CELL_CODE"))
-eth11_msoa <- harm11(mat("nomis2/ks201_2011_msoa.csv", cell = "CELL_CODE"))
-eth11_ward <- harm11(mat("nomis2/ks201_2011_ward.csv", cell = "CELL_CODE"))
-l_of <- setNames(oa$LSOA11CD, oa$OA11CD); m_of <- setNames(oa$MSOA11CD, oa$OA11CD)
-w_of <- setNames(oawd$WD11CD, oawd$OA11CD)
-eth01_lsoa <- up(eth01_oa, l_of); eth01_msoa <- up(eth01_oa, m_of)
+harm21 <- function(e) { k <- function(s) e[, s]
+  cbind(total = k("Total: All usual residents"),
+        white_british = k("White: English, Welsh, Scottish, Northern Irish or British"), white_irish = k("White: Irish"),
+        white_other = k("White: Gypsy or Irish Traveller") + k("White: Roma") + k("White: Other White"),
+        mixed = k("Mixed or Multiple ethnic groups: White and Asian") + k("Mixed or Multiple ethnic groups: White and Black African") +
+                k("Mixed or Multiple ethnic groups: White and Black Caribbean") + k("Mixed or Multiple ethnic groups: Other Mixed or Multiple ethnic groups"),
+        indian = k("Asian, Asian British or Asian Welsh: Indian"), pakistani = k("Asian, Asian British or Asian Welsh: Pakistani"),
+        bangladeshi = k("Asian, Asian British or Asian Welsh: Bangladeshi"), chinese = k("Asian, Asian British or Asian Welsh: Chinese"),
+        other_asian = k("Asian, Asian British or Asian Welsh: Other Asian"),
+        black_african = k("Black, Black British, Black Welsh, Caribbean or African: African"),
+        black_caribbean = k("Black, Black British, Black Welsh, Caribbean or African: Caribbean"),
+        black_other = k("Black, Black British, Black Welsh, Caribbean or African: Other Black"),
+        other_ethnic = k("Other ethnic group: Arab") + k("Other ethnic group: Any other ethnic group")) }
+eth11_oa11 <- harm11(mat("nomis/ks201_2011_oa.csv", "CELL_CODE"))
+eth11_oa   <- to_oa21(eth11_oa11)
+stopifnot(abs(sum(eth11_oa[, "black_african"]) - sum(eth11_oa11[, "black_african"])) < 1e-6)
+eth21_oa   <- harm21(e21)
+eth21_lsoa <- harm21(mat("nomis/ts021_2021_lsoa.csv", "C2021_ETH_20_NAME"))
+eth21_msoa <- harm21(mat("nomis/ts021_2021_msoa.csv", "C2021_ETH_20_NAME"))
+l_of <- setNames(oa$LSOA21CD, oa$OA21CD); m_of <- setNames(oa$MSOA21CD, oa$OA21CD)
+w_of <- setNames(oawd$WD22CD, oawd$OA21CD); p_of <- setNames(oapc$PCON25CD, oapc$OA21CD)
+eth11_lsoa <- up(eth11_oa, l_of); eth11_msoa <- up(eth11_oa, m_of)
+# 2021 tables are published at every level but were altered independently to protect confidentiality, so adding up output
+# areas need not give the published LSOA and MSOA figures exactly; the published figures are used at their own level
+cat("Black African 2021, largest LSOA difference between adding up output areas and the LSOA table:",
+    max(abs(up(eth21_oa, l_of)[rownames(eth21_lsoa), "black_african"] - eth21_lsoa[, "black_african"])), "\n")
 
 # --- LSOA to MSOA, ward and constituency -------------------------------------------------------------------------
-lsoa <- unique(oa[, c("LSOA11CD", "LSOA11NM", "MSOA11CD", "MSOA11NM")])
-stopifnot(nrow(lsoa) == 639, !anyDuplicated(lsoa$LSOA11CD))
-pick <- function(by, val) {      # the value that holds most of the residents of each LSOA
-  d <- data.frame(l = l_of[names(pop11)], v = val[names(pop11)], p = pop11); a <- aggregate(p ~ l + v, d, sum)
+lsoa <- unique(oa[, c("LSOA21CD", "LSOA21NM", "MSOA21CD", "MSOA21NM")])
+stopifnot(!anyDuplicated(lsoa$LSOA21CD), setequal(lsoa$LSOA21CD, rownames(eth21_lsoa)))
+pick <- function(val) {      # the value that holds most of the residents of each LSOA
+  d <- data.frame(l = l_of[names(pop21)], v = val[names(pop21)], p = pop21); a <- aggregate(p ~ l + v, d, sum)
   a <- a[order(a$l, -a$p), ]; a[!duplicated(a$l), ] }
-wa <- pick(l_of, w_of); lsoa$WD11CD <- wa$v[match(lsoa$LSOA11CD, wa$l)]
-nest <- tapply(w_of[names(pop11)], l_of[names(pop11)], function(x) length(unique(x)))
-cat("LSOAs whose output areas fall in more than one ward:", sum(nest > 1), "of", length(nest), "\n")
-lsoa$WD11NM <- oawd$WD11NM[match(lsoa$WD11CD, oawd$WD11CD)]
-lsoa$PCON_CD <- wdpc$PCON17CD[match(lsoa$WD11CD, wdpc$WD17CD)]; lsoa$PCON_NM <- wdpc$PCON17NM[match(lsoa$WD11CD, wdpc$WD17CD)]
-msoa_ward <- tapply(lsoa$WD11CD, lsoa$MSOA11CD, function(x) names(sort(table(x), decreasing = TRUE))[1])
+wa <- pick(w_of); lsoa$WD22CD <- wa$v[match(lsoa$LSOA21CD, wa$l)]
+pa <- pick(p_of); lsoa$PCON_CD <- pa$v[match(lsoa$LSOA21CD, pa$l)]
+nest <- function(val) tapply(val[names(pop21)], l_of[names(pop21)], function(x) length(unique(x)))
+cat("LSOAs whose output areas fall in more than one ward:", sum(nest(w_of) > 1), "of", nrow(lsoa),
+    "; in more than one constituency:", sum(nest(p_of) > 1), "\n")
+lsoa$WD22NM <- oawd$WD22NM[match(lsoa$WD22CD, oawd$WD22CD)]
+lsoa$PCON_NM <- oapc$PCON25NM[match(lsoa$PCON_CD, oapc$PCON25CD)]
 
 # --- Outcome ------------------------------------------------------------------------------------------------------
-N01 <- sum(h01[, "black_african"]); N11 <- sum(eth11_lsoa[, "black_african"])
-outcome <- function(e01, e11, ids) {
-  n01 <- e01[ids, "black_african"]; n11 <- e11[ids, "black_african"]
-  t01 <- e01[ids, "total"]; t11 <- e11[ids, "total"]
-  y <- 100 * (n11 / N11 - n01 / N01)
-  data.frame(pop_2001 = round(t01, 2), pop_2011 = t11, ba_2001 = round(n01, 2), ba_2011 = n11,
-             pct_ba_2001 = 100 * n01 / t01, pct_ba_2011 = 100 * n11 / t11,
-             ba_share_2001 = 100 * n01 / N01, ba_share_2011 = 100 * n11 / N11,
+N11 <- sum(eth11_lsoa[, "black_african"]); N21 <- sum(eth21_lsoa[, "black_african"])
+outcome <- function(e11, e21, ids) {
+  n11 <- e11[ids, "black_african"]; n21 <- e21[ids, "black_african"]
+  t11 <- e11[ids, "total"]; t21 <- e21[ids, "total"]
+  y <- 100 * (n21 / N21 - n11 / N11)
+  data.frame(pop_2011 = t11, pop_2021 = t21, ba_2011 = n11, ba_2021 = n21,
+             pct_ba_2011 = 100 * n11 / t11, pct_ba_2021 = 100 * n21 / t21,
+             ba_share_2011 = 100 * n11 / N11, ba_share_2021 = 100 * n21 / N21,
              y_change = y, y_change_asinh = asinh(y / Y_SCALE), row.names = NULL)
 }
 simpson <- function(e) { p <- e[, GROUPS, drop = FALSE] / e[, "total"]; 1 - rowSums(p^2) }
 
-# --- IMD 2019 (2011 LSOAs) -------------------------------------------------------------------------------------------
-imd <- rd("imd/imd2019_birmingham.csv")
-ii  <- match(lsoa$LSOA11CD, imd[["LSOA code (2011)"]]); stopifnot(!anyNA(ii))
+# --- IMD 2025 (2021 LSOAs) -------------------------------------------------------------------------------------------
+imd <- rd("imd/imd2025_birmingham.csv")
+ii  <- match(lsoa$LSOA21CD, imd[["LSOA code (2021)"]]); stopifnot(!anyNA(ii))
 lsoa$imd_score  <- imd[["Index of Multiple Deprivation (IMD) Score"]][ii]
 lsoa$imd_rank   <- imd[["Index of Multiple Deprivation (IMD) Rank (where 1 is most deprived)"]][ii]
 lsoa$imd_decile <- imd[["Index of Multiple Deprivation (IMD) Decile (where 1 is most deprived 10% of LSOAs)"]][ii]
-lsoa$pop_2015   <- imd[["Total population: mid 2015 (excluding prisoners)"]][ii]
+lsoa$pop_2022   <- imd[["Total population: mid 2022"]][ii]
 
-# --- MSOA layer -----------------------------------------------------------------------------------------------------
-msoa <- unique(lsoa[, c("MSOA11CD", "MSOA11NM")]); ids <- msoa$MSOA11CD
-msoa <- cbind(msoa, WD11CD = unname(msoa_ward[ids]), n_lsoa = as.integer(table(lsoa$MSOA11CD)[ids]),
-              outcome(eth01_msoa, eth11_msoa, ids))
-msoa$imd_score <- tapply(lsoa$imd_score * lsoa$pop_2015, lsoa$MSOA11CD, sum)[ids] / tapply(lsoa$pop_2015, lsoa$MSOA11CD, sum)[ids]
-msoa$msoa_div_2001 <- simpson(eth01_msoa)[ids]; msoa$msoa_div_2011 <- simpson(eth11_msoa)[ids]
-msoa$msoa_div_chg  <- msoa$msoa_div_2011 - msoa$msoa_div_2001
-stopifnot(abs(sum(msoa$y_change)) < 1e-9)
+# --- MSOA diversity -------------------------------------------------------------------------------------------------
+ids <- unique(lsoa$MSOA21CD)
+msoa <- data.frame(MSOA21CD = ids, msoa_div_2011 = simpson(eth11_msoa)[ids], msoa_div_2021 = simpson(eth21_msoa)[ids])
+msoa$msoa_div_chg <- msoa$msoa_div_2021 - msoa$msoa_div_2011
 
 # --- Tenure (households), ward level --------------------------------------------------------------------------------
-t01 <- mat("nomis2/ks018_2001_oa.csv", cell = "C_TENHUK11_CODE")
-t01w <- up(to_oa11(cbind(total = t01[, "0"], social = t01[, "4"] + t01[, "5"], private = t01[, "6"])), w_of)
-t11 <- mat("nomis2/ks402_2011_ward.csv", cell = "CELL_CODE"); k <- function(i) t11[, sprintf("KS402EW%04d", i)]
-t11w <- cbind(total = k(1), social = k(5) + k(6), private = k(7))
+t11 <- mat("nomis/ks402_2011_oa.csv", "CELL_CODE", keep = c(RURAL_URBAN_CODE = 0)); k <- function(i) t11[, sprintf("KS402EW%04d", i)]
+t11w <- up(to_oa21(cbind(total = k(1), social = k(5) + k(6), private = k(7) + k(8))), w_of)
+t21 <- mat("nomis/ts054_2021_ward.csv", "C2021_TENURE_9_NAME")
+t21w <- cbind(total = t21[, "Total: All households"], social = t21[, "Social rented"], private = t21[, "Private rented"])
+ids <- unique(lsoa$WD22CD); stopifnot(all(ids %in% rownames(t21w)), all(ids %in% rownames(t11w)))
+wards <- data.frame(WD22CD = ids,
+  ward_social_2011  = 100 * t11w[ids, "social"]  / t11w[ids, "total"], ward_social_2021  = 100 * t21w[ids, "social"]  / t21w[ids, "total"],
+  ward_private_2011 = 100 * t11w[ids, "private"] / t11w[ids, "total"], ward_private_2021 = 100 * t21w[ids, "private"] / t21w[ids, "total"])
+wards$ward_social_chg  <- wards$ward_social_2021  - wards$ward_social_2011
+wards$ward_private_chg <- wards$ward_private_2021 - wards$ward_private_2011
 
-# --- Ward layer ---------------------------------------------------------------------------------------------------
-wards <- unique(wdpc[, c("WD17CD", "WD17NM", "PCON17CD", "PCON17NM")]); names(wards) <- c("WD11CD", "WD11NM", "PCON_CD", "PCON_NM")
-wl <- lsoa$WD11CD; ids <- wards$WD11CD
-ba <- function(e) cbind(total = e[, "total"], black_african = e[, "black_african"])
-# LSOAs do not nest in wards (111 of 639 have output areas in more than one), so a ward's totals are built from its output
-# areas (2011 from the Census ward table, 2001 from the allocated output areas), not by adding up LSOAs
-e01_w <- up(eth01_oa, w_of)[ids, ]; e11_w <- eth11_ward[ids, ]
-chk <- max(abs(rowsum(eth11_lsoa[lsoa$LSOA11CD, ], wl)[ids, "black_african"] - e11_w[, "black_african"]))
-cat("Black African 2011 per ward: largest difference between adding up the LSOAs assigned to it and the Census ward table:", chk, "\n")
-wards <- cbind(wards, n_lsoa = as.integer(table(wl)[ids]), outcome(e01_w, e11_w, ids))
-wards$ward_social_2001  <- 100 * t01w[ids, "social"]  / t01w[ids, "total"]
-wards$ward_social_2011  <- 100 * t11w[ids, "social"]  / t11w[ids, "total"]
-wards$ward_social_chg   <- wards$ward_social_2011 - wards$ward_social_2001
-wards$ward_private_2001 <- 100 * t01w[ids, "private"] / t01w[ids, "total"]
-wards$ward_private_2011 <- 100 * t11w[ids, "private"] / t11w[ids, "total"]
-wards$ward_private_chg  <- wards$ward_private_2011 - wards$ward_private_2001
-
-# --- Constituency layer -----------------------------------------------------------------------------------------------
-res <- rd("elec/birmingham_2010_results.csv")
-pc  <- unique(wdpc[, c("PCON17CD", "PCON17NM")]); names(pc) <- c("PCON_CD", "PCON_NM"); ids <- pc$PCON_CD
-w2p <- setNames(wards$PCON_CD, wards$WD11CD)      # constituencies are built from whole wards
-e01_p <- rowsum(e01_w, w2p[rownames(e01_w)])[ids, ]; e11_p <- rowsum(e11_w, w2p[rownames(e11_w)])[ids, ]
-pc <- cbind(pc, n_wards = as.integer(table(wards$PCON_CD)[ids]), outcome(e01_p, e11_p, ids))
-ri <- match(pc$PCON_NM, res$name); stopifnot(!anyNA(ri))
-pc$pcon_labour_2010  <- 100 * res$lab[ri] / res$valid_votes[ri]
-pc$pcon_conservative_2010 <- 100 * res$con[ri] / res$valid_votes[ri]
-pc$pcon_turnout_2010 <- res$turnout[ri]
+# --- Constituency vote (general election 4 July 2024) -----------------------------------------------------------------
+res <- rd("elec/birmingham_2024_results.csv")
+ri  <- match(lsoa$PCON_CD, res$code); stopifnot(!anyNA(ri))
+pcv <- data.frame(pcon_labour_2024 = 100 * res$lab / res$valid_votes, pcon_conservative_2024 = 100 * res$con / res$valid_votes,
+                  pcon_turnout_2024 = res$turnout)[ri, ]
 
 # --- LSOA layer ------------------------------------------------------------------------------------------------------
-ids <- lsoa$LSOA11CD
-lsoa <- cbind(lsoa, outcome(eth01_lsoa, eth11_lsoa, ids))
-mi <- match(lsoa$MSOA11CD, msoa$MSOA11CD); wi <- match(lsoa$WD11CD, wards$WD11CD); pi <- match(lsoa$PCON_CD, pc$PCON_CD)
-for (v in c("msoa_div_2001", "msoa_div_2011", "msoa_div_chg")) lsoa[[v]] <- msoa[[v]][mi]
-for (v in c("ward_social_2001", "ward_social_2011", "ward_social_chg", "ward_private_2001", "ward_private_2011", "ward_private_chg"))
+lsoa <- cbind(lsoa, outcome(eth11_lsoa, eth21_lsoa, lsoa$LSOA21CD))
+mi <- match(lsoa$MSOA21CD, msoa$MSOA21CD); wi <- match(lsoa$WD22CD, wards$WD22CD)
+for (v in c("msoa_div_2011", "msoa_div_2021", "msoa_div_chg")) lsoa[[v]] <- msoa[[v]][mi]
+for (v in c("ward_social_2011", "ward_social_2021", "ward_social_chg", "ward_private_2011", "ward_private_2021", "ward_private_chg"))
   lsoa[[v]] <- wards[[v]][wi]
-for (v in c("pcon_labour_2010", "pcon_conservative_2010", "pcon_turnout_2010")) lsoa[[v]] <- pc[[v]][pi]
+lsoa <- cbind(lsoa, pcv)
+stopifnot(abs(sum(lsoa$y_change)) < 1e-9, !anyNA(lsoa))
+
+# --- Whole-number counts that keep their totals, then derived variables worked out from them ----------------------------
+lr <- function(v) { f <- floor(v + 1e-9); n <- round(sum(v)) - sum(f)       # largest-remainder rounding
+  if (n > 0) { i <- order(v - f, decreasing = TRUE)[seq_len(n)]; f[i] <- f[i] + 1 }; as.integer(f) }
+lsoa$ba_2011 <- lr(lsoa$ba_2011); lsoa$pop_2011 <- lr(lsoa$pop_2011)
+stopifnot(all(lsoa$ba_2011 <= lsoa$pop_2011), sum(lsoa$ba_2011) == round(N11))
+lsoa$pct_ba_2011   <- 100 * lsoa$ba_2011 / lsoa$pop_2011
+lsoa$ba_share_2011 <- 100 * lsoa$ba_2011 / sum(lsoa$ba_2011)
+y <- lsoa$ba_share_2021 - lsoa$ba_share_2011
+lsoa$y_change <- y; lsoa$y_change_asinh <- asinh(y / Y_SCALE)
+lsoa$ba_2021 <- as.integer(lsoa$ba_2021); lsoa$pop_2021 <- as.integer(lsoa$pop_2021)
+lsoa$imd_rank <- as.integer(lsoa$imd_rank); lsoa$imd_decile <- as.integer(lsoa$imd_decile); lsoa$pop_2022 <- as.integer(lsoa$pop_2022)
+for (n in names(lsoa)) if (is.double(lsoa[[n]])) lsoa[[n]] <- round(lsoa[[n]], 3)
+names(lsoa) <- tolower(names(lsoa))
+names(lsoa)[names(lsoa) %in% c("wd22cd", "wd22nm")] <- c("ward22cd", "ward22nm")[match(names(lsoa)[names(lsoa) %in% c("wd22cd", "wd22nm")], c("wd22cd", "wd22nm"))]
+first <- c("lsoa21cd", "lsoa21nm", "msoa21cd", "msoa21nm", "ward22cd", "ward22nm", "pcon_cd", "pcon_nm")
+lsoa <- lsoa[, c(first, setdiff(names(lsoa), first))]
 
 # --- Boundaries ---------------------------------------------------------------------------------------------------
-geo <- function(f, key, tab, tabkey) {
-  g <- st_transform(st_read(file.path(src, f), quiet = TRUE), 27700)
-  g <- g[match(tab[[tabkey]], g[[key]]), key]; stopifnot(!anyNA(st_dimension(g)))
-  g <- st_set_geometry(tab, st_geometry(g)); st_geometry(g) <- "geometry"; g
-}
-low <- function(d) { names(d) <- tolower(names(d)); d }
-sets <- list(
-  birmingham_lsoa           = geo("bdy/lsoa11.geojson", "LSOA11CD", low(lsoa), "lsoa11cd"),
-  birmingham_msoa           = geo("bdy/msoa11.geojson", "MSOA11CD", low(msoa), "msoa11cd"),
-  birmingham_wards          = geo("bdy/ward11.geojson", "wd11cd",   low(wards), "wd11cd"),
-  birmingham_constituencies = geo("bdy/pcon.geojson",   "PCON17CD", low(pc), "pcon_cd"))
-for (nm in names(sets)) {
-  g <- sets[[nm]]; names(g)[names(g) == "wd11cd"] <- "ward11cd"; names(g)[names(g) == "wd11nm"] <- "ward11nm"
-  f <- file.path(out, paste0(nm, ".gpkg")); if (file.exists(f)) file.remove(f)
-  st_write(g, f, layer = nm, quiet = TRUE, layer_options = "GEOMETRY_NAME=geometry")
-  cat(nm, nrow(g), "rows,", ncol(g) - 1, "columns,", file.size(f) %/% 1024, "KB\n")
-  if (nm == "birmingham_lsoa") {      # the same rows without geometry, to model without sf; join to the map on lsoa11cd
-    write.csv(st_drop_geometry(g), file.path(out, "birmingham_lsoa_table.csv"), row.names = FALSE)
-    cat("birmingham_lsoa_table", nrow(g), "rows\n")
-  }
-}
-saveRDS(sets, file.path(src, "work_sets.rds"))
-
-# --- Data dictionary ---------------------------------------------------------------------------------------------------
-D <- c(
-  lsoa11cd = "2011 Lower layer Super Output Area (LSOA) code (ONS)", lsoa11nm = "2011 LSOA name",
-  msoa11cd = "2011 Middle layer Super Output Area (MSOA) code: every LSOA sits wholly inside one MSOA",
-  msoa11nm = "2011 MSOA name",
-  ward11cd = "2011 ward code. For LSOAs (and MSOAs) this is the ward that holds most of the area's residents: LSOAs and MSOAs do not nest exactly in wards (111 of the 639 LSOAs have output areas in more than one ward), so wards and MSOAs are partly crossed",
-  ward11nm = "2011 ward name", pcon_cd = "Westminster parliamentary constituency code (2010-2024 boundaries); constituencies are built from whole wards",
-  pcon_nm = "Constituency name", n_lsoa = "Number of LSOAs assigned to the area", n_wards = "Number of wards in the constituency",
-  imd_score = "English Indices of Deprivation 2019 IMD score: higher means more deprived. For MSOAs, the mean of the LSOA scores weighted by their mid-2015 population",
-  imd_rank = "IMD 2019 rank among the 32,844 LSOAs in England (1 = most deprived)",
-  imd_decile = "IMD 2019 decile among LSOAs in England (1 = most deprived 10%)",
-  pop_2015 = "Mid-2015 population estimate used by the IMD (excluding prisoners)",
-  pop_2001 = "Usual residents, 2001 Census. Counts were published for 2001 output areas; where an output area was split or merged in 2011 its count is shared among the 2011 output areas in proportion to their 2011 population, so a few values are not whole numbers",
-  pop_2011 = "Usual residents, 2011 Census",
-  ba_2001 = "Black African residents, 2001 Census ('Black or Black British: Black African'); see pop_2001 for how counts reach 2011 areas",
-  ba_2011 = "Black African residents, 2011 Census ('Black/African/Caribbean/Black British: African')",
-  pct_ba_2001 = "Black African residents as a percentage of the area's residents, 2001 (the X variable)",
-  pct_ba_2011 = "Black African residents as a percentage of the area's residents, 2011",
-  ba_share_2001 = "n/N x 100 for 2001: the area's percentage of all of Birmingham's Black African residents (N = 6,191)",
-  ba_share_2011 = "n/N x 100 for 2011: the area's percentage of all of Birmingham's Black African residents (N = 29,991)",
-  y_change = "The outcome (Y): ba_share_2011 minus ba_share_2001, in percentage points of Birmingham's Black African population. Positive = the area gained share of the group, whatever happened to the group's total; it adds up to exactly 0 across the areas of a layer",
-  y_change_asinh = "Second version of Y: asinh(y_change / 0.1). Zero still means no change and the sign is kept; values near zero are almost unchanged and large values are pulled in (skewness 0.96 and kurtosis 23 for y_change among LSOAs become about 0.0 and 3.3). The 0.1 is fixed for LSOA-sized values, so it compresses the larger MSOA, ward and constituency values more",
-  msoa_div_2001 = "Ethnic diversity of the MSOA in 2001: Simpson's index, 1 minus the sum of squared shares of 13 ethnic groups that exist in both censuses (0 = one group, higher = more diverse; the maximum possible is 0.92)",
-  msoa_div_2011 = "Ethnic diversity of the MSOA in 2011 (same groups and index)", msoa_div_chg = "msoa_div_2011 minus msoa_div_2001",
-  ward_social_2001 = "Percentage of households in the ward renting from a council or housing association, 2001 (2001 output areas shared out to 2011 as for pop_2001, then added up by ward)",
-  ward_social_2011 = "Percentage of households renting from a council or other social landlord, 2011", ward_social_chg = "ward_social_2011 minus ward_social_2001",
-  ward_private_2001 = "Percentage of households renting from a private landlord or letting agency, 2001 (the 2001 'other' category is not counted)",
-  ward_private_2011 = "Percentage of households renting from a private landlord or letting agency, 2011", ward_private_chg = "ward_private_2011 minus ward_private_2001",
-  pcon_labour_2010 = "Labour's percentage of the valid votes in the constituency, general election 6 May 2010",
-  pcon_conservative_2010 = "Conservative percentage of the valid votes, 2010", pcon_turnout_2010 = "Turnout (percentage of the electorate), 2010")
-dict <- do.call(rbind, lapply(c(names(sets), "birmingham_lsoa_table"), function(nm) {
-  cols <- sub("^wd11", "ward11", setdiff(names(sets[[sub("_table$", "", nm)]]), "geometry"))
-  data.frame(dataset = nm, column = cols, description = unname(D[cols]), stringsAsFactors = FALSE)
-}))
-stopifnot(!anyNA(dict$description))
-write.csv(dict, file.path(out, "birmingham_dictionary.csv"), row.names = FALSE, na = "")
-cat("birmingham_dictionary:", nrow(dict), "rows\n")
+g <- st_read(file.path(src, "bdy/lsoa21.geojson"), quiet = TRUE)
+st_crs(g) <- NA_crs_; st_crs(g) <- 27700      # fetched with outSR=27700, so the coordinates are already British National Grid
+g <- g[match(lsoa$lsoa21cd, g$LSOA21CD), ]; stopifnot(!anyNA(st_dimension(g)))
+lsoa <- st_set_geometry(lsoa, st_geometry(g)); st_geometry(lsoa) <- "geometry"
+dir.create(out, showWarnings = FALSE, recursive = TRUE)
+st_write(lsoa, file.path(out, "birmingham_lsoa.gpkg"), delete_dsn = TRUE, quiet = TRUE, layer = "birmingham_lsoa",
+         layer_options = "GEOMETRY_NAME=geometry")
+cat("Wrote", nrow(lsoa), "LSOAs,", ncol(lsoa), "columns to", file.path(out, "birmingham_lsoa.gpkg"), "\n")
+cat("Black African 2011:", sum(lsoa$ba_2011), " 2021:", sum(lsoa$ba_2021), " population 2011:", sum(lsoa$pop_2011),
+    " 2021:", sum(lsoa$pop_2021), "\n")
+cat("y_change sums to", sum(lsoa$y_change), "; skew/kurtosis raw vs asinh:\n")
+sk <- function(x) { z <- (x - mean(x)) / sd(x); c(skew = mean(z^3), kurt = mean(z^4)) }
+print(rbind(raw = sk(lsoa$y_change), asinh = sk(lsoa$y_change_asinh)))

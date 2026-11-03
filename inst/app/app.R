@@ -1580,12 +1580,13 @@ run_code <- function(code_text) {
   c(result, list(plot_files = plot_files, widgets = widgets %||% character(0), wd_changed = wd_changed))
 }
 
-# --- Look at an item added for context (the magnifier beside it in the context list) -----------------
+# --- Look at an item added for context (the binoculars beside it in the context list) -----------------
 # Everything here runs on the student's own computer and sends nothing to Claude. Each part is wrapped so that
 # an object that cannot be inspected gives a short message instead of an error.
 
 INSPECT_ICON <- HTML(paste0(
-  '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.2" y2="16.2"/></svg>'))
+  '<svg viewBox="0 0 24 24"><circle cx="6.5" cy="16" r="4"/><circle cx="17.5" cy="16" r="4"/>',
+  '<path d="M10.5 16h3"/><path d="M3.5 13.5 6 5.5h3.5L10.5 13"/><path d="M20.5 13.5 18 5.5h-3.5L13.5 13"/></svg>'))   # binoculars: look, not search
 
 # Evaluate with a time limit, so that a huge object cannot freeze the app
 inspect_with_limit <- function(expr, secs = 15) {
@@ -2976,14 +2977,14 @@ ui <- fluidPage(
       #prompt.cm-busy { background-color: #bdbdbd; }
       .cm-prompt-notice { position: absolute; top: 1px; left: 1px; right: 1px; bottom: 1px; padding: 6px 12px;
         background: #fff; border-radius: 3px; font-size: 14px; line-height: 1.42857; overflow: hidden; pointer-events: none; }
-      /* Magnifier beside each file / object in the context list, to the left of the tick or cross */
+      /* Binoculars beside each file / object in the context list, to the left of the tick or cross */
       #context_list_box .checkbox { position: relative; padding-left: 26px; }
       #context_list_box .cm-inspect { position: absolute; left: 2px; top: 50%; transform: translateY(-50%);
         width: 20px; height: 18px; padding: 0; line-height: 1; background: transparent; color: #888;
         border: 1px solid transparent; border-radius: 3px; cursor: pointer; }
       #context_list_box .cm-inspect:hover { color: #222; background: #eee; border-color: #ccc; }
-      #context_list_box .cm-inspect svg { width: 12px; height: 12px; vertical-align: -1px; fill: none; stroke: currentColor;
-        stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+      #context_list_box .cm-inspect svg { width: 14px; height: 14px; vertical-align: -1px; fill: none; stroke: currentColor;
+        stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
       .cm-prompt-echo { height: 22px; margin: 6px 0 4px 0; font-size: 0.82em; color: #777; }
       .cm-prompt-echo .cm-echo { display: flex; align-items: baseline; gap: 6px; }
       .cm-prompt-echo .cm-echo-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
@@ -2992,7 +2993,7 @@ ui <- fluidPage(
       .cm-undo-li { float: left; list-style: none; margin: 11px 0 0 8px; }
       .cm-undo-btn { line-height: 1; padding: 1px 5px; border-radius: 3px; }
       .cm-undo-btn svg { width: 11px; height: 11px; vertical-align: -1px; fill: none; stroke: currentColor;
-                         stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+                         stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
       .cm-undo-btn svg.cm-redo-ico, .cm-undo-btn.is-redo svg.cm-undo-ico { display: none; }
       .cm-undo-btn.is-redo svg.cm-redo-ico { display: inline; }
     ")),
@@ -3831,7 +3832,7 @@ HELP_TEXTS <- list(
     "until you do something else, such as ask a new prompt or recall another entry."
   ),
   inspect_item = paste(
-    "Look at this (magnifier beside a file or object in the context list) — Opens a window to look at it: its",
+    "Look at this (binoculars beside a file or object in the context list) — Opens a window to look at it: its",
     "table (the first 200 rows; for spatial data the attribute table), its variables, a summary and its",
     "structure; for spatial data also the geometry type, coordinate system and extent. It is shown on your own",
     "screen only and nothing is sent to Claude. If an item cannot be shown you are simply told so."
@@ -4143,7 +4144,7 @@ server <- function(input, output, session) {
 
   show_student_disclaimer <- function() {
     showModal(modalDialog(
-      title = "Before you begin",
+      title = "A message from Klaus",
       tags$p(
         "klausmate uses Anthropic's Claude AI (operated by Anthropic, Inc., USA)",
         "to help you with your R code. Before continuing, please note:"
@@ -5101,8 +5102,8 @@ server <- function(input, output, session) {
                            if (on) "true" else "false"))
     shinyjs::toggleState("clear_prompt", condition = !on)
   }
-  # TRUE on a fresh open; FALSE on pause-resume. Cleared when the student presses Clear.
-  protection_notice_active <- reactiveVal(!.resuming_pause)
+  # TRUE on a fresh open; FALSE on pause-resume, or once it has been cleared in this R session.
+  protection_notice_active <- reactiveVal(!.resuming_pause && !isTRUE(getOption(".klausmate_notice_cleared")))
   observe(freeze_prompt(isTRUE(ui_busy()) || isTRUE(ask_code_active())))
   observe({
     if (ui_busy()) {
@@ -6331,7 +6332,7 @@ server <- function(input, output, session) {
       id = "context_list_box",
       checkboxGroupInput("context_list_checked", label = NULL,
         choiceNames  = lapply(seq_along(choices), function(i) tagList(
-          # the magnifier sits to the left of the tick (placed by CSS); it opens the Look-at window
+          # the binoculars sit to the left of the tick (placed by CSS); it opens the Look-at window
           tags$button(type = "button", class = "cm-inspect", `data-val` = unname(choices)[i],
                       `data-help-id` = "inspect_item", title = "Look at this: table, variables, summary, structure",
                       onclick = "event.preventDefault(); event.stopPropagation(); Shiny.setInputValue('inspect_item', this.getAttribute('data-val'), {priority: 'event'});",
@@ -6342,7 +6343,7 @@ server <- function(input, output, session) {
     )
   })
 
-  # Look at an item added for context (from its magnifier button)
+  # Look at an item added for context (from its binoculars button)
   show_inspect <- function(val) {
     kind <- if (startsWith(val, "file::")) "file" else "obj"
     nm   <- sub("^(file|obj)::", "", val)
@@ -7291,6 +7292,7 @@ server <- function(input, output, session) {
     if (!identical(ask_mode(), "answer")) hide_changes_tab()
     updateTextAreaInput(session, "prompt", value = "")
     if (protection_notice_active()) protection_notice_active(FALSE)
+    options(.klausmate_notice_cleared = TRUE)
   })
 
   do_new_conversation_reset <- function() {

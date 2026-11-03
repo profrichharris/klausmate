@@ -35,7 +35,7 @@ klaus()
 
 The app opens in your browser (or the RStudio Viewer). The first time:
 
-1. Read the "Before you begin" notice, press **I understand**, then press **Clear** in the
+1. Read the "A message from Klaus" notice, press **I understand**, then press **Clear** in the
    prompt box.
 2. Load your **key file**: your instructor gives you a `.key` file (and a 6-digit PIN,
    separately). Press **Browse** and choose the file, or give its web address with
