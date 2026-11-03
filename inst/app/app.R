@@ -2914,6 +2914,22 @@ ui <- fluidPage(
         var f = e.target.closest && e.target.closest('.cm-float');
         if (f && f.style.zIndex !== String(floatZ)) f.style.zIndex = String(++floatZ);
       }, true);
+      // An expanded graphic stays open only while the Past code window is used to replace it (the window's Output
+      // buttons, its title for dragging or bringing it forward, and the graphic's own controls). Any other click
+      // closes it: a button, a tab, a box, anything else on the page (keyboard shortcuts press buttons, so they count).
+      document.addEventListener('click', function(e) {
+        var m = document.getElementById('shiny-modal');
+        if (!m || !m.querySelector('.cm-expanded') || !document.body.classList.contains('cm-nonmodal-open')) return;
+        var t = e.target; if (!t || !t.closest) return;
+        if (t.closest('#shiny-modal')) return;
+        var fl = t.closest('.cm-float');
+        if (fl && fl.id === 'pastcode_float') {
+          var b = t.closest('button');
+          if (!b || /^output_code_/.test(b.id)) return;
+        }
+        if (t.closest('.cm-wthumb, img[onclick*=\"plot_expand\"]')) return;     // another thumbnail replaces it
+        if (window.jQuery) jQuery('#shiny-modal').modal('hide');
+      }, true);
       // The expanded plot / interactive plot: no backdrop, no focus trap, and the page behind stays usable
       if (window.jQuery) {
         jQuery(document).on('shown.bs.modal', function() {
@@ -5188,6 +5204,13 @@ server <- function(input, output, session) {
   # replaces it, choosing the same kind of thing (a map for a map; see pick_expand_target()).
   expanded_info <- reactiveVal(NULL)
   observeEvent(input$expanded_closed, expanded_info(NULL))
+  # An expanded graphic is replaced (not closed) only when Output is pressed in the open floating Past code window
+  # (see the Output observer); every other recall, and every other action, closes it
+  expand_keep  <- new.env(); expand_keep$on <- FALSE
+  close_expanded <- function() {
+    if (!is.null(isolate(expanded_info()))) { removeModal(); expanded_info(NULL) }
+    invisible(NULL)
+  }
   # Is this output a map? From the class of the object that drew it, or the code that drew it, or (for a page) its text
   output_is_map <- function(kind, key) {
     info <- if (identical(kind, "plot")) get0(key, envir = plot_code_cache, inherits = FALSE)
@@ -5882,6 +5905,7 @@ server <- function(input, output, session) {
   # Recall an unconfirmed entry: its code, and the changes from the previous version if it had them,
   # but no R output (it has not been run)
   observeEvent(input$recall_unconf_code, {
+    close_expanded()
     e <- Filter(function(x) identical(as.integer(x$uid), as.integer(input$recall_unconf_code)), unconf_code())
     req(length(e) == 1)
     e <- e[[1]]
@@ -5920,19 +5944,25 @@ server <- function(input, output, session) {
           if (ii > length(h)) return()
           entry <- h[[ii]]
           rec <- past_code_interaction(entry)
-          if (is.null(rec) && active_run_matches(entry) && active_run_has_output()) {   # the run on screen now: its output is already loaded
-            h[[ii]]$ts <- Sys.time(); run_history(h)
-            goto_tab("R output"); open_past_float()
-            return(invisible(NULL))
-          }
-          req(interaction_has_output(rec))
-          h[[ii]]$ts <- Sys.time()
-          run_history(h)
-          capture_active_code()
-          recall_interaction(rec, code_override = entry$code, prefer = "output")
-          open_past_float()
+          # a graphic stays expanded (replaced by this output's) only if the Past code window is already floating
+          expand_keep$on <- isTRUE(pastcode_float_open()) && !is.null(isolate(expanded_info()))
+          tryCatch({
+            if (is.null(rec) && active_run_matches(entry) && active_run_has_output()) {   # the run on screen now: its output is already loaded
+              h[[ii]]$ts <- Sys.time(); run_history(h)
+              goto_tab("R output"); open_past_float()
+              if (isTRUE(expand_keep$on)) reexpand_after_recall() else close_expanded()
+              return(invisible(NULL))
+            }
+            req(interaction_has_output(rec))
+            h[[ii]]$ts <- Sys.time()
+            run_history(h)
+            capture_active_code()
+            recall_interaction(rec, code_override = entry$code, prefer = "output")
+            open_past_float()
+          }, finally = expand_keep$on <- FALSE)
         }, ignoreInit = TRUE)
         observeEvent(input[[paste0("repeat_code_", ii)]], {
+          close_expanded()
           h <- run_history()
           if (ii > length(h)) return()
           entry <- h[[ii]]
@@ -7165,7 +7195,7 @@ server <- function(input, output, session) {
     goto_tab(tab)
     output$run_status <- renderUI(NULL)
     active_code_id(rec$seq)
-    reexpand_after_recall()      # an expanded output is replaced by the recalled one (same kind if possible)
+    if (isTRUE(expand_keep$on)) reexpand_after_recall() else close_expanded()   # replaced only by Output in the open floating window
     invisible(NULL)
   }
 
