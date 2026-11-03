@@ -3326,10 +3326,33 @@ ui <- fluidPage(
             }
           }
         }
+        // The Past code entry behind what is on view: marked (yellow) in the Past code tab and in the floating Past code
+        // window, and marked again whenever either list is redrawn or shown
+        var pastCodeKey = '';
+        function cmMarkPastCode() {
+          document.querySelectorAll('.cm-code-row.cm-hl').forEach(function(r) { r.classList.remove('cm-hl'); });
+          if (!pastCodeKey) return;
+          document.querySelectorAll('.cm-code-row').forEach(function(r) {
+            if (r.getAttribute('data-ck') === pastCodeKey) {
+              r.classList.add('cm-hl');
+              if (r.offsetParent !== null) r.scrollIntoView({block: 'nearest'});
+            }
+          });
+        }
+        if (window.jQuery) {
+          jQuery(document).on('shiny:value', function(e) {
+            if (e.name === 'past_code_ui' || e.name === 'past_code_float_ui') setTimeout(cmMarkPastCode, 60);
+          });
+          jQuery(document).on('shown.bs.tab', function() { setTimeout(cmMarkPastCode, 60); });
+        }
+        window.cmMarkPastCodeSoon = function() { setTimeout(cmMarkPastCode, 60); };
         function cmRegister() {
-          if (window.Shiny && Shiny.addCustomMessageHandler) Shiny.addCustomMessageHandler('cm_highlight_prompt',
-            function(msg) { setTimeout(function() { cmHighlight(msg); }, 150); });
-          else setTimeout(cmRegister, 200);
+          if (window.Shiny && Shiny.addCustomMessageHandler) {
+            Shiny.addCustomMessageHandler('cm_highlight_prompt',
+              function(msg) { setTimeout(function() { cmHighlight(msg); }, 150); });
+            Shiny.addCustomMessageHandler('cm_highlight_pastcode',
+              function(msg) { pastCodeKey = (msg && msg.key) || ''; setTimeout(cmMarkPastCode, 100); });
+          } else setTimeout(cmRegister, 200);
         }
         cmRegister();
         cb.addEventListener('change', function() {
@@ -3384,7 +3407,7 @@ ui <- fluidPage(
       #main_tabs .cm-switch-li { float: left; margin: 0 0 0 16px; padding-top: 11px; font-size: 0.85em; color: #333; white-space: nowrap; }
       #main_tabs .cm-switch-li > * { vertical-align: middle; }
       .cm-switch-lbl { display: inline-block; margin: 0 6px; }
-      .cm-prompt-row.cm-hl { background-color: #fff3b0; border-radius: 3px; }
+      .cm-prompt-row.cm-hl, .cm-code-row.cm-hl { background-color: #fff3b0; border-radius: 3px; }
       .pref-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 12px; }
       .pref-grid.pref-grid-3 { grid-template-columns: 1fr 1fr 1fr; }      /* the nine preferred approaches: three by three */
       a.action-button.disabled, a.action-button[disabled] { pointer-events: none; opacity: 0.5; }
@@ -5689,7 +5712,8 @@ server <- function(input, output, session) {
       "cursor: pointer; color: #555;")
     items <- lapply(rows[ord], function(r) {
       conf <- identical(r$kind, "confirmed")
-      div(style = "display: flex; align-items: flex-start; border-bottom: 1px solid #eee; padding: 2px 0;",
+      div(class = "cm-code-row", `data-ck` = if (conf) paste0("c", r$i) else paste0("u", r$e$uid),
+          style = "display: flex; align-items: flex-start; border-bottom: 1px solid #eee; padding: 2px 0;",
         tags$p(make_label(r$e), style = paste0(
           "margin: 0; flex: 1;",
           "font-size: 0.85em; color: #444;",
@@ -6599,7 +6623,7 @@ server <- function(input, output, session) {
     if (length(credits) > 0)
       showNotification(tagList(tags$strong("Please credit the data: "), paste(unlist(credits), collapse = " "),
                                tags$br(), tags$em("The full credit wording is in your code log.")),
-                       type = "message", duration = NULL)      # short, so it stays until closed
+                       type = "message", duration = 20)        # short enough to read in 20 seconds, then it fades away (or close it)
   }
 
 
@@ -8703,6 +8727,39 @@ server <- function(input, output, session) {
     updateTabsetPanel(session, "prompt_tabs", selected = "Past prompts")
     session$sendCustomMessage("cm_highlight_prompt", list(text = hl))
   })
+
+  # Whenever the Past prompts list is showing, the prompt behind what is on view in the Code and related tabs (or the Answer
+  # tab) is highlighted there, whatever brought it up: Recall or Output in Past code, Past prompts or Past answers, Undo or
+  # Redo, a new request. This only marks the row; it never changes which tab is showing.
+  observeEvent(list(last_prompt_for_code(), ask_mode(), answer_latest(), prompt_history(), input$prompt_tabs), {
+    req(identical(input$prompt_tabs, "Past prompts"))
+    hl <- if (identical(ask_mode(), "answer")) answer_latest()$question %||% "" else last_prompt_for_code() %||% ""
+    session$sendCustomMessage("cm_highlight_prompt", list(text = hl))
+  }, ignoreInit = TRUE)
+
+  # The Past code entry that matches the code now on view is marked (yellow) in the Past code tab and the floating window:
+  # usually the top row, but another one after a Recall from Past prompts or Past conversations. No mark in the Answer view,
+  # or when the code in the editor has been changed and matches no entry.
+  observeEvent(list(input$code_editor, run_history(), unconf_code(), ask_mode()), {
+    key <- ""
+    if (!identical(ask_mode(), "answer")) {
+      now <- trimws(input$code_editor %||% "")
+      if (nzchar(now)) {
+        h <- run_history(); cand <- list()
+        for (i in seq_along(h))
+          if (identical(h[[i]]$source, "ask_code") && identical(trimws(h[[i]]$code %||% ""), now))
+            cand[[length(cand) + 1L]] <- list(key = paste0("c", i), ts = as.numeric(h[[i]]$ts %||% 0), pos = i)
+        for (e in unconf_code())
+          if (identical(trimws(e$code %||% ""), now))
+            cand[[length(cand) + 1L]] <- list(key = paste0("u", e$uid), ts = as.numeric(e$ts %||% 0), pos = 0L)
+        if (length(cand) > 0) {                       # the one the list shows first: newest, then latest
+          o <- order(-vapply(cand, `[[`, 0, "ts"), -vapply(cand, function(x) as.numeric(x$pos), 0))
+          key <- cand[[o[1]]]$key
+        }
+      }
+    }
+    session$sendCustomMessage("cm_highlight_pastcode", list(key = key))
+  }, ignoreInit = FALSE)
 
   # --- Answer tab ------------------------------------------------------------------
   answer_card <- function(entry) {
