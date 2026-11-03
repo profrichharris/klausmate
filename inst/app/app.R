@@ -2839,39 +2839,78 @@ ui <- fluidPage(
     })();
   ")),
 
-  # The Look-at window: a floating panel (not a modal), so it stays open and in front while the student works.
-  # It is dragged by its title bar; the server fills it and shows or hides it (see show_inspect()).
+  # Floating panels (not modals), so they stay open and in front while the student works, and are dragged by their
+  # title bar: the Look-at window (#inspect_float, filled by show_inspect()) and the Past code list that appears after
+  # Recall or Output (#pastcode_float). They sit below Bootstrap modals, so an expanded plot is drawn over them.
   tags$style(HTML("
-    #inspect_float { display: none; position: fixed; top: 110px; right: 40px; width: min(760px, 92vw); z-index: 1030;
-      background: #fff; border: 1px solid #999; border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,0.28); }
-    #inspect_float .cm-float-head { display: flex; align-items: center; justify-content: space-between; cursor: move;
+    .cm-float { display: none; position: fixed; z-index: 1030; background: #fff; border: 1px solid #999;
+      border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,0.28); }
+    #inspect_float { top: 110px; right: 40px; width: min(760px, 92vw); }
+    #pastcode_float { top: 80px; left: 20px; width: min(640px, 92vw); }
+    .cm-float .cm-float-head { display: flex; align-items: center; justify-content: space-between; cursor: move;
       padding: 6px 10px; background: #eee; border-bottom: 1px solid #ccc; border-radius: 6px 6px 0 0; user-select: none; }
-    #inspect_float .cm-float-title { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    #inspect_float .cm-float-x { border: none; background: transparent; font-size: 20px; line-height: 1; cursor: pointer; color: #555; }
-    #inspect_float .cm-float-x:hover { color: #000; }
-    #inspect_float .cm-float-body { padding: 8px 12px; max-height: 70vh; overflow: auto; }
-    #inspect_float .cm-float-foot { padding: 6px 12px; text-align: right; border-top: 1px solid #ddd; }
+    .cm-float .cm-float-title { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cm-float .cm-float-x { border: none; background: transparent; font-size: 20px; line-height: 1; cursor: pointer; color: #555; }
+    .cm-float .cm-float-x:hover { color: #000; }
+    .cm-float .cm-float-body { padding: 8px 12px; max-height: 70vh; overflow: auto; }
+    #pastcode_float .cm-float-body { max-height: 190px; padding: 4px 12px; }
+    .cm-float .cm-float-foot { padding: 6px 12px; text-align: right; border-top: 1px solid #ddd; }
   ")),
-  tags$div(id = "inspect_float",
+  tags$div(id = "inspect_float", class = "cm-float",
     tags$div(id = "inspect_float_inner", uiOutput("inspect_float_ui"))),
+  tags$div(id = "pastcode_float", class = "cm-float",
+    tags$div(class = "cm-float-head",
+             tags$span(class = "cm-float-title", "Past code"),
+             tags$button(type = "button", class = "cm-float-x", title = "Close",
+                         onclick = "Shiny.setInputValue('pastcode_close', Math.random(), {priority: 'event'});", HTML("&times;"))),
+    tags$div(class = "cm-float-body", uiOutput("past_code_float_ui")),
+    tags$div(class = "cm-float-foot", actionButton("pastcode_close_btn", "Close"))),
   tags$script(HTML("
     (function() {
       var drag = null;
       document.addEventListener('mousedown', function(e) {
-        var h = e.target.closest && e.target.closest('#inspect_float .cm-float-head');
+        var h = e.target.closest && e.target.closest('.cm-float .cm-float-head');
         if (!h || (e.target.closest && e.target.closest('button'))) return;
-        var r = document.getElementById('inspect_float').getBoundingClientRect();
-        drag = {dx: e.clientX - r.left, dy: e.clientY - r.top};
+        var panel = h.closest('.cm-float'), r = panel.getBoundingClientRect();
+        drag = {panel: panel, dx: e.clientX - r.left, dy: e.clientY - r.top};
         e.preventDefault();
       });
       document.addEventListener('mousemove', function(e) {
         if (!drag) return;
-        var p = document.getElementById('inspect_float');
+        var p = drag.panel;
         p.style.left = Math.max(0, Math.min(window.innerWidth - 80, e.clientX - drag.dx)) + 'px';
         p.style.top  = Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.dy)) + 'px';
-        p.style.right = 'auto';
+        p.style.right = 'auto'; p.style.bottom = 'auto'; p.setAttribute('data-moved', '1');
       });
       document.addEventListener('mouseup', function() { drag = null; });
+      // The Past code panel first appears just above the row of tabs (Code, R output, Past code), so it does not cover them,
+      // unless the student has already moved it
+      window.cmPlacePastFloat = function() {
+        var p = document.getElementById('pastcode_float'); if (!p || p.getAttribute('data-moved') === '1') return;
+        var t = document.getElementById('main_tabs'), r = t ? t.getBoundingClientRect() : null;
+        p.style.left = (r ? Math.max(8, r.left) : 20) + 'px'; p.style.right = 'auto';
+        if (r && r.top > 220) { p.style.top = 'auto'; p.style.bottom = (window.innerHeight - r.top + 8) + 'px'; }   // grows upward from the tabs
+        else { p.style.bottom = 'auto'; p.style.top = '8px'; }
+      };
+      // Going to the Past code tab (by click or keyboard) closes the floating Past code window, which shrinks back into
+      // the tab. The server is told when it has gone, so that its own record agrees.
+      window.cmShrinkPastFloat = function() {
+        var p = document.getElementById('pastcode_float');
+        if (!p || getComputedStyle(p).display === 'none') return;
+        var tab = document.querySelector('#main_tabs a[data-value=\"Past code\"]');
+        var tr = tab ? tab.getBoundingClientRect() : null, pr = p.getBoundingClientRect();
+        if (tr) p.style.transformOrigin = ((tr.left + tr.width / 2) - pr.left) + 'px ' + ((tr.top + tr.height / 2) - pr.top) + 'px';
+        p.style.transition = 'transform 0.22s ease-in, opacity 0.22s ease-in';
+        p.style.transform = 'scale(0.05)'; p.style.opacity = '0';
+        setTimeout(function() {
+          p.style.display = 'none'; p.style.transition = ''; p.style.transform = ''; p.style.opacity = '';
+          if (window.Shiny) Shiny.setInputValue('pastcode_close', Math.random(), {priority: 'event'});
+        }, 240);
+      };
+      if (window.jQuery) jQuery(document).on('shown.bs.tab', function(e) {
+        var t = e.target;
+        if (t && t.getAttribute && t.getAttribute('data-value') === 'Past code') window.cmShrinkPastFloat();
+      });
       // Double-clicking a variable name puts it into the prompt box, at the cursor (where it was when the student last
       // left the box, or the end), with a space before it if needed. Dragging it there does the same.
       var caret = null;
@@ -4056,6 +4095,10 @@ HELP_TEXTS <- list(
   ),
   pkg_choice_cancel = paste(
     "Cancel — Closes this question without asking for code; your prompt stays as it is."
+  ),
+  pastcode_close_btn = paste(
+    "Close — Closes the floating Past code window. It also closes when you press Answer, Ask for Code, Run,",
+    "Pause or Quit."
   ),
   inspect_close_btn = paste(
     "Close — Closes the Look-at window. The window also closes when you press Answer, Ask for Code, Run,",
@@ -5557,6 +5600,20 @@ server <- function(input, output, session) {
     }))
   })
 
+  # The floating Past code panel: it opens when Recall or Output is used (in the tab or in the panel itself), so that one
+  # earlier output after another can be looked at without going back to the Past code tab. It closes with its own
+  # x / Close, or when Answer, Ask for Code, Run, Pause or Quit is pressed. Expanded plots are modals, so they are drawn over it.
+  pastcode_float_open <- reactiveVal(FALSE)
+  open_past_float <- function() {
+    pastcode_float_open(TRUE)
+    shinyjs::show("pastcode_float")
+    shinyjs::runjs("cmPlacePastFloat();")
+  }
+  observeEvent(input$pastcode_close,     { pastcode_float_open(FALSE); shinyjs::hide("pastcode_float") })
+  observeEvent(input$pastcode_close_btn, { pastcode_float_open(FALSE); shinyjs::hide("pastcode_float") })
+  for (b in c("ask_plain", "ask_code", "run_code", "pause_app", "quit"))
+    local({ bid <- b; observeEvent(input[[bid]], { pastcode_float_open(FALSE); shinyjs::hide("pastcode_float") }, ignoreInit = TRUE) })
+
   # The captured run behind a confirmed Past code entry (matched on the code that was run), and whether it produced
   # any output (R output, plots that still exist, widgets, or warnings): the Output button only shows when it did
   past_code_interaction <- function(entry) {
@@ -5580,7 +5637,9 @@ server <- function(input, output, session) {
     any(nzchar(console_output_rv())) || length(plot_files_rv()) > 0 || length(widget_files_rv()) > 0 ||
       length(warnings_rv()) > 0
 
-  output$past_code_ui <- renderUI({
+  # The list of past code blocks, shown in the Past code tab and (with `suffix` on the button ids, so that they stay unique)
+  # in the floating Past code panel that opens after Recall or Output
+  build_past_code_ui <- function(suffix = "") {
     full_history <- run_history()
     # Keep original indices so button IDs match the observer's lookup
     keep_idx <- which(vapply(full_history, function(e) identical(e$source, "ask_code"), logical(1)))
@@ -5622,18 +5681,18 @@ server <- function(input, output, session) {
         tags$span(style = "flex-shrink: 0; margin: 2px 6px 0 6px; font-size: 0.72em; color: #888;",
                   if (conf) "(confirmed)" else "(unconfirmed)"),
         if (conf)
-          tags$button("Recall", id = paste0("repeat_code_", r$i), style = btn_style,
+          tags$button("Recall", id = paste0("repeat_code_", r$i, suffix), style = btn_style,
                       onclick = paste0("Shiny.setInputValue('repeat_code_", r$i,
                                        "', Math.random(), {priority: 'event'});"))
         else
-          tags$button("Recall", id = paste0("recall_unconf_", r$e$uid), style = btn_style,
+          tags$button("Recall", id = paste0("recall_unconf_", r$e$uid, suffix), style = btn_style,
                       onclick = paste0("Shiny.setInputValue('recall_unconf_code', ", as.integer(r$e$uid),
                                        ", {priority: 'event'});")),
         {   # Output (to the right of Recall): like Recall, but opens the R output tab. Where the code produced no output the button is hidden and
             # disabled (kept in place so the Recall buttons stay lined up)
           has_out <- conf && (interaction_has_output(past_code_interaction(r$e)) ||
                               (active_run_matches(r$e) && active_run_has_output()))
-          tags$button("Output", id = paste0("output_code_", if (conf) r$i else paste0("u", r$e$uid)),
+          tags$button("Output", id = paste0("output_code_", if (conf) r$i else paste0("u", r$e$uid), suffix),
                       style = paste0(btn_style, if (!has_out) " visibility: hidden; pointer-events: none;"),
                       disabled = if (!has_out) NA else NULL,
                       onclick = if (has_out) paste0("Shiny.setInputValue('output_code_", r$i,
@@ -5642,7 +5701,9 @@ server <- function(input, output, session) {
       )
     })
     tagList(items)
-  })
+}
+  output$past_code_ui       <- renderUI(build_past_code_ui())
+  output$past_code_float_ui <- renderUI(build_past_code_ui("_f"))
 
   # Recall an unconfirmed entry: its code, and the changes from the previous version if it had them,
   # but no R output (it has not been run)
@@ -5666,6 +5727,7 @@ server <- function(input, output, session) {
       goto_tab("Code")
     }
     unconf_code(lapply(unconf_code(), function(x) { if (identical(x$uid, e$uid)) x$ts <- Sys.time(); x }))
+    open_past_float()
   })
 
   # Past code "Recall": reload that code block; if it is the code that produced a captured
@@ -5686,13 +5748,15 @@ server <- function(input, output, session) {
           rec <- past_code_interaction(entry)
           if (is.null(rec) && active_run_matches(entry) && active_run_has_output()) {   # the run on screen now: its output is already loaded
             h[[ii]]$ts <- Sys.time(); run_history(h)
-            return(goto_tab("R output"))
+            goto_tab("R output"); open_past_float()
+            return(invisible(NULL))
           }
           req(interaction_has_output(rec))
           h[[ii]]$ts <- Sys.time()
           run_history(h)
           capture_active_code()
           recall_interaction(rec, code_override = entry$code, prefer = "output")
+          open_past_float()
         }, ignoreInit = TRUE)
         observeEvent(input[[paste0("repeat_code_", ii)]], {
           h <- run_history()
@@ -5714,6 +5778,7 @@ server <- function(input, output, session) {
             last_code_description(entry$description %||% "")
             goto_tab("Code")
           }
+          open_past_float()
         }, ignoreInit = TRUE)
       })
     }
@@ -6096,6 +6161,7 @@ server <- function(input, output, session) {
       info <- data.frame(object = m$object, class = toupper(m$format), dims = vapply(m$bytes, fmt_bytes, ""),
                          title = m$title, loadname = NA_character_, key = paste0(PKGDATA_ONLINE, "::", m$id),
                          kind = "online", path = NA_character_, stringsAsFactors = FALSE)
+      info <- info[order(tolower(info$object)), , drop = FALSE]      # listed alphabetically (the rows are found by key, so the order is free)
       attr(info, "manifest") <- m; attr(info, "big") <- FALSE; attr(info, "values") <- list()
       assign(pkg, info, envir = pkgdata_store)
       return(info)
