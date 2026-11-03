@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.5 (2026-11-03)  
-**Current version:** 0.6.5
+**Last released:** 0.6.6 (2026-11-03)  
+**Current version:** 0.6.6
+
+Released in 0.6.6 (no unreleased changes; the Look-at window is a floating, draggable panel):
+- **The Look-at window is now a floating panel, not a modal** (user request): `#inspect_float` (static shell in the UI, CSS and a small drag script before the session-ended overlay) is dragged by its title bar, stays open and in front (z-index 1030, below Bootstrap modals) while the student types in the prompt, and keeps its position when reopened. `show_inspect()` sets `inspect_open(list(label, panels))`; `output$inspect_float_ui` renders the header (title, x), the tabs (`inspect_tabs`) and a Close button (`inspect_close_btn`, with help text); it is shown/hidden with `shinyjs::toggle`. It closes with its own x / Close, or when Answer, Ask for Code, Run, Pause or Quit is pressed (a loop of `observeEvent`s on `ask_plain`, `ask_code`, `run_code`, `pause_app`, `quit`). Error cases ("cannot show") remain small modals. Tested live (local data server via `options(klausmate.data_url)`, app on port 4323): opens with all tabs incl. Variable description, typing in the prompt keeps it open, dragging works, reopening keeps the position, Close, x, Answer, Ask for Code, Run and Pause all close it. 
 
 Released in 0.6.5 (no unreleased changes; two Birmingham datasets on one fixed geography with twentieths of IMD, Variable description tab for Klausmate's own datasets, `imd_q20_*`):
 - **Variable descriptions for all six online datasets** (2026-11-03): besides Birmingham, `chicago_tracts_income` (4), `chicago_boundary` (2), `childhood_lottery` (231, generated from `childhood_lottery_metrics.csv`: each `_value` column gets the metric, description, unit, source, England average and notes; each `_score` column an explanation (1-10 in ten near-equal groups, 10 best; yes/no and indexed responses 0-10), and the non-metric columns by hand) and `childhood_lottery_metrics` (10). Generated into `datasets.json` by a one-off script (not kept in the repo). **Manifest correction:** the Chicago tracts were selected with `st_filter(st_intersects)` against the city boundary in `classmate-teaching/scripts/00_prepare_data.R`, NOT clipped, so they are whole tracts that can extend beyond the city and over Lake Michigan (about 26% of tract area lies outside the cartographic boundary); the `source` and `description` in `datasets.json` previously said "clipped" and now say "selected where they intersect". The one top-coded income is 250,001.

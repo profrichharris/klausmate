@@ -2720,6 +2720,42 @@ ui <- fluidPage(
     })();
   ")),
 
+  # The Look-at window: a floating panel (not a modal), so it stays open and in front while the student works.
+  # It is dragged by its title bar; the server fills it and shows or hides it (see show_inspect()).
+  tags$style(HTML("
+    #inspect_float { display: none; position: fixed; top: 110px; right: 40px; width: min(760px, 92vw); z-index: 1030;
+      background: #fff; border: 1px solid #999; border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,0.28); }
+    #inspect_float .cm-float-head { display: flex; align-items: center; justify-content: space-between; cursor: move;
+      padding: 6px 10px; background: #eee; border-bottom: 1px solid #ccc; border-radius: 6px 6px 0 0; user-select: none; }
+    #inspect_float .cm-float-title { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #inspect_float .cm-float-x { border: none; background: transparent; font-size: 20px; line-height: 1; cursor: pointer; color: #555; }
+    #inspect_float .cm-float-x:hover { color: #000; }
+    #inspect_float .cm-float-body { padding: 8px 12px; max-height: 70vh; overflow: auto; }
+    #inspect_float .cm-float-foot { padding: 6px 12px; text-align: right; border-top: 1px solid #ddd; }
+  ")),
+  tags$div(id = "inspect_float",
+    tags$div(id = "inspect_float_inner", uiOutput("inspect_float_ui"))),
+  tags$script(HTML("
+    (function() {
+      var drag = null;
+      document.addEventListener('mousedown', function(e) {
+        var h = e.target.closest && e.target.closest('#inspect_float .cm-float-head');
+        if (!h || (e.target.closest && e.target.closest('button'))) return;
+        var r = document.getElementById('inspect_float').getBoundingClientRect();
+        drag = {dx: e.clientX - r.left, dy: e.clientY - r.top};
+        e.preventDefault();
+      });
+      document.addEventListener('mousemove', function(e) {
+        if (!drag) return;
+        var p = document.getElementById('inspect_float');
+        p.style.left = Math.max(0, Math.min(window.innerWidth - 80, e.clientX - drag.dx)) + 'px';
+        p.style.top  = Math.max(0, Math.min(window.innerHeight - 40, e.clientY - drag.dy)) + 'px';
+        p.style.right = 'auto';
+      });
+      document.addEventListener('mouseup', function() { drag = null; });
+    })();
+  ")),
+
   # Clean "session ended" overlay — shown by do_quit() before stopApp()
   tags$style(HTML("
     #session-ended-overlay {
@@ -3870,8 +3906,14 @@ HELP_TEXTS <- list(
     "table (the first 200 rows; for spatial data the attribute table), its variables, a summary and its",
     "structure; for spatial data also the geometry type, coordinate system and extent. For Klausmate's own",
     "datasets (Load Package Data > Klausmate (online datasets)) there is also a Variable description tab that",
-    "says in plain English what each variable means. It is shown on your own",
+    "says in plain English what each variable means. The window can be dragged by its title bar and stays open",
+    "while you work; it closes with its Close button, or when you press Answer, Ask for Code, Run, Pause or Quit.",
+    "It is shown on your own",
     "screen only and nothing is sent to Claude. If an item cannot be shown you are simply told so."
+  ),
+  inspect_close_btn = paste(
+    "Close — Closes the Look-at window. The window also closes when you press Answer, Ask for Code, Run,",
+    "Pause or Quit."
   ),
   spend_reset = paste(
     "Reset to zero — Starts the Daily spend figure again from zero. Your usage record is kept; only the",
@@ -6413,14 +6455,28 @@ server <- function(input, output, session) {
     descr <- if (kind == "obj") .cm$known_data[[nm]] else NULL          # set when loaded from Klausmate's online datasets
     panels <- tryCatch(inspect_with_limit(inspect_panels(obj, descr)), error = function(e) e)
     if (inherits(panels, "error")) return(cannot(conditionMessage(panels)))
-    tryCatch(
-      showModal(modalDialog(
-        title = paste0("Look at: ", label), size = "l",
-        do.call(tabsetPanel, c(list(id = "inspect_tabs"), panels)),
-        footer = modalButton("Close"), easyClose = TRUE)),
-      error = function(e) cannot(conditionMessage(e)))
+    inspect_open(list(label = label, panels = panels))      # shown in the floating Look-at window
   }
   observeEvent(input$inspect_item, show_inspect(input$inspect_item))
+  # The window stays open (and can be dragged) while the student types or works; it closes with its own Close
+  # button, or when they press Answer, Ask for Code, Run, Pause or Quit
+  inspect_open <- reactiveVal(NULL)
+  output$inspect_float_ui <- renderUI({
+    x <- inspect_open()
+    if (is.null(x)) return(NULL)
+    tagList(
+      tags$div(class = "cm-float-head",
+               tags$span(class = "cm-float-title", paste0("Look at: ", x$label)),
+               tags$button(type = "button", class = "cm-float-x", title = "Close",
+                           onclick = "Shiny.setInputValue('inspect_close', Math.random(), {priority: 'event'});", HTML("&times;"))),
+      tags$div(class = "cm-float-body", do.call(tabsetPanel, c(list(id = "inspect_tabs"), x$panels))),
+      tags$div(class = "cm-float-foot", actionButton("inspect_close_btn", "Close")))
+  })
+  observe(shinyjs::toggle(id = "inspect_float", condition = !is.null(inspect_open())))
+  observeEvent(input$inspect_close,     inspect_open(NULL))
+  observeEvent(input$inspect_close_btn, inspect_open(NULL))
+  for (b in c("ask_plain", "ask_code", "run_code", "pause_app", "quit"))
+    local({ bid <- b; observeEvent(input[[bid]], inspect_open(NULL), ignoreInit = TRUE) })
   observeEvent(input$context_list_checked, ignoreNULL = FALSE, {
     all_vals <- unname(isolate(context_choices()))
     ctx_crossed(if (length(all_vals) > 0) intersect(all_vals, input$context_list_checked %||% character(0)) else character(0))
