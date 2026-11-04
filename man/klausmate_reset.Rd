@@ -10,8 +10,10 @@ klausmate_reset()
 Invisible NULL (called for side effects).
 }
 \description{
-Deletes the saved key (student key or API key) and resets the response
-language to English.
+Deletes the saved key (student key or API key), resets the response
+language to English and forgets the record of which R packages work, so
+that the next \code{klaus()} runs the first-time set-up again (checking, and
+if necessary installing, the packages Klausmate needs).
 }
 \details{
 This function will refuse to run while \code{whisper()} is active or while

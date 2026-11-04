@@ -49,6 +49,10 @@ km_min_versions <- function() c(tmap = "4.0")
 # Alternatives that are only checked (never installed): if installed they are verified to load.
 km_alt_pkgs <- function() setdiff(unique(unlist(lapply(km_groups(), function(g) unlist(g$pkgs)))), km_default_pkgs())
 
+# Bumped when the set-up job is fixed or changed in a way that makes an earlier record untrustworthy (for example one
+# made while installs were being cut short): every computer then runs the set-up once more.
+km_job_version <- function() 2L
+
 km_rversion <- function() paste(R.version$major, strsplit(R.version$minor, ".", fixed = TRUE)[[1]][1], sep = ".")
 
 km_status_path <- function() file.path(klausmate_user_dir("config"), "package_status.rds")
@@ -66,7 +70,8 @@ km_status_save <- function(st) {
 
 # First time on this computer / R version, or an earlier attempt failed only for lack of a connection.
 km_needs_setup <- function(st) {
-  is.null(st) || !identical(st$rversion, km_rversion()) || any(unname(st$failed) == "offline")
+  is.null(st) || !identical(st$rversion, km_rversion()) || !identical(st$jobver, km_job_version()) ||
+    any(unname(st$failed) == "offline")
 }
 
 # Does this option's packages all work? `st` NULL = nothing known to be wrong.
@@ -102,6 +107,7 @@ km_status_merge <- function(old, res) {
   st$failed <- c(st$failed[keep], bad)
   if (is.null(st$failed)) st$failed <- character(0)
   st$rversion <- km_rversion()
+  st$jobver   <- km_job_version()
   st$checked  <- Sys.time()
   st
 }
@@ -139,7 +145,37 @@ km_pkg_job <- function(check, install, minver, repos, lib = NULL, attempt_instal
       else TRUE
     }, error = function(e) conditionMessage(e))
   }
-  check_all <- function(pk) vapply(pk, function(p) { r <- loads(p); if (isTRUE(r)) "" else r }, "")
+  # The packages are checked in a separate, fresh R process, so that this process never has any of them loaded: on
+  # Windows a loaded package cannot be replaced, so installing (or updating a dependency) after loading it in here
+  # can fail. If the separate process cannot be started, fall back to loading them in here.
+  check_script <- tempfile("km_check_", fileext = ".R")
+  writeLines(c(
+    "a <- commandArgs(TRUE); pk <- strsplit(a[1], ',', fixed = TRUE)[[1]]",
+    "mv <- if (length(a) > 1 && nzchar(a[2])) strsplit(strsplit(a[2], ',', fixed = TRUE)[[1]], '=', fixed = TRUE) else list()",
+    "min <- stats::setNames(vapply(mv, `[`, '', 2), vapply(mv, `[`, '', 1))",
+    "for (p in pk) {",
+    "  r <- if (!nzchar(system.file(package = p))) 'not installed' else tryCatch({",
+    "    loadNamespace(p)",
+    "    if (!is.na(min[p]) && utils::packageVersion(p) < min[p]) paste0('version ', utils::packageVersion(p), ' is older than ', min[p]) else ''",
+    "  }, error = function(e) conditionMessage(e))",
+    "  cat('KMRES\t', p, '\t', gsub('[\r\n\t]+', ' ', r), '\n', sep = '')",
+    "}"), check_script)
+  check_all <- function(pk) {
+    pk <- unique(pk)
+    if (length(pk) == 0L) return(stats::setNames(character(0), character(0)))
+    rscript <- file.path(R.home("bin"), if (.Platform$OS.type == "windows") "Rscript.exe" else "Rscript")
+    old <- Sys.getenv("R_LIBS", NA_character_)
+    Sys.setenv(R_LIBS = paste(.libPaths(), collapse = .Platform$path.sep))      # the child sees the same libraries
+    on.exit(if (is.na(old)) Sys.unsetenv("R_LIBS") else Sys.setenv(R_LIBS = old), add = TRUE)
+    mvs <- paste0(names(minver), "=", unname(minver), collapse = ",")
+    out <- tryCatch(suppressWarnings(system2(rscript, c("--vanilla", shQuote(check_script), shQuote(paste(pk, collapse = ",")), shQuote(mvs)),
+                                             stdout = TRUE, stderr = FALSE)),
+                    error = function(e) character(0))
+    ln <- strsplit(grep("^KMRES\t", out, value = TRUE), "\t", fixed = TRUE)
+    got <- stats::setNames(vapply(ln, function(x) if (length(x) >= 3L) x[3] else "", ""), vapply(ln, `[`, "", 2))
+    if (all(pk %in% names(got))) return(got[pk])
+    vapply(pk, function(p) { r <- loads(p); if (isTRUE(r)) "" else r }, "")      # fallback
+  }
   reachable <- function() {
     old <- options(timeout = 8); on.exit(options(old))
     tryCatch({ con <- url(paste0(repos[[1]], "/src/contrib/PACKAGES.rds"), "rb"); close(con); TRUE },
@@ -149,6 +185,7 @@ km_pkg_job <- function(check, install, minver, repos, lib = NULL, attempt_instal
   bad <- names(res)[nzchar(res)]
   need <- intersect(bad, install)
   offline <- FALSE
+  notes <- character(0)       # what install.packages said, kept to explain a failure
   if (attempt_install && length(need) > 0L) {
     if (!reachable()) {
       offline <- TRUE
@@ -166,8 +203,12 @@ km_pkg_job <- function(check, install, minver, repos, lib = NULL, attempt_instal
         if (length(stale)) unlink(stale, recursive = TRUE)
         cat("KM_INSTALL:", paste(need, collapse = " "), "\n")
         flush(stdout())
-        tryCatch(utils::install.packages(need, repos = repos, lib = lib, quiet = TRUE),
-                 error = function(e) NULL, warning = function(w) NULL)
+        # A warning (a package that is not available, a slow download, an exit status) must not stop the rest from being
+        # installed, so warnings are noted and let through; only an error ends the attempt.
+        withCallingHandlers(
+          tryCatch(utils::install.packages(need, repos = repos, lib = lib, quiet = TRUE),
+                   error = function(e) { notes <<- c(notes, conditionMessage(e)); NULL }),
+          warning = function(w) { notes <<- c(notes, conditionMessage(w)); invokeRestart("muffleWarning") })
         res[need] <- check_all(need)
         # a package that installs but will not load because one it relies on is missing: install that as well
         dep <- unique(unlist(regmatches(res[need], gregexpr("(?<=there is no package called .)[A-Za-z0-9.]+", res[need], perl = TRUE))))
@@ -181,7 +222,12 @@ km_pkg_job <- function(check, install, minver, repos, lib = NULL, attempt_instal
   bad <- names(res)[nzchar(res)]
   # alternatives that are simply not installed are neither working nor broken
   bad <- bad[!(bad %in% setdiff(check, install) & res[bad] == "not installed")]
-  why <- vapply(bad, function(p) if (offline && p %in% install) "offline" else res[[p]], "")
+  why <- vapply(bad, function(p) {
+    if (offline && p %in% install) return("offline")
+    r <- res[[p]]
+    if (p %in% install && length(notes) > 0L) r <- paste0(r, " (install said: ", substr(paste(unique(notes), collapse = " | "), 1L, 200L), ")")
+    r
+  }, "")
   list(ok = names(res)[!nzchar(res)], failed = stats::setNames(unname(why), bad),
        installed = if (attempt_install) setdiff(intersect(need, names(res)[!nzchar(res)]), character(0)) else character(0))
 }

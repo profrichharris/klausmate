@@ -901,8 +901,10 @@ reset_key <- function() {
 
 #' Reset klausmate to factory defaults
 #'
-#' Deletes the saved key (student key or API key) and resets the response
-#' language to English.
+#' Deletes the saved key (student key or API key), resets the response
+#' language to English and forgets the record of which R packages work, so
+#' that the next \code{klaus()} runs the first-time set-up again (checking, and
+#' if necessary installing, the packages Klausmate needs).
 #'
 #' This function will refuse to run while \code{whisper()} is active or while
 #' a paused \code{klaus()} session exists. Stop \code{whisper()} with
@@ -939,7 +941,8 @@ klausmate_reset <- function() {
   message(
     "klausmate_reset() will:\n",
     "  • Delete the saved key (student key or API key)\n",
-    "  • Reset the response language to English\n"
+    "  • Reset the response language to English\n",
+    "  • Forget the package set-up, so that it is run again the next time klaus() starts\n"
   )
   answer <- trimws(readline("Are you sure you want to reset? (yes/no): "))
   if (!tolower(answer) %in% c("yes", "y")) {
@@ -965,6 +968,13 @@ klausmate_reset <- function() {
   if (file.exists(lang_path)) {
     file.remove(lang_path)
     message("Response language reset to English.")
+  }
+
+  # --- Forget the package set-up, so the next klaus() runs it in full -------------
+  status_path <- km_status_path()
+  if (file.exists(status_path)) {
+    file.remove(status_path)
+    message("Package set-up record removed: it will be run again the next time klaus() starts.")
   }
 
   message("klausmate has been reset. You can now call klaus() or whisper() to start fresh.")
