@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.27 (2026-11-04)  
-**Current version:** 0.6.27
+**Last released:** 0.6.28 (2026-11-04)  
+**Current version:** 0.6.28
+
+Released in 0.6.28 (no unreleased changes; automatic retry when Claude is busy):
+- **Automatic retry when Claude is busy** (user request; one key shared by a whole class can hit Anthropic's shared rate limit): `call_claude()` now sends its request through `km_req_retry()` (R/ask_claude.R, `httr2::req_retry`): HTTP 429, 529 and 500/502/503 are tried again, up to 4 tries in all, waiting what Claude's `retry-after` header asks (1–30 s) or else 2–4 s, 4–6 s, 8–10 s (at most about 20 s extra, with the app waiting as it does for any slow reply). A wrong key (401/403), a lost connection or a time-out is not retried. If every try fails the error is the same as before, so the "Claude is busy… try again" message (`net_error_kind()`) still appears. The key check (`claude_key_status()`) uses `max_tries = 1` so entering a key never waits. Failed or refused requests are not charged. `whisper()` is unchanged (no retry). Tested against a local test server: 429 twice then OK (3 requests), 529 once then OK, 401 not retried (1 request), 429 forever gives the 429 error after the limit; not tested against the real API under load. httr2 prints "Waiting Ns for retry backoff" in the console while it waits.
 
 Released in 0.6.27 (no unreleased changes; set-up installs packages properly (warnings no longer abort it, packages checked in a fresh process, set-up re-run once); klausmate_reset() also forgets the package set-up):
 - **`klausmate_reset()` also forgets the package set-up** (user request): it now removes `package_status.rds` (`km_status_path()`), so the next `klaus()` runs the first-time set-up in full (preparation screen, check and install), as well as clearing the key and language. The confirmation list and the help page say so. Tested with the reset function run against stand-ins for the key, language and status paths (the status file is removed); the real key was not touched.

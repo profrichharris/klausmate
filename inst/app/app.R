@@ -27,7 +27,7 @@ CM_NEEDS <- c(
   "cm_get_key",
   "cm_set_key",
   "km_choices", "km_default_pkgs", "km_drop_missing", "km_fallback", "km_groups", "km_needs_setup", "km_refresh_candidates",
-  "km_start_pkg_job", "km_status_load", "km_status_merge", "km_status_save")
+  "km_start_pkg_job", "km_status_load", "km_status_merge", "km_status_save", "km_req_retry")
 .cm_stale <- tryCatch(
   !all(vapply(CM_NEEDS, exists, logical(1), envir = asNamespace("klausmate"), inherits = FALSE)),
   error = function(e) FALSE)
@@ -1266,7 +1266,8 @@ claude_key_status <- function(key = klausmate:::cm_get_key()) {
       model        = MODEL_HAIKU,
       max_tokens   = 8,
       api_key      = key,
-      cache_system = FALSE
+      cache_system = FALSE,
+      max_tries    = 1L          # a key check should answer quickly: no waiting for a busy Claude
     )
     "ok"
   },
@@ -2394,7 +2395,7 @@ next_reset_time <- function(log, reset_period) {
 
 call_claude <- function(messages, model, max_tokens, system_prompt = NULL,
                          api_key = klausmate:::cm_get_key(),
-                         cache_system = TRUE) {
+                         cache_system = TRUE, max_tries = 4L) {
   # system_prompt may be one string or several blocks (a shared part first, then a varying part); each block
   # is marked for caching, so a prefix that is identical across requests is read from the cache
   system_prompt <- system_prompt[!is.na(system_prompt) & nzchar(system_prompt)]
@@ -2417,6 +2418,7 @@ call_claude <- function(messages, model, max_tokens, system_prompt = NULL,
     req_body_json(body) |>
     req_timeout(120) |>
     req_options(connecttimeout = 15) |>      # a dead connection fails in seconds, not minutes
+    klausmate:::km_req_retry(max_tries = max_tries) |>     # a busy Claude (429 / 529 / 5xx) is tried again after a short wait
     req_perform(),
     error = function(e) { .cm$last_api_error <- net_error_kind(e); stop(e) })
 

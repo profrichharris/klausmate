@@ -348,3 +348,21 @@ klausmate_language <- function() {
 #'   }
 #' @source Derived from US Census / ACS data.
 "chicago"
+
+# ---------------------------------------------------------------------------
+# Automatic retry when Claude is busy
+# ---------------------------------------------------------------------------
+# With one key shared by a whole class, a burst of requests can be refused for a moment (HTTP 429, or 529 "overloaded"
+# and other server trouble). Such a request is simply tried again after a short wait (the wait Claude asks for, if it
+# says, otherwise 2-4 s, 4-6 s, 8-10 s), up to `max_tries` times in all. A refused or failed request is not charged.
+# Anything else (a wrong key, a lost connection, a time-out) is not retried here.
+km_req_retry <- function(req, max_tries = 4L) {
+  httr2::req_retry(
+    req, max_tries = max_tries,
+    is_transient = function(resp) httr2::resp_status(resp) %in% c(429L, 500L, 502L, 503L, 529L),
+    after = function(resp) {
+      h <- suppressWarnings(as.numeric(httr2::resp_header(resp, "retry-after")))
+      if (length(h) == 1L && is.finite(h)) min(max(h, 1), 30) else NA_real_
+    },
+    backoff = function(i) min(2^i, 20) + stats::runif(1, 0, 2))
+}
