@@ -26,6 +26,8 @@
 #'     \item \code{"rolling_Nm"} — rolling N minutes, e.g. \code{"rolling_90m"}
 #'     \item \code{"hourly"}     — resets at the top of each clock hour
 #'     \item \code{"daily"}      — resets at midnight each day
+#'     \item \code{"none"}       — never resets: the cost limit is a total for
+#'       the life of the key, which stops working once it is used up
 #'   }
 #' @param valid_from When the key becomes usable: a date (optionally with a
 #'   time, e.g. \code{"31/12/2026 09:00"}) or a \code{POSIXct}. Default is now.
@@ -125,7 +127,7 @@ klausmate_make_key <- function(api_key           = NULL,
   }
 
   if (is.null(reset_period)) {
-    message("Reset period options: weekly, daily, hourly, rolling_24h, rolling_Nh, rolling_Nm")
+    message("Reset period options: weekly, daily, hourly, rolling_24h, rolling_Nh, rolling_Nm, none (never resets: the limit is a total)")
     ans <- trimws(readline("Reset period [default: weekly, or press Enter to accept]: "))
     reset_period <- if (!nzchar(ans)) "weekly" else ans
   }
@@ -204,11 +206,11 @@ klausmate_make_key <- function(api_key           = NULL,
     max_conversations <- min(max(as.integer(max_conversations), 1L), 25L)
   }
 
-  valid_named <- c("rolling_24h", "hourly", "daily", "weekly")
+  valid_named <- c("rolling_24h", "hourly", "daily", "weekly", "none")
   is_rolling_n <- grepl("^rolling_[0-9]+(h|m)$", reset_period)
   if (!reset_period %in% valid_named && !is_rolling_n)
     stop("Unrecognised reset_period: '", reset_period, "'\n",
-         "Use one of: rolling_24h, rolling_Nh, rolling_Nm, hourly, daily, weekly",
+         "Use one of: rolling_24h, rolling_Nh, rolling_Nm, hourly, daily, weekly, none",
          call. = FALSE)
 
   message("Validating API key ...")
@@ -251,7 +253,8 @@ klausmate_make_key <- function(api_key           = NULL,
   message("Key file created: ", out)
   message("  PIN:          ", pin, "   (give this to students separately; it is not stored in the file)")
   if (!is.null(cost_limit))
-    message("  Cost limit:   $", cost_limit, " per ", reset_period)
+    message("  Cost limit:   $", cost_limit,
+            if (identical(reset_period, "none")) " in total (never resets)" else paste0(" per ", reset_period))
   else
     message("  Cost limit:   none")
   message("  Valid from:   ", klausmate_format_date(valid_from, date_order, with_time = TRUE))
@@ -284,6 +287,7 @@ klausmate_config_show <- function() {
     if (!is.null(cfg)) {
       cat("  Key file loaded\n")
       cat("  Cost limit:  ", if (is.null(cfg$cost_limit)) "none"
+                             else if (identical(cfg$reset_period, "none")) paste0("$", cfg$cost_limit, " in total (never resets)")
                              else paste0("$", cfg$cost_limit, " per ", cfg$reset_period), "\n")
       cat("  Code length: ", if (is.null(cfg$max_lines)) "50 lines (key predates this setting)"
                              else if (is.infinite(cfg$max_lines)) "unlimited"

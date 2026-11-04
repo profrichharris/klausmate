@@ -26,7 +26,7 @@ CM_NEEDS <- c(
   "cm_clear_key",
   "cm_get_key",
   "cm_set_key",
-  "km_choices", "km_drop_missing", "km_fallback", "km_groups", "km_needs_setup", "km_refresh_candidates",
+  "km_choices", "km_default_pkgs", "km_drop_missing", "km_fallback", "km_groups", "km_needs_setup", "km_refresh_candidates",
   "km_start_pkg_job", "km_status_load", "km_status_merge", "km_status_save")
 .cm_stale <- tryCatch(
   !all(vapply(CM_NEEDS, exists, logical(1), envir = asNamespace("klausmate"), inherits = FALSE)),
@@ -2266,6 +2266,7 @@ append_usage_entry <- function(cost_usd) {
 
 period_cutoff <- function(reset_period) {
   now <- Sys.time()
+  if (reset_period == "none") return(as.POSIXct(0, origin = "1970-01-01"))   # never resets: counts everything
   if (reset_period == "rolling_24h") return(now - 86400)
   if (reset_period == "hourly") {
     lt <- as.POSIXlt(now); lt$min <- 0L; lt$sec <- 0
@@ -2301,6 +2302,7 @@ period_spend <- function(log, reset_period, since = NULL) {
 
 next_reset_time <- function(log, reset_period) {
   now <- Sys.time()
+  if (reset_period == "none") return(NULL)
   if (reset_period == "hourly") {
     lt <- as.POSIXlt(now); lt$min <- 0L; lt$sec <- 0; lt$hour <- lt$hour + 1L
     return(as.POSIXct(lt))
@@ -2864,6 +2866,10 @@ ui <- fluidPage(
     .cm-float { display: none; position: fixed; z-index: 1030; background: #fff; border: 1px solid #999;
       border-radius: 6px; box-shadow: 0 6px 24px rgba(0,0,0,0.28); }
     #inspect_float { top: 110px; right: 40px; width: min(760px, 92vw); }
+    /* The Look-at window is shown by CSS only once its content has arrived (it is empty when closed), so the
+       student never sees an empty frame while a big table is being drawn. */
+    #inspect_float:has(.cm-float-head) { display: block; }
+    #inspect_float.cm-closing { display: none !important; }
     #pastcode_float { top: 80px; left: 20px; width: min(640px, 92vw); }
     .cm-float .cm-float-head { display: flex; align-items: center; justify-content: space-between; cursor: move;
       padding: 6px 10px; background: #eee; border-bottom: 1px solid #ccc; border-radius: 6px 6px 0 0; user-select: none; }
@@ -2950,12 +2956,15 @@ ui <- fluidPage(
       // The floating Look-at window stays while it is being used or might feed a prompt (itself and its tabs, the prompt
       // box and Clear, the binoculars buttons that open or replace it); any other click closes it: tabs, buttons,
       // Preferences, Help, the Quick Console, Explain, the Past code window...
+      if (window.jQuery) jQuery(document).on('shiny:value', function(e) {
+        if (e.name === 'inspect_float_ui') { var w = document.getElementById('inspect_float'); if (w) w.classList.remove('cm-closing'); }
+      });
       document.addEventListener('click', function(e) {
         var w = document.getElementById('inspect_float');
         if (!w || getComputedStyle(w).display === 'none') return;
         var t = e.target; if (!t || !t.closest) return;
         if (t.closest('#inspect_float, #prompt, #clear_prompt, .cm-inspect')) return;
-        w.style.display = 'none';
+        w.classList.add('cm-closing');      // hidden at once; the server then empties it, and a new output clears the class
         if (window.Shiny) Shiny.setInputValue('inspect_close', Math.random(), {priority: 'event'});
       }, true);
       // The expanded plot / interactive plot: no backdrop, no focus trap, and the page behind stays usable
@@ -4259,7 +4268,7 @@ HELP_TEXTS <- list(
   ),
   usage_help = paste(
     "Usage — How much of your Klausmate allowance is left: the bar counts down as you use Klausmate, with",
-    "when it resets and when your key expires. A key with no spending limit shows today's spend instead,",
+    "when it resets (or that it never does) and when your key expires. A key with no spending limit shows today's spend instead,",
     "starting again from zero each day."
   ),
   clear_prompt = paste(
@@ -4573,7 +4582,9 @@ server <- function(input, output, session) {
   # "A message from Klaus" waits until the first-run package set-up (the overlay) has finished
   disclaimer_pending <- reactiveVal(FALSE)
   request_disclaimer <- function() {
-    if (!is.null(isolate(pkg_job())) && identical(pkg_job_flags$mode, "setup")) disclaimer_pending(TRUE)
+    # waits while set-up has not started yet (it starts only once a valid key is in) or is running
+    if (!isTRUE(pkg_job_flags$started) ||
+        (!is.null(isolate(pkg_job())) && identical(pkg_job_flags$mode, "setup"))) disclaimer_pending(TRUE)
     else show_student_disclaimer()
   }
 
@@ -4735,14 +4746,17 @@ server <- function(input, output, session) {
       return(invisible(NULL))
     }
     rt  <- next_reset_time(isolate(usage_log_rv()), isolate(reset_period_val()))
-    reset_line <- if (!is.null(rt))
+    never_resets <- identical(isolate(reset_period_val()), "none")
+    reset_line <- if (never_resets)
+      "This key's allowance does not refresh, so it can no longer be used."
+    else if (!is.null(rt))
       paste0("Your allowance is scheduled to top up at approximately ",
              format(rt, "%H:%M on %d %B %Y"), ".")
     else
       "Contact your instructor if you need more information about when your allowance refreshes."
     showModal(modalDialog(
       title     = "Usage allowance reached",
-      tags$p("You have used your full allowance for this period. ",
+      tags$p(if (never_resets) "You have used your full allowance. " else "You have used your full allowance for this period. ",
              "The Answer, Ask for Code, Explain, and Fix buttons are now disabled."),
       tags$p(reset_line),
       tags$p("Any code already in the editor can still be run and edited."),
@@ -5042,7 +5056,8 @@ server <- function(input, output, session) {
       reset_period <- reset_period_val()
       reset_label  <- tryCatch({
         rt <- next_reset_time(isolate(usage_log_rv()), reset_period)
-        if (grepl("^rolling", reset_period)) "rolling window"
+        if (identical(reset_period, "none")) "total allowance, no reset"
+        else if (grepl("^rolling", reset_period)) "rolling window"
         else paste0("resets ", format(rt, "%d %b %Y"))
       }, error = function(e) "")
       expiry_str <- if (isTRUE(key_not_started()))
@@ -7031,7 +7046,6 @@ server <- function(input, output, session) {
       tags$div(class = "cm-float-body", do.call(tabsetPanel, c(list(id = "inspect_tabs"), x$panels))),
       tags$div(class = "cm-float-foot", actionButton("inspect_close_btn", "Close")))
   })
-  observe(shinyjs::toggle(id = "inspect_float", condition = !is.null(inspect_open())))
   observeEvent(input$inspect_close,     inspect_open(NULL))
   observeEvent(input$inspect_close_btn, inspect_open(NULL))
   for (b in c("ask_plain", "ask_code", "run_code", "pause_app", "quit"))
@@ -7700,11 +7714,18 @@ server <- function(input, output, session) {
     }
   })
 
-  observeEvent(TRUE, {
+  # Package set-up waits until a valid key is in (so nothing pops up while a student is entering the key and PIN)
+  observeEvent(key_is_set(), {
+    req(isTRUE(key_is_set()), !isTRUE(pkg_job_flags$started))
+    pkg_job_flags$started <- TRUE
     st <- isolate(pkg_status())
     if (klausmate:::km_needs_setup(st)) start_pkg_job("setup")
     else { apply_pkg_status(st); start_pkg_job("refresh") }
-  }, once = TRUE)
+    if (isolate(disclaimer_pending()) &&
+        !(!is.null(isolate(pkg_job())) && identical(pkg_job_flags$mode, "setup"))) {
+      disclaimer_pending(FALSE); show_student_disclaimer()
+    }
+  })
   observeEvent(input$pref_pkg_recheck, start_pkg_job("setup", notify = TRUE))
   session$onSessionEnded(function() {
     j <- isolate(pkg_job())

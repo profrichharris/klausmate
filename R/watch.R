@@ -65,6 +65,7 @@
 
 .watch_period_cutoff <- function(reset_period) {
   now <- Sys.time()
+  if (reset_period == "none")        return(as.POSIXct(0, origin = "1970-01-01"))
   if (reset_period == "rolling_24h") return(now - 86400)
   if (reset_period == "hourly")      return(trunc(now, "hours"))
   if (reset_period == "daily")       return(as.POSIXct(as.Date(now)))
@@ -102,6 +103,7 @@
     daily      = "midnight",
     hourly     = "next hour",
     rolling_24h = "24h from first use",
+    none       = "never (total allowance)",
     paste("after", cfg$reset_period)
   )
 
