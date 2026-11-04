@@ -97,7 +97,7 @@ Anthropic if a key is ever misused.
 
 `whisper()` starts a console-only helper that watches for errors, warnings and messages and
 explains them when you call `raisehand()` (or `rh()`); `ssshh()` switches it off.
-`klausmate_speaks("Welsh")` sets the language of the responses. `klausmate_reset()` removes
+`klausmate_language("Welsh")` sets the language of the responses. `klausmate_reset()` removes
 the saved key and language setting.
 
 ## Scope and privacy

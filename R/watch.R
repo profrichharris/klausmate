@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# whisper() / raisehand() / ssshh() / reset_key()
+# whisper() / raisehand() / ssshh() / klausmate_reset_key()
 #
 # A lightweight background watcher that captures R errors and recent command
 # history, then explains them in plain English via Claude when the student
@@ -263,7 +263,7 @@
 # ---------------------------------------------------------------------------
 
 .watch_call_claude <- function(user_prompt, api_key, mode = "error") {
-  lang     <- klausmate_language()
+  lang     <- km_saved_language()
   lang_clause <- if (tolower(trimws(lang)) == "english") {
     paste(
       "LANGUAGE RULE: Write all responses in British English",
@@ -859,8 +859,12 @@ ssshh <- function() {
 }
 
 # ---------------------------------------------------------------------------
-# reset_key()
+# klausmate_reset_key()   (reset_key() is the older name, kept as an alias)
 # ---------------------------------------------------------------------------
+
+# TRUE while a paused klaus() session exists (its pause file is in the folder klaus() was started from)
+klausmate_paused <- function()
+  file.exists(file.path(getOption(".klausmate_project_root", getwd()), "claude_assistant_pause.rds"))
 
 #' Clear the saved klausmate key
 #'
@@ -868,9 +872,22 @@ ssshh <- function() {
 #' the \code{ANTHROPIC_API_KEY} environment variable. The next call to
 #' \code{whisper()} or \code{klaus()} will prompt for a new key.
 #'
+#' This function will refuse to run while a paused \code{klaus()} session
+#' exists: open Klausmate and use \emph{Quit with Code Log} first.
+#' \code{reset_key()} is the older name for the same function.
+#'
 #' @return Invisible NULL (called for side effects).
+#' @rdname klausmate_reset_key
 #' @export
-reset_key <- function() {
+klausmate_reset_key <- function() {
+  if (klausmate_paused()) {
+    message(
+      "klausmate_reset_key() cannot run while a paused Klausmate session exists.\n",
+      "Please open Klausmate and close it with Quit with Code Log first."
+    )
+    return(invisible(NULL))
+  }
+
   removed <- FALSE
 
   cfg_path <- .watch_cfg_path()
@@ -894,6 +911,10 @@ reset_key <- function() {
 
   invisible(NULL)
 }
+
+#' @rdname klausmate_reset_key
+#' @export
+reset_key <- function() klausmate_reset_key()
 
 # ---------------------------------------------------------------------------
 # klausmate_reset()
@@ -925,11 +946,7 @@ klausmate_reset <- function() {
   }
 
   # --- Refuse if a paused klaus() session exists ------------------------------
-  pause_file <- file.path(
-    getOption(".klausmate_project_root", getwd()),
-    "claude_assistant_pause.rds"
-  )
-  if (file.exists(pause_file)) {
+  if (klausmate_paused()) {
     message(
       "klausmate_reset() cannot run while a paused Klausmate session exists.\n",
       "Please open Klausmate and close it with Quit with Code Log before resetting."

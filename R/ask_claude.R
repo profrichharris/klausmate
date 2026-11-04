@@ -263,7 +263,7 @@ klausmate_reload_and_relaunch <- function(relaunch = "klaus", args = list()) {
 
 
 # ---------------------------------------------------------------------------
-# klausmate_speaks() / klausmate_language()
+# klausmate_language()   (klausmate_speaks() is the older name, kept as an alias)
 # ---------------------------------------------------------------------------
 
 .klausmate_known_languages <- c(
@@ -289,16 +289,18 @@ klausmate_reload_and_relaunch <- function(relaunch = "klaus", args = list()) {
 #' Saves a language preference that is applied to all AI responses in both
 #' \code{klaus()} and \code{whisper()}. R code is always written in English;
 #' only explanatory text (and optionally code comments) changes language.
-#' Call \code{klausmate_speaks("English")} to revert to British English.
+#' Call \code{klausmate_language("English")} to revert to British English.
+#' \code{klausmate_speaks()} is the older name for the same function.
 #'
 #' @param language A language name, e.g. \code{"French"}, \code{"Spanish"},
 #'   \code{"Welsh"}. Minor misspellings are accepted.
 #' @return Invisible canonical language name, or invisible NULL on failure.
+#' @rdname klausmate_language
 #' @export
-klausmate_speaks <- function(language) {
+klausmate_language <- function(language) {
   lang <- trimws(language)
   if (!nzchar(lang)) {
-    message("Please supply a language name, e.g. klausmate_speaks(\"French\").")
+    message("Please supply a language name, e.g. klausmate_language(\"French\").")
     return(invisible(NULL))
   }
   matches <- agrep(lang, .klausmate_known_languages,
@@ -313,7 +315,11 @@ klausmate_speaks <- function(language) {
     )
     return(invisible(NULL))
   }
-  canonical <- matches[1]
+  # an exact match (ignoring case) wins; otherwise the closest spelling (agrep alone returned the first alphabetically,
+  # so "welsh" came out as "Swedish")
+  exact <- .klausmate_known_languages[tolower(.klausmate_known_languages) == tolower(lang)]
+  canonical <- if (length(exact) == 1L) exact else
+    matches[which.min(drop(utils::adist(tolower(lang), tolower(matches))))]
   config_dir <- klausmate_user_dir("config")
   dir.create(config_dir, recursive = TRUE, showWarnings = FALSE)
   saveRDS(canonical, .klausmate_lang_path())
@@ -327,8 +333,12 @@ klausmate_speaks <- function(language) {
   invisible(canonical)
 }
 
+#' @rdname klausmate_language
+#' @export
+klausmate_speaks <- function(language) klausmate_language(language)
+
 #' @keywords internal
-klausmate_language <- function() {
+km_saved_language <- function() {
   path <- .klausmate_lang_path()
   if (!file.exists(path)) return("English")
   tryCatch(readRDS(path), error = function(e) "English")
@@ -365,4 +375,48 @@ km_req_retry <- function(req, max_tries = 4L) {
       if (length(h) == 1L && is.finite(h)) min(max(h, 1), 30) else NA_real_
     },
     backoff = function(i) min(2^i, 20) + stats::runif(1, 0, 2))
+}
+
+#' Make the next klaus() look for a newer version of Klausmate
+#'
+#' Klausmate looks for a newer version once each time R is started. Use this
+#' function to have it look again, and install a newer version, the next time
+#' \code{klaus()} is run, without restarting R. It checks GitHub now and says
+#' whether a newer version is waiting.
+#'
+#' This function will not run while a paused \code{klaus()} session exists: a
+#' paused session cannot be updated. Open Klausmate, choose \emph{Quit with
+#' Code Log}, then run \code{klausmate_update()} (or just \code{klaus()} in a
+#' fresh R session).
+#'
+#' @return Invisible NULL (called for side effects).
+#' @export
+#' @examples
+#' \dontrun{
+#' klausmate_update()
+#' klaus()
+#' }
+klausmate_update <- function() {
+  if (klausmate_paused()) {
+    message(
+      "Klausmate is paused, so it cannot be updated now.\n",
+      "To update it: open Klausmate with klaus(), choose Quit with Code Log, then run klausmate_update()\n",
+      "and then klaus() again."
+    )
+    return(invisible(NULL))
+  }
+  # the next klaus() looks for a newer version again, and tries again even if an earlier attempt failed
+  options(klausmate.update_checked = FALSE, klausmate.failed_update_version = NULL)
+  current <- as.character(utils::packageVersion("klausmate"))
+  release <- klausmate_latest_release()
+  if (is.null(release) || !nzchar(release$version %||% "")) {
+    message("Klausmate could not reach GitHub just now to see whether there is a newer version.\n",
+            "The next time you run klaus() it will try again.")
+  } else if (utils::compareVersion(release$version, current) <= 0) {
+    message("You already have the latest version of Klausmate (", current, ").")
+  } else {
+    message("A newer version of Klausmate is available (", release$version, "; you have ", current, ").\n",
+            "It will be installed the next time you run klaus().")
+  }
+  invisible(NULL)
 }

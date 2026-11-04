@@ -38,7 +38,7 @@ The klaus app is the primary interface for students doing structured practical w
 
 This mode was designed for students who are working through exercises in the standard R console and do not need the full klaus interface. It is minimal, unobtrusive, and uses the cheaper Haiku model rather than Sonnet, since the explanations are short and the task is lower-stakes.
 
-`ssshh()` stops the whisper mode. `reset_key()` clears the saved API key.
+`ssshh()` stops the whisper mode. `klausmate_reset_key()` clears the saved API key.
 
 ---
 
@@ -237,7 +237,7 @@ NAMESPACE is managed by roxygen2. Never edit it manually — add or remove `@exp
 |------|---------|
 | `inst/app/app.R` | Entire Shiny UI and server logic (single file, ~4500 lines) |
 | `R/ask_claude.R` | `klaus()`, `klausmate_preflight()`, `klausmate_do_update()`, `%||%` |
-| `R/watch.R` | `whisper()`, `raisehand()`, `ssshh()`, `reset_key()` and all supporting helpers |
+| `R/watch.R` | `whisper()`, `raisehand()`, `ssshh()`, `klausmate_reset_key()` and all supporting helpers |
 | `R/instructor.R` | `klausmate_make_key()`, `klausmate_config_show()` |
 | `R/key_pin.R` | PIN sealing / opening of key files, wrong-PIN counter, console unlock for `whisper()` |
 | `DESCRIPTION` | Package metadata and version |

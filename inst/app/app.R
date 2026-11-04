@@ -3126,7 +3126,7 @@ ui <- fluidPage(
   tags$style(HTML("
     #klausmate-splash {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: #fff; z-index: 9999;
+      background: #fff; z-index: 2147483600;   /* above everything: key screen, preparation screen, pop-ups */
       display: flex; align-items: center; justify-content: center;
       flex-direction: column; text-align: center;
       opacity: 1;
@@ -4541,12 +4541,11 @@ HELP_TAB_TEXTS <- list(
     "appends the R code that saves the plot to the end of the Code window."
   ),
   "Past code" = paste(
-    "Past Code tab — A record of the code in this conversation, newest first. A block marked",
-    "(confirmed) has been run successfully; one marked (unconfirmed) was generated or loaded",
-    "but has not been run successfully, and is replaced by a confirmed entry once it is. Use",
-    "the Code button next to any entry to reload that code into the editor and go to the Code tab. A confirmed",
-    "entry also brings back its R output, plots and warnings; an unconfirmed one brings back",
-    "the changes from the previous version, if it had them, but no output."
+    "Past Code tab — A record of the code in this conversation that has been run successfully, newest first.",
+    "Each entry is labelled with the description of the code, or with the name of the script file you loaded.",
+    "Code you changed before running it is labelled with the original label and (edit 1), (edit 2) and so on.",
+    "Use the Code button next to any entry to reload that code into the editor and go to the Code tab; it also",
+    "brings back the entry's R output, plots and warnings."
   ),
   "Answer" = paste(
     "Answer tab — Shows the plain-English answer to your last question asked with the Answer button.",
@@ -5957,8 +5956,8 @@ server <- function(input, output, session) {
     full_history <- run_history()
     # Keep original indices so button IDs match the observer's lookup
     keep_idx <- which(vapply(full_history, function(e) identical(e$source, "ask_code"), logical(1)))
-    unconf   <- unconf_code()
-    if (length(keep_idx) == 0 && length(unconf) == 0)
+    unconf   <- list()      # Past code lists only code that has been run successfully (no unconfirmed entries)
+    if (length(keep_idx) == 0)
       return(tags$p(em("No code blocks yet."), style = "color: #999; margin: 4px 0; font-size: 0.9em;"))
 
     make_label <- function(entry) {
@@ -5972,7 +5971,13 @@ server <- function(input, output, session) {
                       invert = TRUE, value = TRUE)
         if (length(lines) > 0) trimws(lines[[1]]) else "Code block"
       }
-      if (nchar(lbl) > 60) paste0(substr(lbl, 1, 57), "...") else lbl
+      if (nchar(lbl) <= 60) return(lbl)
+      suf <- regmatches(lbl, regexpr(" \\(edit [0-9]+\\)$", lbl))
+      if (length(suf) == 1L) {
+        base <- substr(lbl, 1, nchar(lbl) - nchar(suf))
+        keep <- max(10L, 57L - nchar(suf))
+        paste0(substr(base, 1, keep), "...", suf)
+      } else paste0(substr(lbl, 1, 57), "...")
     }
     ts_of <- function(e) if (is.null(e$ts)) 0 else as.numeric(e$ts)
 
@@ -6286,7 +6291,7 @@ server <- function(input, output, session) {
     # Clear transient state
     hide_changes_tab()
     pending_log_entries(list())
-    last_extracted_code("")
+    last_extracted_code(""); script_origin(NULL)
     last_prompt_for_code("")
     last_code_description("")
     loaded_script_name(NULL)
@@ -6398,7 +6403,8 @@ server <- function(input, output, session) {
     loaded_script_name(fname)
     last_prompt_for_code("")    # a loaded script has no prompt behind it
     last_code_description("")   # and is described by its file name (loaded_script_name)
-    unconf_add(script_text, "", fname, "script")
+    script_origin(list(code = script_text, label = tools::file_path_sans_ext(basename(fname))))
+    last_extracted_code("")     # the editor no longer holds code Claude wrote
     updateAceEditor(session, "code_editor", value = script_text)
     goto_tab("Code")
   })
@@ -7336,6 +7342,7 @@ server <- function(input, output, session) {
   last_prompt_for_code <- reactiveVal(if (!is.null(ps)) ps$last_prompt_for_code else "")
   last_code_description <- reactiveVal("")
   loaded_script_name    <- reactiveVal(NULL)
+  script_origin         <- reactiveVal(NULL)    # list(code, label) of the script last loaded: what later edits are edits of
   run_history          <- reactiveVal(if (!is.null(ps)) ps$run_history          else list())
   # Code that has been generated or loaded but not (yet) run successfully, newest first; each entry:
   # uid, code, prompt, description, source ("ask" / "script"), seq (its interaction, if any), ts.
@@ -7345,6 +7352,7 @@ server <- function(input, output, session) {
   unconf_uid_n <- max(c(0L, vapply(isolate(unconf_code()), function(e) as.integer(e$uid %||% 0L), integer(1))))
   unconf_next_uid <- function() { unconf_uid_n <<- unconf_uid_n + 1L; unconf_uid_n }
   unconf_add <- function(code, prompt = "", description = "", source = "ask", seq = NULL) {
+    return(invisible(NULL))    # Past code lists only code that has run successfully, so nothing is kept unconfirmed
     if (!nzchar(trimws(code %||% ""))) return(invisible(NULL))
     keep <- Filter(function(e) !identical(trimws(e$code), trimws(code)), isolate(unconf_code()))
     unconf_code(c(list(list(uid = unconf_next_uid(), code = code, prompt = prompt %||% "",
@@ -8218,7 +8226,7 @@ server <- function(input, output, session) {
     all_log_entries(list())
     held_explain(NULL)
     loaded_packages(character(0))
-    last_extracted_code("")
+    last_extracted_code(""); script_origin(NULL)
     last_prompt_for_code("")
     last_code_description("")
     loaded_script_name(NULL)
@@ -8410,8 +8418,8 @@ server <- function(input, output, session) {
                   is_error = TRUE, plot_path = NULL))
     # Temporarily shadow q/quit/stopApp/ask in globalenv to intercept them
     .qc_klausmate_fns <- c("klaus", "whisper", "raisehand", "rh", "ssshh",
-                           "reset_key", "klausmate_reset", "klausmate_speaks",
-                           "klausmate_make_key", "klausmate_config_show")
+                           "reset_key", "klausmate_reset_key", "klausmate_reset", "klausmate_language", "klausmate_speaks",
+                           "klausmate_make_key", "klausmate_config_show", "klausmate_update")
     shadow <- c(
       list(
         q       = if (exists("q",       .GlobalEnv, inherits = FALSE)) get("q",       .GlobalEnv) else NULL,
@@ -9800,6 +9808,32 @@ server <- function(input, output, session) {
   })
 
   # --- Run the code ----------------------------------------------------------
+  # Label for code that has been changed since it came from Claude, a recall or a loaded script: "<original label> (edit n)",
+  # n counting up for that label. NULL when the code is not an edit (typed from scratch, or unchanged).
+  edit_label_for <- function(code_text, desc) {
+    sn   <- loaded_script_name()
+    gen  <- isolate(last_extracted_code()) %||% ""
+    so   <- isolate(script_origin())
+    base <- NULL; orig <- ""
+    if (!is.null(sn) && !is.null(so)) {
+      orig <- so$code; base <- so$label
+    } else if (nzchar(trimws(gen))) {
+      orig <- gen
+      base <- if (nzchar(trimws(desc))) desc else trimws(isolate(last_prompt_for_code()) %||% "")
+    } else if (!is.null(so) && identical(isolate(last_code_description()), so$label)) {
+      orig <- so$code; base <- so$label
+    }
+    if (is.null(base) || !nzchar(trimws(base)) || !nzchar(trimws(orig)) ||
+        identical(trimws(code_text), trimws(orig))) return(NULL)
+    base <- sub(" \\(edit [0-9]+\\)$", "", base)
+    pat <- paste0("^", gsub("([][{}()+*^$|\\\\?.])", "\\\\\\1", base), " \\(edit ([0-9]+)\\)$")
+    n <- 0L
+    for (e in run_history()) {
+      m <- regmatches(e$description %||% "", regexec(pat, e$description %||% ""))[[1]]
+      if (length(m) == 2L) n <- max(n, as.integer(m[2]))
+    }
+    paste0(base, " (edit ", n + 1L, ")")
+  }
   do_run_code <- function(code_text) {
     pending_export(NULL)
     ui_busy(TRUE); freeze_prompt(TRUE)
@@ -9820,13 +9854,16 @@ server <- function(input, output, session) {
           loaded_packages(unique(c(loaded_packages(), new_pkgs)))
           if (!identical(trimws(code_text), trimws(last_logged_code()))) {
             script_name <- loaded_script_name()
-            desc <- if (nzchar(trimws(last_code_description() %||% ""))) {
+            desc <- if (!is.null(script_name)) {
+              tools::file_path_sans_ext(basename(script_name))
+            } else if (nzchar(trimws(last_code_description() %||% ""))) {
               last_code_description()
-            } else if (!is.null(script_name)) {
-              script_name
             } else {
               ""
             }
+            ed <- edit_label_for(code_text, desc)
+            if (!is.null(ed)) desc <- ed
+            if (!is.null(script_name)) last_code_description(sub(" \\(edit [0-9]+\\)$", "", desc))
             entry <- list(prompt = last_prompt_for_code(), code = code_text,
                           description = desc, source = "ask_code", ts = Sys.time())
             run_history(c(run_history(), list(entry)))
