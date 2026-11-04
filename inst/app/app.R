@@ -1567,6 +1567,17 @@ run_code <- function(code_text) {
                 message = paste("Klausmate could not open your working directory.",
                                 "Use Change Working Directory in the Quick Console to choose a folder.")))
 
+  # What an empty page looks like on this computer's PNG device: the same size and settings, one blank page. A captured
+  # page that is byte for byte the same is blank. (A file-size rule does not work: a blank page is about 13 KB with the
+  # macOS device but only a few KB on Windows, where a simple box plot is also small.)
+  blank_md5 <- tryCatch({
+    ref <- tempfile("klausmate_blank_", fileext = ".png")
+    grDevices::png(ref, width = 900, height = 675, res = 120, bg = "white")
+    graphics::plot.new()
+    grDevices::dev.off()
+    unname(tools::md5sum(ref))
+  }, error = function(e) NA_character_)
+
   # Open a numbered PNG device to capture any plots generated
   tmp_base    <- tempfile("klausmate_plot_")
   tmp_pattern <- paste0(tmp_base, "%03d.png")
@@ -1658,10 +1669,11 @@ run_code <- function(code_text) {
   })
   setTimeLimit(cpu = Inf, elapsed = Inf, transient = FALSE)     # the limit is for the user's code only
 
-  # Close device and collect any non-blank plot files (blank PNG ≈ < 8 KB)
+  # Close device and collect the plot files that are not blank
   tryCatch(grDevices::dev.off(plot_dev), error = function(e) invisible(NULL))
   candidates <- sort(Sys.glob(paste0(tmp_base, "*.png")))
-  keep       <- file.exists(candidates) & file.size(candidates) > 8192
+  keep       <- file.exists(candidates) &
+    (if (is.na(blank_md5)) file.size(candidates) > 8192 else unname(tools::md5sum(candidates)) != blank_md5)
   plot_files <- candidates[keep]
   # Work out the lines of code behind each plot page. Only when the statements line up one-to-one
   # with the pages written, and each page began in a different statement; otherwise no code is offered.

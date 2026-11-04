@@ -139,7 +139,12 @@ klausmate_preflight <- function(relaunch = "klaus", args = list()) {
   options(klausmate.update_checked = TRUE)
 
   release <- klausmate_latest_release()
-  if (is.null(release)) return(FALSE)   # offline, or GitHub could not be reached: carry on silently
+  if (is.null(release)) {               # offline, or GitHub could not be reached: say so once, then carry on
+    message("Klausmate could not check for a newer version because GitHub could not be reached ",
+            "(no internet connection, or the network blocks github.com). Carrying on with version ",
+            as.character(utils::packageVersion("klausmate")), ".")
+    return(FALSE)
+  }
 
   latest_version  <- release$version
   current_version <- as.character(utils::packageVersion("klausmate"))
@@ -184,7 +189,7 @@ klausmate_do_update <- function(latest_version, download_url, relaunch = "klaus"
   }, error = function(e) { problems <<- c(problems, conditionMessage(e)); FALSE })
 
   # Say so (once) if the update could not be installed: the student should not be left on an old version without
-  # knowing. Running out of rate limit or being offline is not reported (see klausmate_preflight()).
+  # knowing. Not being able to reach GitHub at all is reported by klausmate_preflight().
   say_failed <- function() {
     options(klausmate.failed_update_version = latest_version)
     message("Klausmate: version ", latest_version, " is available but could not be installed automatically",
