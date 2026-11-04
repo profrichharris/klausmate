@@ -7123,6 +7123,9 @@ server <- function(input, output, session) {
       tags$div(class = "cm-float-body", do.call(tabsetPanel, c(list(id = "inspect_tabs"), x$panels))),
       tags$div(class = "cm-float-foot", actionButton("inspect_close_btn", "Close")))
   })
+  # The window is hidden (by CSS) until its content exists, so the content must be built while hidden: Shiny would
+  # otherwise not compute an output that sits in a hidden element, and the window would never appear
+  outputOptions(output, "inspect_float_ui", suspendWhenHidden = FALSE)
   observeEvent(input$inspect_close,     inspect_open(NULL))
   observeEvent(input$inspect_close_btn, inspect_open(NULL))
   for (b in c("ask_plain", "ask_code", "run_code", "pause_app", "quit"))
@@ -8268,10 +8271,12 @@ server <- function(input, output, session) {
           modalButton("Cancel"))
         # Only offered when there is something in the context list; ticked by default
         if (length(isolate(selected_files())) + length(isolate(selected_objects())) > 0)
-          tags$div(style = "display: flex; align-items: center; justify-content: space-between; gap: 12px;",
-            tags$div(style = "text-align: left; font-size: 0.9em;",
-                     checkboxInput("new_conv_forget", "Deselect and forget all the current files and objects", value = TRUE)),
-            tags$div(style = "white-space: nowrap;", buttons))
+          # wraps onto two lines when the window is too narrow for both, so nothing sticks out of it
+          tags$div(style = "display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; width: 100%; box-sizing: border-box; margin: 0;",
+            tags$div(style = "text-align: left; font-size: 0.9em; flex: 1 1 auto; min-width: 0;",
+                     tags$div(style = "margin: 0;",
+                       checkboxInput("new_conv_forget", "Deselect and forget all the current files and objects", value = TRUE))),
+            tags$div(style = "flex: 0 0 auto; margin-left: auto; text-align: right;", buttons))
         else buttons
       }
     ))

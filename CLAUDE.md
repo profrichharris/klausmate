@@ -236,8 +236,12 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.25 (2026-11-04)  
-**Current version:** 0.6.25
+**Last released:** 0.6.26 (2026-11-04)  
+**Current version:** 0.6.26
+
+Released in 0.6.26 (no unreleased changes; the binoculars / Look-at window works again; Cancel stays inside the new-conversation window):
+- **Binoculars (Look at) stopped working** (user report; my regression from 0.6.18): the Look-at window was made visible by CSS only once its content existed (`#inspect_float:has(.cm-float-head)`), but Shiny does not compute an output that sits in a hidden element, so the content was never built and the window never opened (found by running the real app: `show_inspect()` ran, `renderUI` never did). Fix: `outputOptions(output, "inspect_float_ui", suspendWhenHidden = FALSE)`. Tested live: opens with the table, an outside click closes it, reopens, Close button closes and it reopens. **Lesson: anything shown by CSS once its content exists must not be a suspend-when-hidden output.** Test-harness note: the desktop app's browser pane can open a first session of its own, which gets "A message from Klaus"; a page opened afterwards counts as the same R session and does not repeat it (expected).
+- **Cancel no longer sticks out of the new-conversation window** (user report): the footer with the "Deselect and forget…" tick box was a flex row that did not wrap, so the buttons overflowed on the right. It now wraps (`flex-wrap`, full width, box-sizing, the checkbox's own margin removed) so the buttons drop below the tick box if the window is too narrow. Checked in a minimal Shiny app with the same markup in a narrow pane (all inside the window); not seen in Klausmate itself.
 
 Released in 0.6.25 (no unreleased changes; warning when GitHub cannot be reached; plots no longer dropped as blank by file size):
 - **Plots wrongly dropped as "blank" on Windows** (user report: Chicago income box plot, explicit `print(p)`, runs successfully, no output, Windows PC): `run_code()` kept a captured PNG only if it was over 8192 bytes. A blank page is about 13 KB with the macOS device but only a few KB on Windows, where a simple box plot is also small, so the plot was thrown away. Now a blank reference page is written once per run on the same device and size (`blank_md5`) and a captured page is dropped only if it is byte for byte identical to it (the old size rule remains as the fallback if the reference cannot be made). Tested on macOS (plot.new(), no plot, `ggplot() + theme_void()` blank; plot(), box plots kept); NOT tested on Windows, where the cause is inferred, not seen.
