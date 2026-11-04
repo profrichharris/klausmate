@@ -236,8 +236,12 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.22 (2026-11-04)  
-**Current version:** 0.6.22
+**Last released:** 0.6.23 (2026-11-04)  
+**Current version:** 0.6.23
+
+Released in 0.6.23 (no unreleased changes; new-conversation window can forget the context; Forget deselected / Forget all):
+- **New-conversation window can forget the context** (user request): when files or objects are listed, the "Start a new conversation?" window has a tick box at the bottom left, "Deselect and forget all the current files and objects" (`new_conv_forget`), ticked by default; confirming with it ticked empties `selected_files`, `selected_objects` and `ctx_crossed`, unticked leaves them listed (as before). With nothing listed the box is omitted. `do_new_conversation_reset()` itself no longer touches the context.
+- **Links renamed**: "Remove deselected" is now **Forget deselected** and "Remove all" **Forget all** (their pop-up reads "Forget all context?" / "Yes, forget all"); the help texts say the files and objects themselves are not deleted. Input ids (`remove_context`, `remove_all_context`) are unchanged. Parse-checked and help check passes; not tested live (needs a key).
 
 Released in 0.6.22 (no unreleased changes; code log quotes only the first line of each explanation paragraph; a plot assigned in the last statement is now shown):
 - **Plot assigned but never shown** (user report: Chicago income box plot "ran but gave no output"): reproduced with `run_code()` — code such as `p <- ggplot(...) + geom_boxplot()` as the last statement draws nothing in R, so there was no output (a box plot's PNG is ~32 KB, so the blank-image filter was not the cause). Two fixes: (1) `run_code()` now shows a ggplot/tmap object assigned in the **last** statement (`is_plot_assignment()`; recorded in `auto_shown`, kind `"symbol"` with the object's name so Export/Save still work); (2) a SHOW PLOTS RULE in `r_system_prompt` tells Ask for Code to put the plot's name or `print()` after an assignment. A plot assigned earlier and not shown, followed by other statements, is still not drawn. Tested with `run_code()` on the Chicago data (no plot before, one now); not tested with the live model.

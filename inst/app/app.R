@@ -3342,7 +3342,7 @@ ui <- fluidPage(
     # Remove links directly above the list of files and objects added for context (shown only when there
     # is something to remove)
     tags$div(id = "context_links", style = "visibility: hidden; margin: 6px 0 6px 0; font-size: 0.85em;",
-      actionLink("remove_context", "Remove deselected"), " \u00b7 ", actionLink("remove_all_context", "Remove all")),
+      actionLink("remove_context", "Forget deselected"), " \u00b7 ", actionLink("remove_all_context", "Forget all")),
     uiOutput("context_list_ui"),
 
     hr(),
@@ -4373,14 +4373,15 @@ HELP_TEXTS <- list(
     "your current R session, making its objects available as context."
   ),
   remove_context = paste(
-    "Remove deselected — Everything added for context starts with a green tick, meaning it is used.",
+    "Forget deselected — Everything added for context starts with a green tick, meaning it is used.",
     "Click a tick to deselect that item: it becomes a red cross, is struck through and greyed, and is",
-    "not passed to your prompts. Press this to remove the deselected ones from the context for good",
+    "not passed to your prompts. Press this to forget the deselected ones (take them out of the context list for good;",
+    "the files and objects themselves are not deleted)",
     "(click the cross again to bring one back).",
     "This link appears above the list once you have added something."
   ),
   remove_all_context = paste(
-    "Remove all — Clears all attached files and objects from the context.",
+    "Forget all — Clears all attached files and objects from the context list (the files and objects themselves are not deleted).",
     "This link appears above the list once you have added something."
   ),
   mode_switch = paste(
@@ -4459,7 +4460,9 @@ HELP_TEXTS <- list(
     "R output, Past code, and Past prompts. The current conversation is saved",
     "to Past conversations and the code log is saved automatically. Any package",
     "choices you made are forgotten, so you will be asked afresh; recalling a past",
-    "conversation brings its choices back.",
+    "conversation brings its choices back. The window also has a box, ticked to start with (shown only",
+    "when files or objects are listed), to deselect and forget all the files and objects in the context list;",
+    "untick it to keep them for the new conversation.",
     "Each new conversation counts towards the limit set by your key; the number",
     "remaining is shown beneath this button."
   ),
@@ -7133,10 +7136,10 @@ server <- function(input, output, session) {
     if (length(selected_files()) == 0 && length(selected_objects()) == 0)
       return(invisible(NULL))
     showModal(modalDialog(
-      title = "Remove all context?",
-      "Are you sure? This will remove all files and objects from the context list.",
+      title = "Forget all context?",
+      "Are you sure? This will take all files and objects out of the context list. They are not deleted.",
       footer = tagList(
-        actionButton("confirm_remove_all_context", "Yes, remove all", class = "btn-warning"),
+        actionButton("confirm_remove_all_context", "Yes, forget all", class = "btn-warning"),
         modalButton("Cancel")
       )
     ))
@@ -8207,8 +8210,8 @@ server <- function(input, output, session) {
     last_run_code(NULL)
     code_before_fix(NULL)
     console_output_rv(character(0)); warnings_rv(character(0)); plot_files_rv(character(0)); widget_files_rv(character(0)); diff_rv(NULL)
-    # Note: selected_files and selected_objects are intentionally NOT cleared —
-    # the user's context files carry over into the new conversation.
+    # selected_files and selected_objects are cleared by the caller unless the student unticks "Deselect and forget
+    # all the current files and objects" in the new-conversation window; then they carry over.
     prompt_history(character(0))
     updateTextAreaInput(session, "prompt",      value = "")
     updateAceEditor(session, "code_editor", value = "")
@@ -8247,16 +8250,28 @@ server <- function(input, output, session) {
     showModal(modalDialog(
       title = "Start a new conversation?",
       tags$p("This will clear the Code editor, R output, Past code, and Past prompts. The current conversation will be saved to Past conversations from which previous code and prompts can be recalled. The code notebook for this conversation will be saved automatically."),
-      footer = tagList(
-        actionButton("confirm_new_conversation", "Yes, start new conversation", class = "btn-danger"),
-        modalButton("Cancel")
-      )
+      footer = {
+        buttons <- tagList(
+          actionButton("confirm_new_conversation", "Yes, start new conversation", class = "btn-danger"),
+          modalButton("Cancel"))
+        # Only offered when there is something in the context list; ticked by default
+        if (length(isolate(selected_files())) + length(isolate(selected_objects())) > 0)
+          tags$div(style = "display: flex; align-items: center; justify-content: space-between; gap: 12px;",
+            tags$div(style = "text-align: left; font-size: 0.9em;",
+                     checkboxInput("new_conv_forget", "Deselect and forget all the current files and objects", value = TRUE)),
+            tags$div(style = "white-space: nowrap;", buttons))
+        else buttons
+      }
     ))
   })
 
   observeEvent(input$confirm_new_conversation, {
+    forget <- !identical(input$new_conv_forget, FALSE)       # absent (nothing in the context) or ticked
     removeModal()
     do_new_conversation_reset()
+    if (forget && length(selected_files()) + length(selected_objects()) > 0) {
+      selected_files(character(0)); selected_objects(character(0)); ctx_crossed(character(0))
+    }
   })
 
   # --- Quick Console ---------------------------------------------------------
