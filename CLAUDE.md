@@ -236,10 +236,13 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.17 (2026-11-03)  
-**Current version:** 0.6.17
+**Last released:** 0.6.19 (2026-11-04)  
+**Current version:** 0.6.19
 
-Unreleased (after 0.6.17):
+Released in 0.6.19 (no unreleased changes; Past code "Recall" renamed "Code" and focuses the editor):
+- **Past code "Recall" is now "Code"** (user request): the button in the Past code tab and floating window (confirmed and unconfirmed rows) reads **Code**, always ends on the Code tab (it already did, via `prefer = "code"`), and puts the cursor in the editor (`focus_code_editor()`, a short `ace.edit('code_editor').focus()`). Help texts updated; Past prompts / Past answers / Past conversations keep **Recall**. Parse-checked; not tested live.
+
+Released in 0.6.18 (no unreleased changes; key reset period "none", package set-up waits for a valid key, Look-at window appears complete):
 - **Key reset period `"none"`** (user request): `klausmate_make_key(reset_period = "none")` makes the cost limit a lifetime total. Nothing ever refreshes, so once it is spent the key stops working (the "Usage allowance reached" window says the allowance does not refresh instead of giving a top-up time). `period_cutoff()`/`.watch_period_cutoff()` use the epoch (all usage counts); `next_reset_time()` returns NULL; the usage button says "total allowance, no reset". The usage log is kept when the same key is reloaded, so the allowance cannot be reset that way. Checked: spend sums over all time with "none" (0.3) versus the week (0.2); not yet tested in the live app.
 
 - **Package set-up waits for a valid key** (user report: the set-up message flashed up while a student was entering the key and PIN): the set-up/refresh job now starts from an observer on `key_is_set()` (guarded by `pkg_job_flags$started`), not at session start. `request_disclaimer()` waits (`disclaimer_pending`) until set-up has started and, if it is a first-run set-up, finished; the observer shows the message at once if no set-up is running. Parse-checked and help check passes; not tested live (needs a real key and PIN).

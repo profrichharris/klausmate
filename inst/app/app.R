@@ -4469,7 +4469,7 @@ HELP_TAB_TEXTS <- list(
     "Past Code tab — A record of the code in this conversation, newest first. A block marked",
     "(confirmed) has been run successfully; one marked (unconfirmed) was generated or loaded",
     "but has not been run successfully, and is replaced by a confirmed entry once it is. Use",
-    "the Recall button next to any entry to reload that code into the editor. A confirmed",
+    "the Code button next to any entry to reload that code into the editor and go to the Code tab. A confirmed",
     "entry also brings back its R output, plots and warnings; an unconfirmed one brings back",
     "the changes from the previous version, if it had them, but no output."
   ),
@@ -4517,18 +4517,18 @@ HELP_EXEMPT <- c("usage_help", "about_klausmate", "tell_more_ok",
 # Generated ids that follow a pattern (e.g. one Recall button per past code block).
 HELP_ID_PATTERNS <- list(
   "^repeat_code_" = paste(
-    "Recall (Past code) — Reloads this earlier code block into the Code editor so you can",
+    "Code (Past code) — Reloads this earlier code block into the Code editor so you can",
     "run it again or use it as a starting point. If the run of that code was captured, its",
-    "R output, plots and warnings come back with it. You are always taken to the Code tab, and",
-    "the prompt box is left as it is; recall a prompt from Past prompts to bring its text back."
+    "R output, plots and warnings come back with it. You are always taken to the Code tab, with the",
+    "code in focus, and the prompt box is left as it is; recall a prompt from Past prompts to bring its text back."
   ),
   "^output_code_" = paste(
-    "Output (Past code) — Like Recall, but takes you straight to the R output tab, showing the R output, plots",
+    "Output (Past code) — Like Code, but takes you straight to the R output tab, showing the R output, plots",
     "and warnings that this code produced, with the code itself back in the Code editor. It only appears for code",
     "whose run produced some output."
   ),
   "^recall_unconf_" = paste(
-    "Recall (Past code, unconfirmed) — Reloads this earlier code, which was generated or loaded but",
+    "Code (Past code, unconfirmed) — Reloads this earlier code, which was generated or loaded but",
     "has not been run successfully, into the Code editor, with the changes from the previous version if it",
     "had any. There is no R output to bring back until it has been run."
   ),
@@ -5921,11 +5921,11 @@ server <- function(input, output, session) {
         tags$span(style = "flex-shrink: 0; margin: 2px 6px 0 6px; font-size: 0.72em; color: #888;",
                   if (conf) "(confirmed)" else "(unconfirmed)"),
         if (conf)
-          tags$button("Recall", id = paste0("repeat_code_", r$i, suffix), style = btn_style,
+          tags$button("Code", id = paste0("repeat_code_", r$i, suffix), style = btn_style,
                       onclick = paste0("Shiny.setInputValue('repeat_code_", r$i,
                                        "', Math.random(), {priority: 'event'});"))
         else
-          tags$button("Recall", id = paste0("recall_unconf_", r$e$uid, suffix), style = btn_style,
+          tags$button("Code", id = paste0("recall_unconf_", r$e$uid, suffix), style = btn_style,
                       onclick = paste0("Shiny.setInputValue('recall_unconf_code', ", as.integer(r$e$uid),
                                        ", {priority: 'event'});")),
         {   # Output (to the right of Recall): like Recall, but opens the R output tab. Where the code produced no output the button is hidden and
@@ -5945,6 +5945,8 @@ server <- function(input, output, session) {
   output$past_code_ui       <- renderUI(build_past_code_ui())
   output$past_code_float_ui <- renderUI(build_past_code_ui("_f"))
 
+  focus_code_editor <- function()
+    shinyjs::runjs("setTimeout(function(){ try { var e = ace.edit('code_editor'); if (e) e.focus(); } catch (x) {} }, 150);")
   # Recall an unconfirmed entry: its code, and the changes from the previous version if it had them,
   # but no R output (it has not been run)
   observeEvent(input$recall_unconf_code, {
@@ -5969,6 +5971,7 @@ server <- function(input, output, session) {
     }
     unconf_code(lapply(unconf_code(), function(x) { if (identical(x$uid, e$uid)) x$ts <- Sys.time(); x }))
     open_past_float()
+    focus_code_editor()
   })
 
   # Past code "Recall": reload that code block; if it is the code that produced a captured
@@ -6026,6 +6029,7 @@ server <- function(input, output, session) {
             goto_tab("Code")
           }
           open_past_float()
+          focus_code_editor()
         }, ignoreInit = TRUE)
       })
     }
