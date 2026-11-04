@@ -236,8 +236,10 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.23 (2026-11-04)  
-**Current version:** 0.6.23
+**Last released:** 0.6.24 (2026-11-04)  
+**Current version:** 0.6.24
+
+Released in 0.6.24 (no code changes): the v0.6.23 release was created while its push was being rejected, so its tag points at the 0.6.22 commit (76ec2fb); the attached tarball and `main` are correct. 0.6.24 is the same code, released after a successful push so that the tag is right. Release order from now on: push first, check it succeeded, then `gh release create`.
 
 Released in 0.6.23 (no unreleased changes; new-conversation window can forget the context; Forget deselected / Forget all):
 - **New-conversation window can forget the context** (user request): when files or objects are listed, the "Start a new conversation?" window has a tick box at the bottom left, "Deselect and forget all the current files and objects" (`new_conv_forget`), ticked by default; confirming with it ticked empties `selected_files`, `selected_objects` and `ctx_crossed`, unticked leaves them listed (as before). With nothing listed the box is omitted. `do_new_conversation_reset()` itself no longer touches the context.
