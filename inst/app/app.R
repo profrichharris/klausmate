@@ -159,7 +159,12 @@ r_system_prompt <- paste(
   "(listed as columns: ... in the context), you MUST use only those exact",
   "column names in any code you write. Do not guess, abbreviate, or paraphrase",
   "column names. If the user refers to a variable by a name that does not",
-  "exactly match a listed column, identify the closest actual match and use that."
+  "exactly match a listed column, identify the closest actual match and use that.",
+  "MEANING RULE: Do not infer what a variable means from its name or from an abbreviation in it",
+  "(for example, do not read 'ba' as a degree). Use only a meaning given in the context. If none is",
+  "given, refer to the variable by its exact name in plot titles, axis labels, legends and",
+  "explanations; do not expand it into a description you have invented, and if the meaning matters",
+  "to the answer, say that it is not stated and what you have assumed, or ask."
 )
 
 tmap_v4_instruction <- paste(
@@ -1019,6 +1024,24 @@ format_schema_line <- function(label, schema, max_cols = 100) {
   line
 }
 
+# Meanings of the variables of a dataset loaded from Klausmate's online datasets (our own descriptions, never data
+# values), so Claude does not have to guess what a name like pct_ba_2011 stands for. One line per variable, each cut short.
+known_variable_lines <- function(obj_name, max_each = 170L, max_total = 5000L) {
+  v <- .cm$known_data[[obj_name]]$variables
+  if (is.null(v) || length(v) == 0L) return(character(0))
+  if (is.data.frame(v)) v <- lapply(seq_len(nrow(v)), function(i) as.list(v[i, , drop = FALSE]))
+  out <- vapply(v, function(x) {
+    d <- gsub("\\s+", " ", trimws(as.character(x$description %||% "")))
+    if (!nzchar(d)) return("")
+    if (nchar(d) > max_each) d <- paste0(substr(d, 1L, max_each), "...")
+    paste0("    ", x$name, ": ", d)
+  }, "")
+  out <- out[nzchar(out)]
+  if (length(out) == 0L) return(character(0))
+  keep <- cumsum(nchar(out) + 1L) <= max_total
+  c("  what the variables mean (from the dataset's documentation; do not assume any other meaning):", out[keep])
+}
+
 summarise_workspace_object <- function(obj_name, envir = .GlobalEnv) {
   if (!exists(obj_name, envir = envir, inherits = FALSE))
     return(paste0("`", obj_name, "`: [no longer exists in workspace]"))
@@ -1039,7 +1062,7 @@ summarise_workspace_object <- function(obj_name, envir = .GlobalEnv) {
     shown   <- min(n, 50L)
     col_str <- paste(schema$cols[seq_len(shown)], collapse = ", ")
     if (n > shown) col_str <- paste0(col_str, " ... and ", n - shown, " more")
-    paste0(header, "\n  columns: ", col_str)
+    paste(c(paste0(header, "\n  columns: ", col_str), known_variable_lines(obj_name)), collapse = "\n")
   } else {
     header
   }
@@ -3760,7 +3783,11 @@ answer_column_rule <- paste(
   "COLUMN NAME RULE: When files or objects are provided with a known schema (listed as",
   "columns: ... in the context), use only those exact column names. Do not guess,",
   "abbreviate, or paraphrase column names. If the student refers to a variable by a name",
-  "that does not exactly match a listed column, use the closest actual match."
+  "that does not exactly match a listed column, use the closest actual match.",
+  "MEANING RULE: Do not infer what a variable means from its name or from an abbreviation in it",
+  "(for example, do not read 'ba' as a degree). Use only a meaning given in the context. If none is",
+  "given, refer to the variable by its exact name and do not describe what it measures as if you",
+  "knew; if the meaning matters to the answer, say that it is not stated."
 )
 
 answer_clarity_rule <- paste(

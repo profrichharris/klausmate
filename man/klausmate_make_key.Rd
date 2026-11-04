@@ -48,8 +48,9 @@ change the default. Passing \code{NULL} (or typing \code{none} at the
 prompt) removes the limit; you are asked to confirm this with Y/N.}
 
 \item{max_lines}{Maximum length, in lines, of code the app will accept or
-generate. Default \code{50}. If omitted, you are prompted to confirm or
-change the default. Passing \code{NULL} (or typing \code{none} at the
+generate. Default \code{100}. If omitted, you are prompted to confirm or
+change the default (suggested choices are 100, 250, 500 or \code{none}; any
+whole number of lines can be typed). Passing \code{NULL} (or typing \code{none} at the
 prompt) removes the limit; you are asked to confirm this with Y/N.}
 
 \item{pin}{A 6-digit PIN (a string such as \code{"482915"}). The key file is encrypted with

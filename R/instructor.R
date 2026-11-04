@@ -39,8 +39,9 @@
 #'   change the default. Passing \code{NULL} (or typing \code{none} at the
 #'   prompt) removes the limit; you are asked to confirm this with Y/N.
 #' @param max_lines Maximum length, in lines, of code the app will accept or
-#'   generate. Default \code{50}. If omitted, you are prompted to confirm or
-#'   change the default. Passing \code{NULL} (or typing \code{none} at the
+#'   generate. Default \code{100}. If omitted, you are prompted to confirm or
+#'   change the default (suggested choices are 100, 250, 500 or \code{none}; any
+#'   whole number of lines can be typed). Passing \code{NULL} (or typing \code{none} at the
 #'   prompt) removes the limit; you are asked to confirm this with Y/N.
 #' @param pin A 6-digit PIN (a string such as \code{"482915"}). The key file is encrypted with
 #'   it, so it is of no use without the PIN; students enter the PIN once, when they first load
@@ -105,14 +106,14 @@ klausmate_make_key <- function(api_key           = NULL,
   if (missing(max_lines)) {
     ans <- trimws(readline(paste0(
       "Maximum code length in lines ",
-      "[default: 50, 'none' for no limit, or press Enter to accept]: ")))
-    max_lines <- if (!nzchar(ans)) 50L
+      "[default: 100; other choices 250, 500, 'none' for no limit, or any whole number; Enter accepts the default]: ")))
+    max_lines <- if (!nzchar(ans)) 100L
     else if (tolower(ans) %in% c("none", "unlimited")) NULL
     else {
       v <- suppressWarnings(as.integer(ans))
       if (is.na(v) || v < 1L) {
-        message("Invalid value — using default of 50 lines.")
-        50L
+        message("Invalid value — using default of 100 lines.")
+        100L
       } else v
     }
   }

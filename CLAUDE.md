@@ -27,7 +27,7 @@ There is a single mode (the old Student / Non-student distinction was removed in
 | `cost_limit`, `reset_period` | Spend cap per period (`NULL` = unlimited) |
 | `final_expiry` | Date the key stops working |
 | `max_conversations` | Conversations per app start, 1–25 (`NULL` = unlimited) |
-| `max_lines` | Code-length limit (`Inf` = unlimited; keys without the field behave as 50). Shown read-only in Preferences — not a user choice |
+| `max_lines` | Code-length limit (default 100 when making a key; the prompt suggests 100, 250, 500, `none` = unlimited, or any whole number; `Inf` = unlimited; older keys without the field still behave as 50). Shown read-only in Preferences — not a user choice |
 
 An instructor/developer who wants unlimited use generates their own key with `klausmate_make_key()`. `cost_limit`, `max_conversations` and `max_lines` set to `NULL` each require a Y/N confirmation and are never the default. `whisper()` still accepts a raw API key (console only, no quota).
 
@@ -236,8 +236,12 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.19 (2026-11-04)  
-**Current version:** 0.6.19
+**Last released:** 0.6.20 (2026-11-04)  
+**Current version:** 0.6.20
+
+Released in 0.6.20 (no unreleased changes; default code length 100 for new keys; Claude is given variable meanings and told not to guess them):
+- **Claude no longer guesses what variables mean** (user report: pct_ba_2011 was read as "percentage with a degree" in plots and explanations; "ba" is Black African): (1) objects loaded from Klausmate's online datasets now send their variable descriptions (our own documentation text, never data values) with the context: `known_variable_lines()` adds one line per variable under the object in `summarise_workspace_object()`, each cut to 170 characters, 5000 in all (~1,000 tokens for Birmingham, so a little extra cost per request for that data); (2) a MEANING RULE in `r_system_prompt` (Ask for Code) and `answer_column_rule` (Answer): never infer meaning from a name or abbreviation; with no stated meaning, use the exact variable name in titles/labels/explanations and say the meaning is not stated if it matters. Other data (own files, package data) has no descriptions, so only the rule applies there. Unit-checked the description lines on the Birmingham data; not tested with the live model.
+- **Default code length for new keys is 100 lines** (was 50; user request): `klausmate_make_key()` prompts "[default: 100; other choices 250, 500, 'none' for no limit, or any whole number]" (an invalid answer falls back to 100); `max_lines = ` still accepts any positive whole number, or NULL/Inf (Y/N confirmation). Keys already made keep their value, and old keys without the field still behave as 50. Preferences still shows the key's value read-only.
 
 Released in 0.6.19 (no unreleased changes; Past code "Recall" renamed "Code" and focuses the editor):
 - **Past code "Recall" is now "Code"** (user request): the button in the Past code tab and floating window (confirmed and unconfirmed rows) reads **Code**, always ends on the Code tab (it already did, via `prefer = "code"`), and puts the cursor in the editor (`focus_code_editor()`, a short `ace.edit('code_editor').focus()`). Help texts updated; Past prompts / Past answers / Past conversations keep **Recall**. Parse-checked; not tested live.
