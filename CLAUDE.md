@@ -236,8 +236,12 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.21 (2026-11-04)  
-**Current version:** 0.6.21
+**Last released:** 0.6.22 (2026-11-04)  
+**Current version:** 0.6.22
+
+Released in 0.6.22 (no unreleased changes; code log quotes only the first line of each explanation paragraph; a plot assigned in the last statement is now shown):
+- **Plot assigned but never shown** (user report: Chicago income box plot "ran but gave no output"): reproduced with `run_code()` — code such as `p <- ggplot(...) + geom_boxplot()` as the last statement draws nothing in R, so there was no output (a box plot's PNG is ~32 KB, so the blank-image filter was not the cause). Two fixes: (1) `run_code()` now shows a ggplot/tmap object assigned in the **last** statement (`is_plot_assignment()`; recorded in `auto_shown`, kind `"symbol"` with the object's name so Export/Save still work); (2) a SHOW PLOTS RULE in `r_system_prompt` tells Ask for Code to put the plot's name or `print()` after an assignment. A plot assigned earlier and not shown, followed by other statements, is still not drawn. Tested with `run_code()` on the Chicago data (no plot before, one now); not tested with the live model.
+- **Code log explanations quoted on the first line of each paragraph only** (user request, option 1): `format_explanation_entry()`'s `quote_lines()` used to put `> ` on every line, which cluttered the raw `.Rmd`. Now only the first line of a paragraph has it (Markdown carries the rest on); list items, headings, code fences and everything inside a fence still get one, and text straight after a closing fence starts a new quote. Checked with commonmark: the rendered quotation is the same. The note at the top of the log is unchanged.
 
 Released in 0.6.21 (no unreleased changes; explicit start-up order: key screen, preparation screen, message from Klaus):
 - **Start-up order made explicit** (user report: "A message from Klaus" came after the app had started and been used): the order is now (1) key screen, skipped if a key is known; (2) preparation screen, skipped if no set-up is needed; (3) "A message from Klaus", once per R session; then the app. Cause: the first-run set-up check ran for a while with no screen (the overlay only appeared once an install began), the app was usable meanwhile, and the message waited for the check to finish. `start_pkg_job("setup")` (not the Preferences "check again" link) now sends the `cm_setup_overlay` message at once ("Checking that the R packages Klausmate needs are available…"), which `KM_INSTALL` then replaces with the install text; the message (`disclaimer_pending`) still waits until the set-up job ends. The quiet refresh job never shows a screen and never delays the message. Parse-checked; not tested live (needs a key).

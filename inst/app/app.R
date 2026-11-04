@@ -155,6 +155,8 @@ r_system_prompt <- paste(
   "If another programming language is genuinely necessary (for example",
   "Python via the reticulate package), make sure any code you provide can",
   "be run from within this R/RStudio session, and briefly explain how.",
+  "SHOW PLOTS RULE: When code creates a plot or map, it must also display it: if you assign it to a name,",
+  "put that name (or print(name)) on its own line afterwards; never end with only an assignment.",
   "COLUMN NAME RULE: When files or objects are provided with a known schema",
   "(listed as columns: ... in the context), you MUST use only those exact",
   "column names in any code you write. Do not guess, abbreviate, or paraphrase",
@@ -1207,7 +1209,23 @@ explanation_label <- function(e) {
 # An explanation (and any "Tell me more" detail) in the notebook: what was asked in italics, the selected code in a
 # chunk that is not run, and the explanation as a quotation, so the notebook still runs top to bottom.
 format_explanation_entry <- function(e, i) {
-  quote_lines <- function(txt) paste0("> ", strsplit(trimws(txt), "\n", fixed = TRUE)[[1]], collapse = "\n")
+  # A Markdown quotation needs ">" only on the first line of a paragraph (the rest is carried on by the paragraph), which
+  # keeps the raw notebook readable. Lines that start something of their own (list items, headings, code fences, and
+  # everything inside a fence) still get one.
+  quote_lines <- function(txt) {
+    ln <- strsplit(trimws(txt), "\n", fixed = TRUE)[[1]]
+    in_fence <- FALSE; first <- TRUE; out <- character(length(ln))
+    for (k in seq_along(ln)) {
+      l <- ln[k]
+      is_fence <- grepl("^\\s*```", l)
+      blank <- !nzchar(trimws(l)) && !in_fence
+      own <- is_fence || in_fence || grepl("^\\s*([-*+]|[0-9]+[.)])\\s|^\\s*#", l)
+      out[k] <- if (blank) "" else if (first || own) paste0("> ", l) else l
+      first <- blank
+      if (is_fence) { in_fence <- !in_fence; if (!in_fence) first <- TRUE }   # text straight after a fence starts a new quote
+    }
+    paste(out, collapse = "\n")
+  }
   parts <- paste0("*", explanation_label(e), "*")
   if (nzchar(trimws(e$subject %||% "")))
     parts <- c(parts, paste0("```{r explained_", i, ", eval=FALSE}\n", trimws(e$subject), "\n```"))
@@ -1530,6 +1548,11 @@ is_layout_call <- function(e) {
   is.call(e) && is.name(e[[1]]) && as.character(e[[1]]) %in% c("par", "layout")
 }
 
+# x <- <expression> or x = <expression>, with a plain name on the left
+is_plot_assignment <- function(e)
+  is.call(e) && length(e) == 3L && (identical(e[[1L]], as.name("<-")) || identical(e[[1L]], as.name("="))) &&
+    is.name(e[[2L]])
+
 run_code <- function(code_text) {
   warnings_seen  <- character(0)
   console_output <- character(0)
@@ -1556,6 +1579,7 @@ run_code <- function(code_text) {
   grDevices::dev.control("enable")     # keep the display list, to see which statements draw
   exprs <- NULL; cur_expr <- 0L; starts <- integer(0); drew <- integer(0); n_prev <- 0L
   vis_cls <- list()    # statement number -> class of the value it printed, when it printed one
+  auto_shown <- list() # statement number -> name of the plot object it assigned and Klausmate then showed
   # Base graphics calls plot.new() once per panel, so with par(mfrow = ...) or plot(<lm>) only the call
   # that begins a new page (par("page")) counts; grid / ggplot2 / tmap start a page with grid.newpage()
   note_page_base <- function(...) {
@@ -1591,6 +1615,12 @@ run_code <- function(code_text) {
         for (i in seq_along(exprs)) {
           cur_expr <- i
           yy <- withVisible(eval(exprs[[i]], envir = globalenv()))
+          # A plot created in the last statement but never shown (p <- ggplot(...) + geom_boxplot() and nothing after it):
+          # R would draw nothing, so show it, as if its name had been typed on the next line
+          if (!yy$visible && i == length(exprs) && is_plot_assignment(exprs[[i]]) &&
+              inherits(yy$value, c("gg", "tmap"))) {
+            yy$visible <- TRUE; auto_shown[[as.character(i)]] <- as.character(exprs[[i]][[2L]])
+          }
           if (yy$visible && !is.null(yy$value)) vis_cls[[as.character(i)]] <- class(yy$value)
           if (yy$visible) {
             v <- yy$value
@@ -1651,7 +1681,8 @@ run_code <- function(code_text) {
       # else (plot(), lines(), print(p) ... which draw as a side effect and are repeated as they are).
       single <- identical(last_expr, starts[i])
       cls    <- vis_cls[[as.character(starts[i])]]
-      kind   <- if (single && !is.null(cls) && is.name(exprs[[starts[i]]])) "symbol"
+      auto   <- auto_shown[[as.character(starts[i])]]
+      kind   <- if (single && !is.null(cls) && (is.name(exprs[[starts[i]]]) || !is.null(auto))) "symbol"
                 else if (single && !is.null(cls)) "value" else "plain"
       # A base-graphics page also needs the par() / layout() statements just before it (par(mfrow = c(2, 2))
       # then plot(model) is one page of four panels, not four pages)
@@ -1661,7 +1692,7 @@ run_code <- function(code_text) {
       }
       assign(candidates[i], list(code = paste(lines[from:to], collapse = "\n"), kind = kind,
                                  cls = cls %||% character(0),
-                                 sym = if (identical(kind, "symbol")) as.character(exprs[[starts[i]]]) else ""),
+                                 sym = if (identical(kind, "symbol")) (auto %||% as.character(exprs[[starts[i]]])) else ""),
              envir = plot_code_cache)
     }
   } else if (isTRUE(result$success) && length(starts) > 0 && anyDuplicated(starts)) {
