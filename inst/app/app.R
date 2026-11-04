@@ -7696,6 +7696,11 @@ server <- function(input, output, session) {
     pkg_job_flags$overlay <- FALSE
     pkg_job_flags$mode <- mode
     if (notify) showNotification("Checking packages\u2026", id = "pkg_check_note", duration = NULL, type = "message")
+    # The preparation screen comes up at once (not only when something has to be installed), so the order is always:
+    # key screen, preparation screen, "A message from Klaus", then the app
+    if (mode == "setup" && !notify)
+      session$sendCustomMessage("cm_setup_overlay", list(
+        show = TRUE, text = "Checking that the R packages Klausmate needs are available\u2026"))
     pkg_job(proc)
   }
 

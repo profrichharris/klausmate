@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.20 (2026-11-04)  
-**Current version:** 0.6.20
+**Last released:** 0.6.21 (2026-11-04)  
+**Current version:** 0.6.21
+
+Released in 0.6.21 (no unreleased changes; explicit start-up order: key screen, preparation screen, message from Klaus):
+- **Start-up order made explicit** (user report: "A message from Klaus" came after the app had started and been used): the order is now (1) key screen, skipped if a key is known; (2) preparation screen, skipped if no set-up is needed; (3) "A message from Klaus", once per R session; then the app. Cause: the first-run set-up check ran for a while with no screen (the overlay only appeared once an install began), the app was usable meanwhile, and the message waited for the check to finish. `start_pkg_job("setup")` (not the Preferences "check again" link) now sends the `cm_setup_overlay` message at once ("Checking that the R packages Klausmate needs are available…"), which `KM_INSTALL` then replaces with the install text; the message (`disclaimer_pending`) still waits until the set-up job ends. The quiet refresh job never shows a screen and never delays the message. Parse-checked; not tested live (needs a key).
 
 Released in 0.6.20 (no unreleased changes; default code length 100 for new keys; Claude is given variable meanings and told not to guess them):
 - **Claude no longer guesses what variables mean** (user report: pct_ba_2011 was read as "percentage with a degree" in plots and explanations; "ba" is Black African): (1) objects loaded from Klausmate's online datasets now send their variable descriptions (our own documentation text, never data values) with the context: `known_variable_lines()` adds one line per variable under the object in `summarise_workspace_object()`, each cut to 170 characters, 5000 in all (~1,000 tokens for Birmingham, so a little extra cost per request for that data); (2) a MEANING RULE in `r_system_prompt` (Ask for Code) and `answer_column_rule` (Answer): never infer meaning from a name or abbreviation; with no stated meaning, use the exact variable name in titles/labels/explanations and say the meaning is not stated if it matters. Other data (own files, package data) has no descriptions, so only the rule applies there. Unit-checked the description lines on the Birmingham data; not tested with the live model.
