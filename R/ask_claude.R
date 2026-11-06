@@ -241,7 +241,9 @@ klausmate_session_is_stale <- function(relaunch = "klaus", args = list()) {
   installed <- tryCatch(as.character(utils::packageVersion("klausmate")), error = function(e) loaded)
   if (is.na(loaded) || identical(loaded, installed)) return(FALSE)
   if (klausmate_reload_and_relaunch(relaunch, args)) return(TRUE)
-  message("Klausmate was updated while R was running. Please restart R (Session > Restart R in RStudio) ",
+  in_rs <- requireNamespace("rstudioapi", quietly = TRUE) && isTRUE(tryCatch(rstudioapi::isAvailable(), error = function(e) FALSE))
+  message("Klausmate was updated while R was running. Please restart R",
+          if (in_rs) " (Session > Restart R in RStudio) " else " ",
           "and then run ", relaunch, "() again.")
   TRUE
 }

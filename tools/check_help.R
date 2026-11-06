@@ -17,13 +17,15 @@ exprs <- parse(app_file, keep.source = FALSE)
 
 # --- Load the help tables without running the rest of the app ---------------
 help_env <- new.env()
-wanted <- c("HELP_TEXTS", "HELP_TAB_TEXTS", "HELP_EXEMPT", "HELP_ID_PATTERNS")
+wanted <- c("HELP_TEXTS", "HELP_TAB_TEXTS", "HELP_EXEMPT", "HELP_ID_PATTERNS",
+            # helpers the help texts call (wording that depends on whether this is RStudio)
+            "in_rstudio", "opened_in_txt", "restart_r_txt", "main_console_txt", "stop_run_txt")
 for (e in exprs) {
   if (is.call(e) && identical(e[[1]], as.name("<-")) && is.name(e[[2]]) &&
       as.character(e[[2]]) %in% wanted)
     eval(e, help_env)
 }
-missing_tables <- setdiff(wanted, ls(help_env))
+missing_tables <- setdiff(c("HELP_TEXTS", "HELP_TAB_TEXTS", "HELP_EXEMPT", "HELP_ID_PATTERNS"), ls(help_env))
 if (length(missing_tables) > 0)
   stop("Help tables not found in app.R: ", paste(missing_tables, collapse = ", "))
 

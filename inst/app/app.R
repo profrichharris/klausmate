@@ -4,6 +4,19 @@ library(shinyFiles)
 library(shinyAce)
 library(httr2)
 
+# TRUE when this R session is RStudio. Wording that names RStudio (where a file opens, how to stop code, how to
+# restart R) uses it, so other environments (the R GUI, a terminal, VS Code ...) are told something that is true there.
+in_rstudio <- function()
+  requireNamespace("rstudioapi", quietly = TRUE) && isTRUE(tryCatch(rstudioapi::isAvailable(), error = function(e) FALSE))
+# Phrases used in several messages
+opened_in_txt   <- function() if (in_rstudio()) "opened in RStudio" else "opened in your editor"
+restart_r_txt   <- function() if (in_rstudio()) "restart R (Session > Restart R in RStudio)" else "restart R"
+main_console_txt <- function() if (in_rstudio()) "main RStudio console" else "main R console"
+stop_run_txt    <- function() {
+  if (in_rstudio()) "press Stop in RStudio (or Esc in the R console); if RStudio then asks whether to terminate R, choose No"
+  else "press Esc in the R console (or the Stop button of your R program, if it has one)"
+}
+
 # --- Stale-session guard ------------------------------------------------------------
 # If the package was updated while R was running, the old version can still be loaded and may lack
 # functions this app.R needs. Rather than failing with a traceback, the app then shows a short notice,
@@ -150,11 +163,12 @@ KLAUSMATE_LANGUAGES <- c(
 # --- System-prompt building blocks -------------------------------------------
 
 r_system_prompt <- paste(
-  "The user is working in R, inside RStudio.",
+  if (in_rstudio()) "The user is working in R, inside RStudio."
+  else "The user is working in R (do not assume they are using RStudio, so avoid advice that relies on RStudio features).",
   "Please prefer to answer with R code.",
   "If another programming language is genuinely necessary (for example",
   "Python via the reticulate package), make sure any code you provide can",
-  "be run from within this R/RStudio session, and briefly explain how.",
+  "be run from within this R session, and briefly explain how.",
   "SHOW PLOTS RULE: When code creates a plot or map, it must also display it: if you assign it to a name,",
   "put that name (or print(name)) on its own line afterwards; never end with only an assignment.",
   "COLUMN NAME RULE: When files or objects are provided with a known schema",
@@ -1530,7 +1544,7 @@ run_limit_label <- function(secs) {
 }
 run_progress_detail <- function() {
   lim <- run_time_limit_secs()
-  stop_hint <- "press Stop in RStudio (or Esc in the R console); if RStudio then asks whether to terminate R, choose No"
+  stop_hint <- stop_run_txt()
   if (is.finite(lim)) paste0("It will stop by itself after ", run_limit_label(lim), ". To stop it sooner, ", stop_hint, ".")
   else paste0("To stop it, ", stop_hint, ".")
 }
@@ -4409,7 +4423,7 @@ HELP_TEXTS <- list(
     "Run — Executes the code currently in the editor. Results and any plots",
     "appear in the R output tab. If the code runs successfully it is added to",
     "Past Code and your code log. Code that runs longer than the time set in Preferences is stopped (you can also",
-    "press Stop in RStudio, or Esc in the R console; if RStudio asks whether to terminate R, choose No), and Run",
+    paste0(stop_run_txt(), "), and Run"),
     "is then available again. (Not available while the Answer view is showing.)",
     "Shortcut: Command+Enter (Ctrl+Enter on Windows) runs the code from the code editor or from anywhere else on",
     "the page (for example after clicking another button), except in the prompt box, where it first asks for code."
@@ -4436,13 +4450,13 @@ HELP_TEXTS <- list(
   save_block = paste(
     "Save Code Block — Saves the code currently in the editor to a named .R",
     "file in your project folder (using the code description as the filename) and",
-    "opens it in RStudio. (Not available while the Answer view is showing.)"
+    paste0("opens it in ", if (in_rstudio()) "RStudio" else "your editor", ". (Not available while the Answer view is showing.)")
   ),
   view_log = paste(
     "View Code Log — Opens a read-only window listing the code that has been run successfully in",
     "this conversation, each piece with the prompt that produced it, together with any explanations you",
     "asked for (Explain, and Tell me more), shown as quoted text so the notebook still runs. Press Save in that window to",
-    "save the log as an R Notebook (.Rmd) in your project folder and open it in RStudio, as",
+    paste0("save the log as an R Notebook (.Rmd) in your project folder and open it in ", if (in_rstudio()) "RStudio" else "your editor", ", as"),
     "happens with Pause, Quit with Code Log and New conversation, but part-way through. You can",
     "carry on in Klausmate afterwards; a later save contains everything so far."
   ),
@@ -7639,7 +7653,7 @@ server <- function(input, output, session) {
           tags$p(tags$strong(paste(still_missing, collapse = ", ")), " installed successfully, but installing it updated",
                  "packages that this R session is already using, so R has to be restarted before it can be used."),
           tags$p("Press ", tags$strong("Pause and close"), " to save your session (your conversation, code and context are kept).",
-                 "Then restart R (Session > Restart R in RStudio) and run klaus() again to carry on where you left off."),
+                 paste0("Then ", restart_r_txt(), " and run klaus() again to carry on where you left off.")),
           easyClose = FALSE,
           footer = tagList(
             actionButton("install_restart_pause", "Pause and close", class = "btn-primary"),
@@ -8540,9 +8554,9 @@ server <- function(input, output, session) {
     if (!allow_install && code_installs_packages(code)) {
       qc_pending_code(code)
       showModal(modalDialog(
-        title = "Installing packages? Better done in RStudio",
+        title = paste0("Installing packages? Better done in the ", main_console_txt()),
         tags$p("The Quick Console is designed for quick operations. Installing packages can take several minutes and cannot be interrupted, so Klausmate may seem frozen while it runs."),
-        tags$p("We recommend that you Pause Klausmate (your session is saved), install the package in the main RStudio console, and then restart Klausmate to carry on where you left off."),
+        tags$p("We recommend that you Pause Klausmate (your session is saved), install the package in the ", main_console_txt(), ", and then restart Klausmate to carry on where you left off."),
         tags$p(em("You can still install it here if you prefer: Klausmate will wait for it to finish.")),
         footer = tagList(
           actionButton("qc_install_pause", "Pause Klausmate", class = "btn-primary"),
@@ -8576,7 +8590,7 @@ server <- function(input, output, session) {
       showModal(modalDialog(
         title = "That took too long for the Quick Console",
         tags$p("The Quick Console is designed for quick operations, so it stops any command that runs for more than 30 seconds. Your command was interrupted."),
-        tags$p("For a longer process, we recommend that you Pause Klausmate (your session is saved), run the command in the main RStudio console, and then restart Klausmate to carry on where you left off."),
+        tags$p("For a longer process, we recommend that you Pause Klausmate (your session is saved), run the command in the ", main_console_txt(), ", and then restart Klausmate to carry on where you left off."),
         footer = tagList(
           actionButton("qc_timeout_pause", "Pause Klausmate", class = "btn-primary"),
           actionButton("qc_timeout_close", "Close")
@@ -10152,7 +10166,7 @@ server <- function(input, output, session) {
       size  = "l",
       tags$p(style = "font-size: 0.85em; color: #888;",
         "The code run successfully in this conversation, with any explanations you asked for. Press Save to save it as an",
-        "R Notebook and open it in RStudio."),
+        paste0("R Notebook and open it in ", if (in_rstudio()) "RStudio" else "your editor", ".")),
       body,
       footer = tagList(
         if (length(entries) > 0) actionButton("view_log_save", "Save", class = "btn-primary"),
@@ -10286,7 +10300,7 @@ server <- function(input, output, session) {
 
   show_quit_confirm_modal <- function() {
     save_note <- if (length(full_log()) > 0)
-      "Your code notebook will be saved automatically and opened in RStudio."
+      paste0("Your code notebook will be saved automatically and ", opened_in_txt(), ".")
     else
       "There is nothing to save."
     showModal(modalDialog(
@@ -10334,8 +10348,8 @@ server <- function(input, output, session) {
 }
 
 if (.cm_stale) {
-  .cm_stale_msg <- paste("Klausmate was updated while R was running. Please restart R",
-                         "(Session > Restart R in RStudio) and then run klaus() again.")
+  .cm_stale_msg <- paste0("Klausmate was updated while R was running. Please ", restart_r_txt(),
+                          " and then run klaus() again.")
   message(.cm_stale_msg)
   shinyApp(
     fluidPage(style = "max-width: 560px; margin-top: 60px;",

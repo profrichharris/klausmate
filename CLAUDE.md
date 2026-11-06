@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.29 (2026-11-04)  
-**Current version:** 0.6.29
+**Last released:** 0.6.30 (2026-11-06)  
+**Current version:** 0.6.30
+
+Released in 0.6.30 (no unreleased changes; wording that names RStudio adapts to where Klausmate is running):
+- **Wording that names RStudio now adapts to where Klausmate is running** (user request; follows the test run of Klausmate in plain R, where saving and opening the log worked but messages said "opened in RStudio"): `in_rstudio()` (top of `inst/app/app.R`: `rstudioapi::isAvailable()`) and small phrase helpers `opened_in_txt()`, `restart_r_txt()`, `main_console_txt()`, `stop_run_txt()`. Used in: the Quit and Code Log pop-ups ("opened in your editor"), the stop-code advice (progress box, Run help: "press Esc in the R console (or the Stop button of your R program...)"), Save Code Block and View Code Log help, the "Restart needed" and stale-session messages ("restart R" without "Session > Restart R in RStudio"), the Quick Console package/time-out pop-ups ("main R console"), and the system prompt (`r_system_prompt` says "do not assume they are using RStudio" outside RStudio, and "this R session" instead of "this R/RStudio session"). `klausmate_preflight()`'s update message does the same in `R/ask_claude.R`. `tools/check_help.R` now also evaluates these helpers (the help tables call them). Tested in plain R (no RStudio) with the key check switched off in a scratch copy of the app: the Quit pop-up, View Code Log text and the Quick Console install pop-up read correctly; the help text checked for both settings by evaluating the tables with `in_rstudio` TRUE and FALSE. Not tested inside RStudio itself (unchanged wording there by design). Remaining mentions of RStudio left on purpose: the About text ("works alongside RStudio (or R)"), "your R session (e.g. RStudio) will be switched to the same folder", and code comments.
 
 Released in 0.6.29 (no unreleased changes; splash page always first, Past code lists only successful runs with (edit n) labels, klausmate_update(), klausmate_reset_key(), klausmate_language()):
 - **Bug fixed: the language name was matched to the first fuzzy hit alphabetically** (found while testing the rename): `klausmate_language("welsh")` saved "Swedish" (lower case defeated `agrep` and the first of several close matches was taken). An exact match ignoring case now wins, otherwise the nearest spelling (`utils::adist`). Tested: welsh, Wlesh, frensh, german, spanich, Englsh, portugese, Chinese all give the right language.
