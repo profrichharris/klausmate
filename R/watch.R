@@ -922,7 +922,7 @@ reset_key <- function() klausmate_reset_key()
 
 #' Reset klausmate to factory defaults
 #'
-#' Deletes the saved key (student key or API key), resets the response
+#' Deletes the saved key (student key or API key), forgets the chosen web browser, resets the response
 #' language to English and forgets the record of which R packages work, so
 #' that the next \code{klaus()} runs the first-time set-up again (checking, and
 #' if necessary installing, the packages Klausmate needs).
@@ -959,6 +959,7 @@ klausmate_reset <- function() {
     "klausmate_reset() will:\n",
     "  • Delete the saved key\n",
     "  • Reset the response language to English\n",
+    "  • Forget the chosen web browser\n",
     "  • Forget the package set-up, so that it is run again the next time klaus() starts\n"
   )
   answer <- trimws(readline("Are you sure you want to reset? (yes/no): "))
@@ -985,6 +986,13 @@ klausmate_reset <- function() {
   if (file.exists(lang_path)) {
     file.remove(lang_path)
     message("Response language reset to English.")
+  }
+
+  # --- Forget the browser choice ---------------------------------------------
+  browser_path <- km_browser_path()
+  if (file.exists(browser_path)) {
+    file.remove(browser_path)
+    message("Browser choice removed: you will be asked again the next time klaus() starts.")
   }
 
   # --- Forget the package set-up, so the next klaus() runs it in full -------------

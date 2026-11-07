@@ -8433,7 +8433,7 @@ server <- function(input, output, session) {
     # Temporarily shadow q/quit/stopApp/ask in globalenv to intercept them
     .qc_klausmate_fns <- c("klaus", "whisper", "raisehand", "rh", "ssshh",
                            "reset_key", "klausmate_reset_key", "klausmate_reset", "klausmate_language", "klausmate_speaks",
-                           "klausmate_make_key", "klausmate_config_show", "klausmate_update")
+                           "klausmate_make_key", "klausmate_config_show", "klausmate_update", "klausmate_browser")
     shadow <- c(
       list(
         q       = if (exists("q",       .GlobalEnv, inherits = FALSE)) get("q",       .GlobalEnv) else NULL,

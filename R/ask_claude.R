@@ -58,9 +58,14 @@ klaus <- function() {
   # tab reconnect by itself and carry on; a new tab is opened only if no tab has connected a few seconds later.
   port <- klausmate_paused_port()
   options(klausmate.session_connected = FALSE)
-  launch <- if (is.null(port)) TRUE else function(url) {
+  # The browser the user chose (asked once in the console, then remembered; NULL = system default). Not asked
+  # when resuming a pause: a saved choice is used, otherwise the default.
+  chosen <- km_browser_launcher(ask = is.null(port))
+  launch <- if (is.null(port)) { if (is.null(chosen)) TRUE else chosen } else function(url) {
     later::later(function() {
-      if (!isTRUE(getOption("klausmate.session_connected"))) utils::browseURL(url)
+      if (!isTRUE(getOption("klausmate.session_connected"))) {
+        if (is.null(chosen)) utils::browseURL(url) else chosen(url)
+      }
     }, 6)
   }
   run_args <- list(appDir = app_dir, launch.browser = launch)

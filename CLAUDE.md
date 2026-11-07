@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.31 (2026-11-07)  
-**Current version:** 0.6.31
+**Last released:** 0.6.32 (2026-11-07)  
+**Current version:** 0.6.32
+
+Released in 0.6.32 (no unreleased changes; choice of web browser, klausmate_browser()):
+- **Klausmate asks which web browser to open in, and remembers it** (user request; prompted by the screenshot pointer showing in Safari, which ignores `cursor: 'never'`): new `R/browser.R`. `km_browser_find()` lists installed browsers (macOS: `.app` bundles in /Applications and ~/Applications; Windows: Program Files / LocalAppData paths; Linux: commands on the path). `km_browser_launcher()` is called by `klaus()` before `runApp()`: a saved choice (`browser.rds` in the config folder, via `km_browser_path()`) is used; if none, a console `utils::menu()` is shown (browsers marked "(best for screenshots)" for Chrome/Edge/Brave/Chromium, plus "System default") and the answer saved; if the saved browser is no longer found, it says so and asks again; cancelled menu = default this time and asked again next time; not asked when not interactive or when resuming a pause (saved choice reused, else default). "System default" keeps the old `launch.browser = TRUE`; otherwise a function opens the browser (`open -a` on macOS, the executable elsewhere), also used for the delayed re-open on resume. New exported `klausmate_browser(browser = NULL)` (`man/klausmate_browser.Rd`): menu, or a name (exact, substring or nearest spelling) or "default"; refuses while paused; added to the Quick Console block list. `klausmate_reset()` lists and removes the choice. Tested in a scratch library with the config folder redirected (menu logic with a fake menu function, name matching, saved/missing/default cases, paused refusal); `check_help.R` passes. Not tested: the real interactive menu in `klaus()`, opening each browser, Windows/Linux detection, whether Firefox honours the no-pointer capture.
 
 Released in 0.6.31 (no unreleased changes; klausmate_reset() wording trimmed):
 - **`klausmate_reset()` messages shortened** (user request): the confirmation bullet reads "Delete the saved key" and the final message is just "klausmate has been reset." (`R/watch.R`). The Rd description of `klausmate_reset` still says "student key or API key". Not run (it would delete the saved config).
