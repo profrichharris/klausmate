@@ -1,10 +1,10 @@
 # ---------------------------------------------------------------------------
 # Choice of web browser for klaus()
 #
-# The first time klaus() starts (and no choice is saved) the user is shown a menu of the browsers found
-# on the computer. The choice is saved in Klausmate's config folder and used until klausmate_reset() or
-# klausmate_browser() changes it, or until the browser is no longer installed (then the menu is shown again).
-# "System default" is a valid choice: Klausmate then opens whatever the computer would normally use.
+# By default Klausmate opens in the computer's default browser. Only klausmate_browser() changes that: it
+# saves the chosen browser in Klausmate's config folder, and klaus() uses it from then on. klausmate_reset()
+# does not touch it. If in doubt (nothing saved, the saved browser has gone, the file cannot be read) the
+# system default is used.
 # ---------------------------------------------------------------------------
 
 KM_BROWSER_DEFAULT <- "System default"
@@ -83,45 +83,35 @@ km_browser_menu <- function(found, menu_fn = utils::menu, why = NULL) {
   labels <- c(paste0(nm, ifelse(nm %in% KM_BROWSER_SHOT_OK, " (best for screenshots)", "")), KM_BROWSER_DEFAULT)
   title <- paste0(if (!is.null(why)) paste0(why, "\n") else "",
                   "Which web browser would you like Klausmate to open in?\n",
-                  "(Your choice is remembered. Change it later with klausmate_browser().)")
+                  "(Your choice is remembered until you change it with klausmate_browser().)")
   i <- menu_fn(labels, title = title)
   if (!is.numeric(i) || length(i) != 1 || is.na(i) || i < 1) return(NULL)
   c(nm, KM_BROWSER_DEFAULT)[i]
 }
 
-# What klaus() should pass to shiny::runApp(launch.browser = ): a function that opens the chosen browser,
-# or NULL for "use the system default as before". Asks (in the console) when there is no usable saved choice,
-# unless ask = FALSE (resuming a pause) or the session is not interactive.
-km_browser_launcher <- function(ask = TRUE, found = km_browser_find(), menu_fn = utils::menu) {
+# What klaus() should pass to shiny::runApp(launch.browser = ): a function that opens the browser chosen with
+# klausmate_browser(), or NULL for "use the system default". Never asks anything.
+km_browser_launcher <- function(found = km_browser_find()) {
   saved <- km_browser_saved()
-  why <- NULL
-  if (!is.null(saved)) {
-    if (identical(saved, KM_BROWSER_DEFAULT)) return(NULL)
-    if (saved %in% names(found)) {
-      spec <- found[[saved]]
-      return(function(url) km_browser_open(spec, url))
-    }
-    why <- paste0("The browser you chose before (", saved, ") can no longer be found.")
-    if (interactive() && ask) message(why)
+  if (is.null(saved) || identical(saved, KM_BROWSER_DEFAULT)) return(NULL)
+  if (!saved %in% names(found)) {
+    message("Klausmate: the browser you chose (", saved, ") can no longer be found, so your default browser is used. ",
+            "Use klausmate_browser() to choose again.")
+    return(NULL)
   }
-  if (!ask || !interactive() || length(found) == 0) return(NULL)
-  choice <- km_browser_menu(found, menu_fn = menu_fn, why = why)
-  if (is.null(choice)) return(NULL)          # cancelled: use the default this time, ask again next time
-  km_browser_save(choice)
-  if (identical(choice, KM_BROWSER_DEFAULT)) return(NULL)
-  spec <- found[[choice]]
+  spec <- found[[saved]]
   function(url) km_browser_open(spec, url)
 }
 
 #' Choose the web browser klausmate opens in
 #'
-#' The first time \code{klaus()} starts it asks which of the web browsers found on
-#' your computer you would like to use (or the system default), and remembers the
-#' answer. Call \code{klausmate_browser()} to choose again, or name a browser
-#' directly, e.g. \code{klausmate_browser("Firefox")}. Use
-#' \code{klausmate_browser("default")} to go back to the computer's default
-#' browser. If the chosen browser is no longer installed, \code{klaus()} asks again.
-#' \code{klausmate_reset()} forgets the choice.
+#' By default \code{klaus()} opens in your computer's default web browser. Call
+#' \code{klausmate_browser()} to choose from the other browsers found on your
+#' computer, or name one directly, e.g. \code{klausmate_browser("Firefox")}. The
+#' choice is remembered until you change it. Use \code{klausmate_browser("default")}
+#' to go back to the computer's default browser. If the chosen browser is no
+#' longer installed, the default browser is used. Only \code{klausmate_browser()}
+#' changes this setting; \code{klausmate_reset()} leaves it alone.
 #'
 #' Chrome, Edge and Brave leave the mouse pointer out of Klausmate's screenshots
 #' (Cmd/Ctrl+Alt+S); Safari does not.

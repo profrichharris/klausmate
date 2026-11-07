@@ -15,13 +15,13 @@ Invisible name of the browser chosen, or invisible NULL if nothing
 was changed.
 }
 \description{
-The first time \code{klaus()} starts it asks which of the web browsers found on
-your computer you would like to use (or the system default), and remembers the
-answer. Call \code{klausmate_browser()} to choose again, or name a browser
-directly, e.g. \code{klausmate_browser("Firefox")}. Use
-\code{klausmate_browser("default")} to go back to the computer's default
-browser. If the chosen browser is no longer installed, \code{klaus()} asks again.
-\code{klausmate_reset()} forgets the choice.
+By default \code{klaus()} opens in your computer's default web browser. Call
+\code{klausmate_browser()} to choose from the other browsers found on your
+computer, or name one directly, e.g. \code{klausmate_browser("Firefox")}. The
+choice is remembered until you change it. Use \code{klausmate_browser("default")}
+to go back to the computer's default browser. If the chosen browser is no
+longer installed, the default browser is used. Only \code{klausmate_browser()}
+changes this setting; \code{klausmate_reset()} leaves it alone.
 }
 \details{
 Chrome, Edge and Brave leave the mouse pointer out of Klausmate's screenshots
