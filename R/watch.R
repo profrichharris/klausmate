@@ -957,7 +957,7 @@ klausmate_reset <- function() {
   # --- Confirm with the user ------------------------------------------------
   message(
     "klausmate_reset() will:\n",
-    "  • Delete the saved key (student key or API key)\n",
+    "  • Delete the saved key\n",
     "  • Reset the response language to English\n",
     "  • Forget the package set-up, so that it is run again the next time klaus() starts\n"
   )
@@ -994,6 +994,6 @@ klausmate_reset <- function() {
     message("Package set-up record removed: it will be run again the next time klaus() starts.")
   }
 
-  message("klausmate has been reset. You can now call klaus() or whisper() to start fresh.")
+  message("klausmate has been reset.")
   invisible(NULL)
 }
