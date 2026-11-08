@@ -2,12 +2,9 @@
 % Please edit documentation in R/ask_claude.R
 \name{klausmate_language}
 \alias{klausmate_language}
-\alias{klausmate_speaks}
 \title{Set the language klausmate responds in}
 \usage{
 klausmate_language(language)
-
-klausmate_speaks(language)
 }
 \arguments{
 \item{language}{A language name, e.g. \code{"French"}, \code{"Spanish"},
@@ -21,5 +18,4 @@ Saves a language preference that is applied to all AI responses in both
 \code{klaus()} and \code{whisper()}. R code is always written in English;
 only explanatory text (and optionally code comments) changes language.
 Call \code{klausmate_language("English")} to revert to British English.
-\code{klausmate_speaks()} is the older name for the same function.
 }

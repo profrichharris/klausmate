@@ -2,12 +2,9 @@
 % Please edit documentation in R/watch.R
 \name{klausmate_reset_key}
 \alias{klausmate_reset_key}
-\alias{reset_key}
 \title{Clear the saved klausmate key}
 \usage{
 klausmate_reset_key()
-
-reset_key()
 }
 \value{
 Invisible NULL (called for side effects).
@@ -20,5 +17,4 @@ the \code{ANTHROPIC_API_KEY} environment variable. The next call to
 \details{
 This function will refuse to run while a paused \code{klaus()} session
 exists: open Klausmate and use \emph{Quit with Code Log} first.
-\code{reset_key()} is the older name for the same function.
 }

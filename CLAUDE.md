@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.33 (2026-11-07)  
-**Current version:** 0.6.33
+**Last released:** 0.6.34 (2026-11-08)  
+**Current version:** 0.6.34
+
+Released in 0.6.34 (no unreleased changes; old names klausmate_speaks() and reset_key() removed):
+- **Old names `klausmate_speaks()` and `reset_key()` removed** (user request: the aliases were only days old): the functions, their `export()` lines in NAMESPACE, the `\alias` and usage entries in `man/klausmate_language.Rd` and `man/klausmate_reset_key.Rd`, the "older name" sentences and the two names in the Quick Console block list are gone. Anyone still calling them gets "could not find function". The earlier entries below that mention the aliases are history. Parse-checked, Rd files checked, `check_help.R` passes, package loads in a scratch library with the two names no longer exported.
 
 Released in 0.6.33 (no unreleased changes; browser choice is opt-in via klausmate_browser()):
 - **Browser choice is opt-in; only `klausmate_browser()` changes it** (user request, revising the 0.6.32 design below): `klaus()` no longer asks which browser to use. `km_browser_launcher()` takes no menu and never prompts: no saved choice, "System default", an unreadable file, or a saved browser that is no longer installed (one-line message) all mean the system default (`launch.browser = TRUE`); a saved, still-installed browser is opened by `km_browser_open()`. `klausmate_reset()` no longer lists or removes the browser choice (its bullet, removal code and Rd wording were taken out). `man/klausmate_browser.Rd` and the roxygen text were rewritten to match. The 0.6.32 entry below describes the earlier ask-on-first-run behaviour, which is superseded. Tested in a scratch library with the config folder redirected: nothing saved (no prompt, no file written), a named choice, missing browser, default, corrupt file, and a `klausmate_reset()` run (with `readline` stubbed) that left `browser.rds` in place; `check_help.R` passes.

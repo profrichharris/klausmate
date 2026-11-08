@@ -859,7 +859,7 @@ ssshh <- function() {
 }
 
 # ---------------------------------------------------------------------------
-# klausmate_reset_key()   (reset_key() is the older name, kept as an alias)
+# klausmate_reset_key()
 # ---------------------------------------------------------------------------
 
 # TRUE while a paused klaus() session exists (its pause file is in the folder klaus() was started from)
@@ -874,7 +874,6 @@ klausmate_paused <- function()
 #'
 #' This function will refuse to run while a paused \code{klaus()} session
 #' exists: open Klausmate and use \emph{Quit with Code Log} first.
-#' \code{reset_key()} is the older name for the same function.
 #'
 #' @return Invisible NULL (called for side effects).
 #' @rdname klausmate_reset_key
@@ -911,10 +910,6 @@ klausmate_reset_key <- function() {
 
   invisible(NULL)
 }
-
-#' @rdname klausmate_reset_key
-#' @export
-reset_key <- function() klausmate_reset_key()
 
 # ---------------------------------------------------------------------------
 # klausmate_reset()

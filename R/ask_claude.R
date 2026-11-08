@@ -269,7 +269,7 @@ klausmate_reload_and_relaunch <- function(relaunch = "klaus", args = list()) {
 
 
 # ---------------------------------------------------------------------------
-# klausmate_language()   (klausmate_speaks() is the older name, kept as an alias)
+# klausmate_language()
 # ---------------------------------------------------------------------------
 
 .klausmate_known_languages <- c(
@@ -296,7 +296,6 @@ klausmate_reload_and_relaunch <- function(relaunch = "klaus", args = list()) {
 #' \code{klaus()} and \code{whisper()}. R code is always written in English;
 #' only explanatory text (and optionally code comments) changes language.
 #' Call \code{klausmate_language("English")} to revert to British English.
-#' \code{klausmate_speaks()} is the older name for the same function.
 #'
 #' @param language A language name, e.g. \code{"French"}, \code{"Spanish"},
 #'   \code{"Welsh"}. Minor misspellings are accepted.
@@ -338,10 +337,6 @@ klausmate_language <- function(language) {
   }
   invisible(canonical)
 }
-
-#' @rdname klausmate_language
-#' @export
-klausmate_speaks <- function(language) klausmate_language(language)
 
 #' @keywords internal
 km_saved_language <- function() {
