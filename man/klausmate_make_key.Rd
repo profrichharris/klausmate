@@ -34,6 +34,10 @@ If omitted, you are prompted to confirm or change the default. Options:
   \item \code{"rolling_Nm"} — rolling N minutes, e.g. \code{"rolling_90m"}
   \item \code{"hourly"}     — resets at the top of each clock hour
   \item \code{"daily"}      — resets at midnight each day
+  \item \code{"none"}       — never resets: the cost limit is a total for
+    the life of the key, which stops working once it is used up. If you
+    do not give \code{final_expiry}, the default expiry is then 24 hours
+    after the start rather than 15 weeks
 }}
 
 \item{valid_from}{When the key becomes usable: a date (optionally with a

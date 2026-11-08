@@ -27,7 +27,9 @@
 #'     \item \code{"hourly"}     — resets at the top of each clock hour
 #'     \item \code{"daily"}      — resets at midnight each day
 #'     \item \code{"none"}       — never resets: the cost limit is a total for
-#'       the life of the key, which stops working once it is used up
+#'       the life of the key, which stops working once it is used up. If you
+#'       do not give \code{final_expiry}, the default expiry is then 24 hours
+#'       after the start rather than 15 weeks
 #'   }
 #' @param valid_from When the key becomes usable: a date (optionally with a
 #'   time, e.g. \code{"31/12/2026 09:00"}) or a \code{POSIXct}. Default is now.
@@ -70,15 +72,28 @@ klausmate_make_key <- function(api_key           = NULL,
     invisible(TRUE)
   }
 
+  # Ask until the answer is usable. Enter accepts `default`. `parse(ans)` returns list(ok = TRUE, value = ...) or
+  # list(ok = FALSE, msg = "what was wrong"); a bad answer is explained and the question asked again.
+  ask <- function(prompt, default, parse) {
+    repeat {
+      ans <- trimws(readline(prompt))
+      if (!nzchar(ans)) return(default)
+      res <- parse(ans)
+      if (isTRUE(res$ok)) return(res$value)
+      message(res$msg, "\nPlease try again.")
+    }
+  }
+  is_none <- function(x) tolower(x) %in% c("none", "unlimited")
+
   if (is.null(api_key) || !nzchar(trimws(api_key))) {
     api_key <- trimws(readline("Paste Anthropic API key: "))
     if (!nzchar(api_key)) stop("No API key provided.", call. = FALSE)
   }
 
   if (is.null(pin)) {
-    message("Students will need a 6-digit PIN to use this key; it is not stored in the key file.")
+    message("Students will need a 6-digit PIN to use this key;\nit is not stored in the key file.")
     repeat {
-      ans <- trimws(readline("Choose a 6-digit PIN (or press Enter to generate one): "))
+      ans <- trimws(readline("Choose a 6-digit PIN [press Enter to generate one]: "))
       if (!nzchar(ans)) { pin <- sprintf("%06d", sample(0L:999999L, 1L)); break }
       if (klausmate_pin_ok(ans)) { pin <- ans; break }
       message("The PIN must be exactly 6 digits.")
@@ -88,34 +103,24 @@ klausmate_make_key <- function(api_key           = NULL,
     stop("pin must be exactly 6 digits, for example \"482915\".", call. = FALSE)
 
   if (missing(cost_limit)) {
-    ans <- trimws(readline(paste0(
-      "Cost limit in USD per reset period ",
-      "[default: 0.30, 'none' for no limit, or press Enter to accept]: ")))
-    cost_limit <- if (!nzchar(ans)) 0.30
-    else if (tolower(ans) %in% c("none", "unlimited")) NULL
-    else {
+    message("Cost limit: the most a student can spend, in USD, per reset period.\nType 'none' for no limit.")
+    cost_limit <- ask("Cost limit in USD [press Enter to accept the default: 0.30]: ", 0.30, function(ans) {
+      if (is_none(ans)) return(list(ok = TRUE, value = NULL))
       v <- suppressWarnings(as.numeric(ans))
-      if (is.na(v) || v < 0) {
-        message("Invalid value — using default of $0.30.")
-        0.30
-      } else v
-    }
+      if (is.na(v) || v < 0) list(ok = FALSE, msg = paste0("'", ans, "' is not a valid cost limit. Enter a number such as 0.30, or 'none'."))
+      else list(ok = TRUE, value = v)
+    })
   }
   if (is.null(cost_limit)) confirm_unlimited("spending limit")
 
   if (missing(max_lines)) {
-    ans <- trimws(readline(paste0(
-      "Maximum code length in lines ",
-      "[default: 100; other choices 250, 500, 'none' for no limit, or any whole number; Enter accepts the default]: ")))
-    max_lines <- if (!nzchar(ans)) 100L
-    else if (tolower(ans) %in% c("none", "unlimited")) NULL
-    else {
+    message("Maximum code length: other choices are 250, 500, 'none' for no limit,\nor any whole number of lines.")
+    max_lines <- ask("Maximum code length in lines [press Enter to accept the default: 100]: ", 100L, function(ans) {
+      if (is_none(ans)) return(list(ok = TRUE, value = NULL))
       v <- suppressWarnings(as.integer(ans))
-      if (is.na(v) || v < 1L) {
-        message("Invalid value — using default of 100 lines.")
-        100L
-      } else v
-    }
+      if (is.na(v) || v < 1L) list(ok = FALSE, msg = paste0("'", ans, "' is not a valid code length. Enter a whole number of lines (1 or more), or 'none'."))
+      else list(ok = TRUE, value = v)
+    })
   }
   if (is.null(max_lines) || (is.numeric(max_lines) && is.infinite(max_lines))) {
     confirm_unlimited("code-length limit")
@@ -128,29 +133,32 @@ klausmate_make_key <- function(api_key           = NULL,
   }
 
   if (is.null(reset_period)) {
-    message("Reset period options: weekly, daily, hourly, rolling_24h, rolling_Nh, rolling_Nm, none (never resets: the limit is a total)")
-    ans <- trimws(readline("Reset period [default: weekly, or press Enter to accept]: "))
-    reset_period <- if (!nzchar(ans)) "weekly" else ans
+    message("Reset period options: weekly, daily, hourly, rolling_24h,\n",
+            "  rolling_Nh (e.g. rolling_6h), rolling_Nm (e.g. rolling_90m),\n",
+            "  or none (never resets: the cost limit is a total).")
+    reset_period <- ask("Reset period [press Enter to accept the default: weekly]: ", "weekly", function(ans) {
+      a <- tolower(ans)
+      if (a %in% c("rolling_24h", "hourly", "daily", "weekly", "none") || grepl("^rolling_[0-9]+(h|m)$", a))
+        list(ok = TRUE, value = a)
+      else list(ok = FALSE, msg = paste0("'", ans, "' is not a reset period. Use weekly, daily, hourly,\n",
+                                          "rolling_24h, rolling_Nh (e.g. rolling_6h), rolling_Nm or none."))
+    })
   }
 
   date_order <- klausmate_date_order()
   pattern    <- klausmate_date_pattern(date_order)
-  message("Dates are entered as ", pattern, " (taken from your system settings); ",
+  message("Dates are entered as ", pattern, " (taken from your system settings);\n",
           "other forms such as 2026-12-31 or 31 Dec 2026 are also understood.")
 
   if (is.null(valid_from)) {
     now <- Sys.time()
-    ans <- trimws(readline(paste0(
-      "Start date [and optional time HH:MM] ", pattern,
-      " [default: now (", klausmate_format_date(now, date_order), "), or press Enter to accept]: "
-    )))
-    valid_from <- if (!nzchar(ans)) now else {
+    message("Start date, with an optional time HH:MM, as ", pattern, ".")
+    valid_from <- ask(paste0("Start date [press Enter to accept the default: now (",
+                             klausmate_format_date(now, date_order), ")]: "), now, function(ans) {
       parsed <- klausmate_parse_date(ans, date_order)
-      if (is.na(parsed)) {
-        message("Invalid date — starting now.")
-        now
-      } else as.POSIXct(parsed)
-    }
+      if (is.na(parsed)) list(ok = FALSE, msg = paste0("'", ans, "' is not a date I can read. Enter it as ", pattern, ", with an optional time HH:MM."))
+      else list(ok = TRUE, value = as.POSIXct(parsed))
+    })
   } else if (is.character(valid_from)) {
     p <- klausmate_parse_date(valid_from, date_order)
     if (is.na(p)) stop("Could not understand valid_from: '", valid_from, "'", call. = FALSE)
@@ -159,22 +167,30 @@ klausmate_make_key <- function(api_key           = NULL,
     valid_from <- as.POSIXct(format(valid_from), tz = "")
   }
 
+  # TRUE if `fe` is a usable final expiry: in the future and after the start
+  expiry_ok <- function(fe)
+    !(klausmate_is_expired(fe) ||
+      (inherits(fe, "Date") && as.POSIXct(format(fe + 1L), tz = "") <= valid_from) ||
+      (inherits(fe, "POSIXt") && fe <= valid_from))
+
   if (is.null(final_expiry)) {
-    default_expiry <- Sys.Date() + 7L * 15L
+    # A key with a once-only allowance (reset period "none") is meant to be short-lived: 24 hours after it starts.
+    # Otherwise the default is 15 weeks after today.
+    once_only      <- identical(tolower(trimws(reset_period)), "none")
+    default_expiry <- if (once_only) as.POSIXct(valid_from) + 24 * 60 * 60 else Sys.Date() + 7L * 15L
     default_str    <- klausmate_format_date(default_expiry, date_order)
-    ans <- trimws(readline(paste0(
-      "Final expiry date [and optional time HH:MM] ", pattern,
-      " [default: ", default_str, ", or press Enter to accept]: "
-    )))
-    final_expiry <- if (!nzchar(ans)) {
-      default_expiry
-    } else {
-      parsed <- klausmate_parse_date(ans, date_order)
-      if (is.na(parsed)) {
-        message("Invalid date — using default of ", default_str, ".")
-        default_expiry
-      } else if (isTRUE(attr(parsed, "has_time"))) as.POSIXct(parsed)
-      else as.Date(format(parsed))
+    message("Final expiry date, with an optional time HH:MM, as ", pattern, ".")
+    if (once_only)
+      message("The reset period is 'none', so the default expiry is 24 hours after the start.")
+    repeat {
+      final_expiry <- ask(paste0("Final expiry date [press Enter to accept the default: ", default_str, "]: "),
+                          default_expiry, function(ans) {
+        parsed <- klausmate_parse_date(ans, date_order)
+        if (is.na(parsed)) list(ok = FALSE, msg = paste0("'", ans, "' is not a date I can read. Enter it as ", pattern, ", with an optional time HH:MM."))
+        else list(ok = TRUE, value = if (isTRUE(attr(parsed, "has_time"))) as.POSIXct(parsed) else as.Date(format(parsed)))
+      })
+      if (expiry_ok(final_expiry)) break
+      message("The final expiry must be in the future and after the start date. Please try again.")
     }
   } else if (is.character(final_expiry)) {
     parsed <- klausmate_parse_date(final_expiry, date_order)
@@ -182,24 +198,17 @@ klausmate_make_key <- function(api_key           = NULL,
     final_expiry <- if (isTRUE(attr(parsed, "has_time"))) as.POSIXct(parsed)
                     else as.Date(format(parsed))
   }
-  if (klausmate_is_expired(final_expiry) ||
-      (inherits(final_expiry, "Date") && as.POSIXct(format(final_expiry + 1L), tz = "") <= valid_from) ||
-      (inherits(final_expiry, "POSIXt") && final_expiry <= valid_from))
+  if (!expiry_ok(final_expiry))
     stop("The final expiry is not after the start date.", call. = FALSE)
 
   if (missing(max_conversations)) {
-    ans <- trimws(readline(paste0(
-      "Max conversations per app start ",
-      "[default: 3, max 25, 'none' for no limit, or press Enter to accept]: ")))
-    max_conversations <- if (!nzchar(ans)) 3L
-    else if (tolower(ans) %in% c("none", "unlimited", "0")) NULL
-    else {
+    message("Max conversations per app start: from 1 to 25, or 'none' for no limit.")
+    max_conversations <- ask("Max conversations [press Enter to accept the default: 3]: ", 3L, function(ans) {
+      if (is_none(ans) || ans == "0") return(list(ok = TRUE, value = NULL))
       v <- suppressWarnings(as.integer(ans))
-      if (is.na(v) || v < 1L) {
-        message("Invalid value — using default of 3.")
-        3L
-      } else min(v, 25L)
-    }
+      if (is.na(v) || v < 1L) list(ok = FALSE, msg = paste0("'", ans, "' is not valid. Enter a whole number from 1 to 25, or 'none'."))
+      else list(ok = TRUE, value = min(v, 25L))
+    })
   }
   if (is.null(max_conversations)) {
     confirm_unlimited("limit on conversations")
@@ -252,7 +261,8 @@ klausmate_make_key <- function(api_key           = NULL,
 
   out <- normalizePath(output_file)
   message("Key file created: ", out)
-  message("  PIN:          ", pin, "   (give this to students separately; it is not stored in the file)")
+  message("  PIN:          ", pin)
+  message("                (give this to students separately; it is not stored in the file)")
   if (!is.null(cost_limit))
     message("  Cost limit:   $", cost_limit,
             if (identical(reset_period, "none")) " in total (never resets)" else paste0(" per ", reset_period))
@@ -266,8 +276,8 @@ klausmate_make_key <- function(api_key           = NULL,
     message("  Max conversations per start: unlimited")
   message("  Max code length: ",
           if (is.infinite(max_lines)) "unlimited" else paste(max_lines, "lines"))
-  message("Email this file to students — they load it via the 'Load key file'",
-          " button in the app.")
+  message("Email this file to students: they load it via the\n",
+          "'Load key file' button in the app.")
   invisible(out)
 }
 
