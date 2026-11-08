@@ -2,19 +2,74 @@
 # (day/month/year vs month/day/year vs year/month/day), parse input in any
 # common form, and format dates in the preferred order.
 
-# Returns "dmy", "mdy" or "ymd".
+# Returns "dmy", "mdy" or "ymd": the date order this user probably expects.
+# R's own locale is a poor guide (RStudio and R often run as en_US even on a UK computer), so the order comes from,
+# in turn: options(klausmate.date_order=); the computer's region / short-date setting (macOS, Windows); the time
+# zone; R's locale; and finally day/month/year.
 klausmate_date_order <- function() {
   opt <- getOption("klausmate.date_order")
   if (is.character(opt) && opt %in% c("dmy", "mdy", "ymd")) return(opt)
-  s <- tryCatch(format(as.Date("2031-12-25"), "%x"), error = function(e) "")
-  m <- gregexpr("[0-9]+", s)
-  nums <- regmatches(s, m)[[1]]
-  if (length(nums) != 3L) return("dmy")
+  for (f in list(km_order_from_os, function() km_order_from_timezone(), km_order_from_r_locale)) {
+    o <- tryCatch(f(), error = function(e) NULL)
+    if (is.character(o) && length(o) == 1L && o %in% c("dmy", "mdy", "ymd")) return(o)
+  }
+  "dmy"
+}
+
+# Day/month/year unless the country is known to use month/day/year or year/month/day
+km_order_from_region <- function(region) {
+  region <- toupper(region)
+  if (region %in% c("US", "PH", "PR", "GU", "VI", "AS", "MP", "FM", "MH", "PW")) return("mdy")
+  if (region %in% c("CN", "JP", "KR", "TW", "HU", "LT", "SE", "MN", "KP", "IR", "ZA")) return("ymd")
+  "dmy"
+}
+
+# From the computer's own setting: macOS region (e.g. en_GB), Windows short-date pattern (e.g. dd/MM/yyyy)
+km_order_from_os <- function() {
+  sysname <- Sys.info()[["sysname"]]
+  if (sysname == "Darwin") {
+    loc <- suppressWarnings(system2("defaults", c("read", "-g", "AppleLocale"), stdout = TRUE, stderr = FALSE))
+    if (length(loc) == 1L && grepl("_[A-Za-z]{2}", loc)) {
+      region <- sub(".*_([A-Za-z]{2}).*", "\\1", loc)
+      return(km_order_from_region(region))
+    }
+  } else if (sysname == "Windows") {
+    out <- suppressWarnings(system2("reg", c("query", shQuote("HKCU\\Control Panel\\International"), "/v", "sShortDate"),
+                                    stdout = TRUE, stderr = FALSE))
+    line <- grep("sShortDate", out, value = TRUE)
+    if (length(line)) return(km_order_from_pattern(sub(".*REG_SZ\\s+", "", line[1])))
+  }
+  NULL
+}
+
+# "dd/MM/yyyy" -> "dmy", "M/d/yyyy" -> "mdy", "yyyy-MM-dd" -> "ymd"
+km_order_from_pattern <- function(pat) {
+  pos <- c(d = regexpr("d", pat), m = regexpr("M", pat), y = regexpr("y", pat))
+  if (any(pos < 0)) return(NULL)
+  paste(names(sort(pos)), collapse = "")
+}
+
+# From the time zone: US zones mean month/day/year, east-Asian ones year/month/day, other recognised zones day/month/year
+km_order_from_timezone <- function(tz = Sys.timezone()) {
+  if (is.null(tz) || is.na(tz) || !nzchar(tz)) return(NULL)
+  us <- c("New_York", "Chicago", "Denver", "Los_Angeles", "Phoenix", "Anchorage", "Honolulu", "Detroit", "Boise",
+          "Indiana/Indianapolis", "Kentucky/Louisville", "Juneau", "Adak", "Menominee", "Nome", "Sitka")
+  if (grepl("^US/", tz) || (grepl("^America/", tz) && sub("^America/", "", tz) %in% us)) return("mdy")
+  if (tz %in% c("Asia/Tokyo", "Asia/Shanghai", "Asia/Seoul", "Asia/Taipei", "Asia/Pyongyang")) return("ymd")
+  if (grepl("^(Europe|Africa|Australia|Atlantic|Indian|Pacific/Auckland|Asia|America|GB|Eire|Etc)", tz)) return("dmy")
+  NULL
+}
+
+# From R's locale (the date format %x), as a last resort
+km_order_from_r_locale <- function() {
+  s <- format(as.Date("2031-12-25"), "%x")
+  nums <- regmatches(s, gregexpr("[0-9]+", s))[[1]]
+  if (length(nums) != 3L) return(NULL)
   key <- vapply(nums, function(n) {
     if (n == "25") "d" else if (n == "12") "m" else if (n %in% c("31", "2031")) "y" else "?"
   }, "")
   ord <- paste(key, collapse = "")
-  if (ord %in% c("dmy", "mdy", "ymd")) ord else "dmy"
+  if (ord %in% c("dmy", "mdy", "ymd")) ord else NULL
 }
 
 klausmate_date_pattern <- function(order = klausmate_date_order()) {

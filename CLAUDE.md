@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.35 (2026-11-08)  
-**Current version:** 0.6.35
+**Last released:** 0.6.36 (2026-11-08)  
+**Current version:** 0.6.36
+
+Released in 0.6.36 (no unreleased changes; console date order follows the computer's region):
+- **Date order in the console follows the computer's region, not R's locale** (user report: `klausmate_make_key()` offered MM/DD/YYYY to a UK user, because RStudio/R ran with an en_US locale): `klausmate_date_order()` (`R/dates.R`) now tries, in order, `options(klausmate.date_order=)`; `km_order_from_os()` (macOS: `defaults read -g AppleLocale` region, e.g. en_GB; Windows: the `sShortDate` pattern from the registry); `km_order_from_timezone()` (US zones give mdy, Tokyo/Shanghai/Seoul/Taipei ymd, other recognised zones dmy; UTC and unknown give nothing); `km_order_from_r_locale()` (the old `%x` test); then dmy. `km_order_from_region()` maps a country code: US, PH and a few territories mdy; CN, JP, KR, TW, HU, LT, SE, MN, KP, IR, ZA ymd; everything else dmy. The app itself still takes the order from the browser (`input$cm_date_order`), which was already right. Tested here (Mac, region en_GB): with `LC_TIME=en_US.UTF-8` R's locale says mdy but the result is dmy; region, pattern and time-zone helpers checked on sample inputs; the option still overrides. Not tested: the Windows registry path and Linux (falls to time zone, then R locale).
 
 Released in 0.6.35 (no unreleased changes; klausmate_make_key() prompts tidied, asks again after invalid answers, one-day default expiry for a once-only key):
 - **`klausmate_make_key()` prompts tidied; one-day default expiry for a once-only key** (user request): long prompts are split, the explanation going on its own `message()` lines (wrapped to fit a narrow console: PIN, cost limit, code length, reset period options, dates, conversations, the PIN and "Email this file" lines in the summary) and the `readline()` prompt kept short and uniform, `Reset period [press Enter to accept the default: weekly]: ` (same form for every prompt; the old "[default: ..., or press Enter to accept]" wording is gone). When the reset period is "none" (typed or passed) and `final_expiry` is not given, the default final expiry is the start time plus 24 hours (a date-time, shown with the time and explained in a line above the prompt); otherwise it is still 15 weeks from today. `@param reset_period` and the Rd say so (the Rd also gained the missing "none" item). Tested with `readline` stubbed (fake key, so the run stops at key validation): weekly shows 21/02/2027, none shows start + 24 h; no key file made. Not tested: a full real key creation after the changes.
