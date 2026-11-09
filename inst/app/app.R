@@ -1287,7 +1287,11 @@ claude_key_status <- function(key = klausmate:::cm_get_key()) {
   },
   httr2_http_401 = function(e) "invalid",
   httr2_http_403 = function(e) "invalid",
-  error          = function(e) "unknown")
+  error          = function(e) {
+    # kept so the message can say what actually went wrong (no connection, Claude busy, or something else)
+    .cm$key_check_detail <- tryCatch(trimws(strsplit(conditionMessage(e), "\n")[[1]][1]), error = function(x) "")
+    "unknown"
+  })
 }
 
 validate_api_key <- function(key) {
@@ -5047,13 +5051,27 @@ server <- function(input, output, session) {
   observeEvent(input$key_pin_cancel, { pending_key(NULL); removeModal() })
 
   activate_key <- function(payload, on_success = function() invisible(NULL)) {
+    # A failed check is tried up to three times (a brief network hiccup or a busy Claude often clears at once)
+    # before giving up. Every try is a fresh request.
     withProgress(message = "Checking key...", value = 0.5, {
-      st <- claude_key_status(payload$api_key)
+      for (attempt in 1:3) {
+        if (attempt > 1) { setProgress(message = paste0("Checking key (try ", attempt, " of 3)...")); Sys.sleep(2) }
+        .cm$key_check_detail <- NULL
+        st <- claude_key_status(payload$api_key)
+        if (!identical(st, "unknown")) break
+      }
     })
     if (identical(st, "unknown")) {          # no reply at all: not the key's fault
+      kind <- .cm$last_api_error %||% "other"
+      why <- switch(kind,
+        network = "Klausmate could not reach Claude to check your key. Please check your internet connection and try again.",
+        busy    = "Claude is busy at the moment, so your key could not be checked. Please wait a minute and try again.",
+        paste0("Claude gave an unexpected reply when your key was checked",
+               if (nzchar(.cm$key_check_detail %||% "")) paste0(" (", .cm$key_check_detail, ")") else "",
+               ". Please try again."))
       showModal(modalDialog(
         title = "Could not check the key",
-        "Klausmate could not reach Claude to check your key. Please check your internet connection and try again.",
+        why,
         footer = actionButton("key_error_ok", "OK", class = "btn-primary")))
       return(invisible(NULL))
     }
@@ -5088,6 +5106,9 @@ server <- function(input, output, session) {
   observeEvent(input$key_file, {
     req(input$key_file)
     load_key_file(input$key_file$datapath, on_success = function() key_is_set(TRUE))
+    # The file has been read. Clearing the box means that choosing the same file again (after a failed check,
+    # a wrong PIN or a corrected file) is noticed; otherwise the browser sees no change and nothing happens.
+    shinyjs::reset("key_file")
   })
 
   observeEvent(input$quit_setup, do_quit())
