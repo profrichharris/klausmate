@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.40 (2026-11-09)  
-**Current version:** 0.6.40
+**Last released:** 0.6.41 (2026-11-09)  
+**Current version:** 0.6.41
+
+Released in 0.6.41 (no unreleased changes; start-up update check retries):
+- **Start-up update check retries** (user report: "could not check for a newer version because GitHub could not be reached" appeared though GitHub was reachable moments later): `klausmate_preflight()` now asks for the latest release up to three times, 2 s apart, before reporting that GitHub could not be reached. (Each ask already tries the GitHub API, then DESCRIPTION on raw.githubusercontent.com, 6 s timeout each.) Offline users wait about 4 s longer before the message. Parse-checked only.
 
 Released in 0.6.40 (no unreleased changes; klausmate_update() message when installed is newer than loaded):
 - **`klausmate_update()` no longer says "You already have the latest version" when this R session is running an older one** (user report): it compared the newest *installed* version (`packageVersion`) with GitHub, so after an update installed during the session it claimed the latest version while the loaded code was older. It now also reads the loaded version (`getNamespaceInfo("klausmate", "spec")`) and, if the installed one is newer, says the new version is installed and to run klaus() (which swaps it in via `klausmate_session_is_stale()`, or asks for a restart of R). Parse-checked only; not run (needs an installed-newer-than-loaded situation).

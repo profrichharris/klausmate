@@ -142,7 +142,13 @@ klausmate_preflight <- function(relaunch = "klaus", args = list()) {
   if (isTRUE(getOption("klausmate.update_checked"))) return(FALSE)
   options(klausmate.update_checked = TRUE)
 
-  release <- klausmate_latest_release()
+  # A brief network hiccup should not look like "no internet": try up to three times, 2 s apart
+  release <- NULL
+  for (i in 1:3) {
+    release <- klausmate_latest_release()
+    if (!is.null(release)) break
+    if (i < 3L) Sys.sleep(2)
+  }
   if (is.null(release)) {               # offline, or GitHub could not be reached: say so once, then carry on
     message("Klausmate could not check for a newer version because GitHub could not be reached ",
             "(no internet connection, or the network blocks github.com). Carrying on with version ",
