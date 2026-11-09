@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.37 (2026-11-09)  
-**Current version:** 0.6.37
+**Last released:** 0.6.38 (2026-11-09)  
+**Current version:** 0.6.38
+
+Released in 0.6.38 (no unreleased changes; save options in expanded plot windows behind a tick box):
+- **Expanded plot windows: saving options hidden behind a tick box** (user request): in both the static "Plot" window and the interactive "Interactive plot" window, "Save this plot to a file" / "...as a web page" now has a tick box beside it (`plot_exp_on`, `widget_exp_on`), off by default each time the window opens. Only when ticked do the File name / Format / Quality / Target size boxes (or the file name) and the Add to code button (a `conditionalPanel` in the footer) appear; otherwise the window shows just Close. Tables have no save-to-file window, so nothing to change there. Parsed only; not yet run in the app.
 
 Released in 0.6.37 (no unreleased changes; key check can be retried with the same file, is retried automatically, and gives a more accurate message):
 - **Key check: the same key file can be chosen again after a failure, and a failed check is retried** (user report: after "Klausmate could not reach Claude to check your key" every later try seemed to give up at once): (1) the start-screen file box (`key_file`) is now cleared with `shinyjs::reset()` as soon as the file has been read; before, choosing the *same* file again (the usual retry after a failed check, wrong PIN or corrected file) produced no change event in the browser, so nothing ran. (2) `activate_key()` tries the check up to three times (2 s apart, progress text "Checking key (try n of 3)...") before reporting failure. (3) The failure message now follows `.cm$last_api_error`: no connection -> the old internet-connection text, Claude busy (429/5xx) -> "Claude is busy...", anything else -> "Claude gave an unexpected reply when your key was checked (<first line of the error>)", so a non-network error is no longer blamed on the internet. `claude_key_status()` stores the error's first line in `.cm$key_check_detail`. Tested live in a scratch copy of the app with `claude_key_status` stubbed to fail 3 times: three tries, the message, the file box empty, the same file accepted when picked again (PIN dialog shown), the next check passed and the app opened. Not tested: a real network failure or a real 5xx/other error from the API, and the mid-session "Load new key file" window (its dialog is rebuilt each time, so it was not affected).

@@ -4555,8 +4555,8 @@ HELP_TAB_TEXTS <- list(
     "R Output tab — Displays the results of running your code: printed values, tables,",
     "statistical summaries, and plots. When more than one type of output is produced,",
     "separate Plots, Results, and Warnings sub-tabs appear. Click a plot to enlarge it; in",
-    "that window you can choose a file name, format, quality and size and press Add to code, which",
-    "appends the R code that saves the plot to the end of the Code window."
+    "that window, tick Save this plot to a file to choose a file name, format, quality and size and press",
+    "Add to code, which appends the R code that saves the plot to the end of the Code window."
   ),
   "Past code" = paste(
     "Past Code tab — A record of the code in this conversation that has been run successfully, newest first.",
@@ -5392,7 +5392,10 @@ server <- function(input, output, session) {
                  style = "max-width: 100%; height: auto; border: 1px solid #ddd;")),
       tags$hr(),
       if (has_code) tagList(
-        tags$h5("Save this plot to a file"),
+        tags$div(style = "display: flex; align-items: center; gap: 14px; margin-bottom: 6px;",
+          tags$h5("Save this plot to a file", style = "margin: 0;"),
+          tags$div(style = "margin: 0;", checkboxInput("plot_exp_on", NULL, value = FALSE, width = "auto"))),
+        conditionalPanel("input.plot_exp_on", tagList(
         fluidRow(
           column(3, textInput("plot_exp_name", "File name:", value = paste0("plot_", length(plot_files_rv()), "_", match(f, plot_files_rv()), ""))),
           column(3, selectInput("plot_exp_format", "Format:",
@@ -5411,6 +5414,7 @@ server <- function(input, output, session) {
         uiOutput("plot_exp_note"),
         tags$p(em("Add to code appends the R code that saves the plot, in your working directory, to the end of the Code window."),
                style = "font-size: 0.85em; color: #888;")
+        ))
       ) else tags$p(em(
         if (identical(get0(f, envir = plot_code_why, inherits = FALSE), "several"))
           paste("This plot is one of several drawn by the same line of code (for example plot(model) on a",
@@ -5421,7 +5425,8 @@ server <- function(input, output, session) {
                 "inside a function or loop), so it cannot write the saving code for it.")),
                     style = "font-size: 0.85em; color: #888;"),
       footer = tagList(
-        if (has_code) actionButton("plot_exp_add", "Add to code", class = "btn-primary"),
+        if (has_code) conditionalPanel("input.plot_exp_on", style = "display: inline-block;",
+                                       actionButton("plot_exp_add", "Add to code", class = "btn-primary")),
         modalButton("Close")),
       easyClose = TRUE
     ))
@@ -5517,16 +5522,20 @@ server <- function(input, output, session) {
       tags$iframe(src = src, style = "width: 100%; height: 48vh; border: 1px solid #ddd; border-radius: 4px; background: #fff;"),
       tags$hr(style = "margin: 10px 0;"),
       if (has_code) tagList(
-        tags$h5("Save this plot as a web page"),
-        fluidRow(column(5, textInput("widget_exp_name", "File name:", value = paste0("interactive_", if (is.na(n)) 1L else n)))),
-        uiOutput("widget_exp_note"),
-        tags$p(em("Add to code appends the R code that saves it, in your working directory, as a single .html file (the plot",
-                  "stays interactive in it) to the end of the Code window."),
-               style = "font-size: 0.85em; color: #888;")
+        tags$div(style = "display: flex; align-items: center; gap: 14px; margin-bottom: 6px;",
+          tags$h5("Save this plot as a web page", style = "margin: 0;"),
+          tags$div(style = "margin: 0;", checkboxInput("widget_exp_on", NULL, value = FALSE, width = "auto"))),
+        conditionalPanel("input.widget_exp_on", tagList(
+          fluidRow(column(5, textInput("widget_exp_name", "File name:", value = paste0("interactive_", if (is.na(n)) 1L else n)))),
+          uiOutput("widget_exp_note"),
+          tags$p(em("Add to code appends the R code that saves it, in your working directory, as a single .html file (the plot",
+                    "stays interactive in it) to the end of the Code window."),
+                 style = "font-size: 0.85em; color: #888;")))
       ) else tags$p(em("Klausmate could not work out which lines of code drew this, so it cannot write the saving code for it."),
                     style = "font-size: 0.85em; color: #888;"),
       footer = tagList(
-        if (has_code) actionButton("widget_exp_add", "Add to code", class = "btn-primary"),
+        if (has_code) conditionalPanel("input.widget_exp_on", style = "display: inline-block;",
+                                       actionButton("widget_exp_add", "Add to code", class = "btn-primary")),
         modalButton("Close")),
       easyClose = TRUE))
   }
