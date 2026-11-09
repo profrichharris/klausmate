@@ -2544,6 +2544,9 @@ ui <- fluidPage(
 
   # Side-by-side diff styling
   tags$style(HTML("
+    .cm-savetick { margin: 0; line-height: 1; }
+    .cm-savetick .form-group, .cm-savetick .checkbox { margin: 0; padding: 0; min-height: 0; }
+    .cm-savetick input[type=checkbox] { margin: 0 0 -2px 0; position: static; vertical-align: baseline; }
     .diff-panel { display: flex; gap: 10px; margin-top: 8px; }
     .diff-panel > div { flex: 1; min-width: 0; }
     .diff-panel h6 { margin: 0 0 4px 0; font-size: 0.78em;
@@ -5392,9 +5395,9 @@ server <- function(input, output, session) {
                  style = "max-width: 100%; height: auto; border: 1px solid #ddd;")),
       tags$hr(),
       if (has_code) tagList(
-        tags$div(style = "display: flex; align-items: center; gap: 14px; margin-bottom: 6px;",
-          tags$h5("Save this plot to a file", style = "margin: 0;"),
-          tags$div(style = "margin: 0;", checkboxInput("plot_exp_on", NULL, value = FALSE, width = "auto"))),
+        tags$div(style = "display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px;",
+          tags$span("Save this plot to a file", style = "font-size: 1.1em;"),
+          tags$div(class = "cm-savetick", checkboxInput("plot_exp_on", NULL, value = FALSE, width = "auto"))),
         conditionalPanel("input.plot_exp_on", tagList(
         fluidRow(
           column(3, textInput("plot_exp_name", "File name:", value = paste0("plot_", length(plot_files_rv()), "_", match(f, plot_files_rv()), ""))),
@@ -5425,12 +5428,14 @@ server <- function(input, output, session) {
                 "inside a function or loop), so it cannot write the saving code for it.")),
                     style = "font-size: 0.85em; color: #888;"),
       footer = tagList(
-        if (has_code) conditionalPanel("input.plot_exp_on", style = "display: inline-block;",
-                                       actionButton("plot_exp_add", "Add to code", class = "btn-primary")),
+        if (has_code) actionButton("plot_exp_add", "Add to code", class = "btn-primary", style = "display: none;"),
         modalButton("Close")),
       easyClose = TRUE
     ))
   }
+  # The Add to code buttons show only while the "Save this plot..." tick box is ticked
+  observeEvent(input$plot_exp_on,   shinyjs::toggle("plot_exp_add",   condition = isTRUE(input$plot_exp_on)),   ignoreNULL = FALSE)
+  observeEvent(input$widget_exp_on, shinyjs::toggle("widget_exp_add", condition = isTRUE(input$widget_exp_on)), ignoreNULL = FALSE)
   observeEvent(input$plot_expand, {
     f <- plot_files_rv()
     f <- f[basename(f) == input$plot_expand]
@@ -5522,9 +5527,9 @@ server <- function(input, output, session) {
       tags$iframe(src = src, style = "width: 100%; height: 48vh; border: 1px solid #ddd; border-radius: 4px; background: #fff;"),
       tags$hr(style = "margin: 10px 0;"),
       if (has_code) tagList(
-        tags$div(style = "display: flex; align-items: center; gap: 14px; margin-bottom: 6px;",
-          tags$h5("Save this plot as a web page", style = "margin: 0;"),
-          tags$div(style = "margin: 0;", checkboxInput("widget_exp_on", NULL, value = FALSE, width = "auto"))),
+        tags$div(style = "display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px;",
+          tags$span("Save this plot as a web page", style = "font-size: 1.1em;"),
+          tags$div(class = "cm-savetick", checkboxInput("widget_exp_on", NULL, value = FALSE, width = "auto"))),
         conditionalPanel("input.widget_exp_on", tagList(
           fluidRow(column(5, textInput("widget_exp_name", "File name:", value = paste0("interactive_", if (is.na(n)) 1L else n)))),
           uiOutput("widget_exp_note"),
@@ -5534,8 +5539,7 @@ server <- function(input, output, session) {
       ) else tags$p(em("Klausmate could not work out which lines of code drew this, so it cannot write the saving code for it."),
                     style = "font-size: 0.85em; color: #888;"),
       footer = tagList(
-        if (has_code) conditionalPanel("input.widget_exp_on", style = "display: inline-block;",
-                                       actionButton("widget_exp_add", "Add to code", class = "btn-primary")),
+        if (has_code) actionButton("widget_exp_add", "Add to code", class = "btn-primary", style = "display: none;"),
         modalButton("Close")),
       easyClose = TRUE))
   }

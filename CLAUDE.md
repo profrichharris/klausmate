@@ -236,8 +236,12 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.38 (2026-11-09)  
-**Current version:** 0.6.38
+**Last released:** 0.6.39 (2026-11-09)  
+**Current version:** 0.6.39
+
+Released in 0.6.39 (no unreleased changes; tick-box heading aligned, Add to code hidden until ticked):
+- **Tick-box heading aligned**: in the expanded plot windows the "Save this plot..." heading is now plain (not bold) text with the tick box (`.cm-savetick`) baseline-aligned to it. Checked in a small test page; not in the full app.
+- **Add to code hidden until ticked** (both expanded plot windows): the footer button was visible even when unticked (the footer `conditionalPanel` did not hide it); it now starts `display: none` and `shinyjs::toggle()` shows it while the tick box is ticked. Verified in a small test modal (hidden on open, shown when ticked, hidden again when unticked); not in the full app.
 
 Released in 0.6.38 (no unreleased changes; save options in expanded plot windows behind a tick box):
 - **Expanded plot windows: saving options hidden behind a tick box** (user request): in both the static "Plot" window and the interactive "Interactive plot" window, "Save this plot to a file" / "...as a web page" now has a tick box beside it (`plot_exp_on`, `widget_exp_on`), off by default each time the window opens. Only when ticked do the File name / Format / Quality / Target size boxes (or the file name) and the Add to code button (a `conditionalPanel` in the footer) appear; otherwise the window shows just Close. Tables have no save-to-file window, so nothing to change there. Parsed only; not yet run in the app.
