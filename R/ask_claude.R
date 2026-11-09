@@ -408,9 +408,14 @@ klausmate_update <- function() {
   }
   # the next klaus() looks for a newer version again, and tries again even if an earlier attempt failed
   options(klausmate.update_checked = FALSE, klausmate.failed_update_version = NULL)
-  current <- as.character(utils::packageVersion("klausmate"))
+  current <- as.character(utils::packageVersion("klausmate"))   # the newest version installed on disk
+  # The version this R session actually loaded; after an update installed in this session it is older than `current`
+  running <- tryCatch(as.character(getNamespaceInfo("klausmate", "spec")[["version"]]), error = function(e) current)
   release <- klausmate_latest_release()
-  if (is.null(release) || !nzchar(release$version %||% "")) {
+  if (utils::compareVersion(current, running) > 0) {
+    message("Klausmate ", current, " has been installed, but this R session is still running version ", running, ".\n",
+            "Run klaus() to switch to it (if it asks you to restart R, in RStudio use Session > Restart R).")
+  } else if (is.null(release) || !nzchar(release$version %||% "")) {
     message("Klausmate could not reach GitHub just now to see whether there is a newer version.\n",
             "The next time you run klaus() it will try again.")
   } else if (utils::compareVersion(release$version, current) <= 0) {

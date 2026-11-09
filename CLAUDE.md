@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.39 (2026-11-09)  
-**Current version:** 0.6.39
+**Last released:** 0.6.40 (2026-11-09)  
+**Current version:** 0.6.40
+
+Released in 0.6.40 (no unreleased changes; klausmate_update() message when installed is newer than loaded):
+- **`klausmate_update()` no longer says "You already have the latest version" when this R session is running an older one** (user report): it compared the newest *installed* version (`packageVersion`) with GitHub, so after an update installed during the session it claimed the latest version while the loaded code was older. It now also reads the loaded version (`getNamespaceInfo("klausmate", "spec")`) and, if the installed one is newer, says the new version is installed and to run klaus() (which swaps it in via `klausmate_session_is_stale()`, or asks for a restart of R). Parse-checked only; not run (needs an installed-newer-than-loaded situation).
 
 Released in 0.6.39 (no unreleased changes; tick-box heading aligned, Add to code hidden until ticked):
 - **Tick-box heading aligned**: in the expanded plot windows the "Save this plot..." heading is now plain (not bold) text with the tick box (`.cm-savetick`) baseline-aligned to it. Checked in a small test page; not in the full app.
