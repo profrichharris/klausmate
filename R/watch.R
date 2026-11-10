@@ -873,7 +873,7 @@ klausmate_paused <- function()
 #' \code{klaus_watch()} or \code{klaus()} will prompt for a new key.
 #'
 #' This function will refuse to run while a paused \code{klaus()} session
-#' exists: open Klausmate and use \emph{Quit with Code Log} first.
+#' exists: open Klausmate and use \emph{End Session} first.
 #'
 #' @return Invisible NULL (called for side effects).
 #' @rdname klausmate_reset_key
@@ -882,7 +882,7 @@ klausmate_reset_key <- function() {
   if (klausmate_paused()) {
     message(
       "klausmate_reset_key() cannot run while a paused Klausmate session exists.\n",
-      "Please open Klausmate and close it with Quit with Code Log first."
+      "Please open Klausmate and close it with End Session first."
     )
     return(invisible(NULL))
   }
@@ -924,7 +924,7 @@ klausmate_reset_key <- function() {
 #'
 #' This function will refuse to run while \code{klaus_watch()} is active or while
 #' a paused \code{klaus()} session exists. Stop \code{klaus_watch()} with
-#' \code{ssshh()} first, or resume the app and use \emph{Quit with Code Log}
+#' \code{ssshh()} first, or resume the app and use \emph{End Session}
 #' before resetting.
 #'
 #' @return Invisible NULL (called for side effects).
@@ -944,7 +944,7 @@ klausmate_reset <- function() {
   if (klausmate_paused()) {
     message(
       "klausmate_reset() cannot run while a paused Klausmate session exists.\n",
-      "Please open Klausmate and close it with Quit with Code Log before resetting."
+      "Please open Klausmate and close it with End Session before resetting."
     )
     return(invisible(NULL))
   }

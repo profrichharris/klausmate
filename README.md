@@ -60,8 +60,9 @@ instructor (spending, number of conversations, length of code, expiry date).
 | **Import files / Select objects / Load Package Data / Load Workspace** | Add files, workspace objects or package datasets to the context for your prompts (only column names and summaries are sent, never the data values), or load an `.RData` / `.rds` file. Crossed-out items are left out of prompts |
 | **Auto-install** | Offers to install any missing packages before running code |
 | **Quick Console** | A small R console running in the same workspace |
-| **Code log** | **View Code Log** shows everything that has run, with a **Save** button; **Quit with Code Log** also saves it. It is written as an R Notebook (`.Rmd`) in `outputs/` that reproduces your analysis, including where data came from |
+| **Code log** | **View Code Log** shows everything that has run, with a **Save** button; **End Session** saves it too (a tick box lets you turn that off). It is written as an R Notebook (`.Rmd`) in `outputs/` that reproduces your analysis, including where data came from |
 | **Pause** | Saves the whole session and closes the app; the next `klaus()` resumes it |
+| **Recent Session** | Brings back a session you ended with **End Session** (up to five are kept, each for a week, named by date and time). Your current session is saved in its place, so you can swap back |
 | **Preferences** | Coding, plotting, mapping, pipe and other preferred approaches, comment density, response language, image export defaults, time limit for runs |
 | **Help (?)** | Overlays a short explanation on every button and tab |
 

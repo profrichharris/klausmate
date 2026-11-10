@@ -16,5 +16,5 @@ the \code{ANTHROPIC_API_KEY} environment variable. The next call to
 }
 \details{
 This function will refuse to run while a paused \code{klaus()} session
-exists: open Klausmate and use \emph{Quit with Code Log} first.
+exists: open Klausmate and use \emph{End Session} first.
 }

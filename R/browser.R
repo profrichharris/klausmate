@@ -117,7 +117,7 @@ km_browser_launcher <- function(found = km_browser_find()) {
 #' (Cmd/Ctrl+Alt+S); Safari does not.
 #'
 #' This function will refuse to run while a paused \code{klaus()} session
-#' exists: open Klausmate and use \emph{Quit with Code Log} first.
+#' exists: open Klausmate and use \emph{End Session} first.
 #'
 #' @param browser Optional browser name (minor misspellings and lower case are
 #'   accepted), or \code{"default"}. If omitted, a menu is shown.
@@ -133,7 +133,7 @@ klausmate_browser <- function(browser = NULL) {
   if (klausmate_paused()) {
     message(
       "klausmate_browser() cannot run while a paused Klausmate session exists.\n",
-      "Please open Klausmate and close it with Quit with Code Log first."
+      "Please open Klausmate and close it with End Session first."
     )
     return(invisible(NULL))
   }

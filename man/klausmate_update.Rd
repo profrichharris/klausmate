@@ -17,8 +17,7 @@ whether a newer version is waiting.
 }
 \details{
 This function will not run while a paused \code{klaus()} session exists: a
-paused session cannot be updated. Open Klausmate, choose \emph{Quit with
-Code Log}, then run \code{klausmate_update()} (or just \code{klaus()} in a
+paused session cannot be updated. Open Klausmate, choose \emph{End Session}, then run \code{klausmate_update()} (or just \code{klaus()} in a
 fresh R session).
 }
 \examples{

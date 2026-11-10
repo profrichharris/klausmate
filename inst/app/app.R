@@ -131,6 +131,52 @@ cm_clean_state <- function(st) {
   st$restore_note <- notes
   st
 }
+
+# --- Saved sessions (Load Session) ---------------------------------------------------------------------
+# End Session keeps the session in a hidden folder in the working directory, named by the date and time it was saved
+# (session_YYYYmmdd_HHMMSS.rds). At most SESSION_KEEP_N are kept and each is deleted SESSION_KEEP_DAYS days after it was
+# saved: students are meant to do most of their coding in R itself, not to depend on the app for storage.
+SESSION_KEEP_N    <- 5L
+SESSION_KEEP_DAYS <- 7
+sessions_dir <- function() file.path(project_root(), ".klausmate_sessions")
+# The saved sessions, newest first: list of list(file, path, saved, n_prompts, state-free summary). Expired and
+# unreadable files are deleted, and so is anything beyond the newest SESSION_KEEP_N.
+list_sessions <- function() {
+  d <- sessions_dir()
+  if (!dir.exists(d)) return(list())
+  fs <- list.files(d, pattern = "^session_.*\\.rds$", full.names = TRUE)
+  recs <- list()
+  for (f in fs) {
+    x <- tryCatch(readRDS(f), error = function(e) NULL)
+    ok <- is.list(x) && inherits(x$saved, "POSIXct") && is.list(x$state) &&
+          as.numeric(difftime(Sys.time(), x$saved, units = "days")) <= SESSION_KEEP_DAYS
+    if (!ok) { unlink(f); next }
+    recs[[length(recs) + 1L]] <- list(file = basename(f), path = f, saved = x$saved,
+                                      n_prompts = length(x$state$prompt_history %||% character(0)))
+  }
+  if (length(recs) == 0L) return(list())
+  recs <- recs[order(vapply(recs, function(r) as.numeric(r$saved), numeric(1)), decreasing = TRUE)]
+  if (length(recs) > SESSION_KEEP_N) {
+    for (r in recs[-seq_len(SESSION_KEEP_N)]) unlink(r$path)
+    recs <- recs[seq_len(SESSION_KEEP_N)]
+  }
+  recs
+}
+# Keep `state` as a saved session (named by the time now); the oldest are deleted to stay within SESSION_KEEP_N
+save_session_snapshot <- function(state) {
+  d <- sessions_dir()
+  dir.create(d, showWarnings = FALSE, recursive = TRUE)
+  now <- Sys.time()
+  f <- file.path(d, paste0("session_", format(now, "%Y%m%d_%H%M%S"), ".rds")); n <- 1L
+  while (file.exists(f)) { n <- n + 1L; f <- file.path(d, paste0("session_", format(now, "%Y%m%d_%H%M%S"), "_", n, ".rds")) }
+  ok <- tryCatch({
+    tmp <- paste0(f, ".tmp")
+    saveRDS(list(saved = now, pid = Sys.getpid(), state = state), tmp)
+    file.rename(tmp, f)
+  }, error = function(e) FALSE, warning = function(w) FALSE)
+  if (isTRUE(ok)) invisible(list_sessions())    # also deletes the oldest beyond the limit
+  isTRUE(ok)
+}
 dir.create(outputs_dir(), showWarnings = FALSE, recursive = TRUE)
 
 # If the project folder has disappeared (moved, deleted, drive unplugged), fall back to the nearest
@@ -1321,7 +1367,7 @@ format_log_entries <- function(entries) {
   header <- paste0(
     "---\ntitle: \"Klausmate Code Log\"\ndate: \"",
     format(Sys.time(), "%Y-%m-%d %H:%M"), "\"\noutput: html_notebook\n---\n\n",
-    "> **Note:** Please close Klausmate (using Pause or Quit with Code Log) before running code in this notebook.",
+    "> **Note:** Please close Klausmate (using Pause or End Session) before running code in this notebook.",
     " Running code here while the app is active may cause conflicts."
   )
   chunks <- lapply(seq_along(entries), function(i) {
@@ -3431,6 +3477,8 @@ ui <- fluidPage(
     ),
     fluidRow(
       column(12,
+        tags$span(style = "float: right;",
+          actionButton("load_session_btn", "Recent Session", disabled = "disabled")),
         shinyFilesButton("file_select", "Import files",
           title = "Select one or more files", multiple = TRUE),
         tags$span(style = "display: inline-block; width: 4px;"),
@@ -3745,7 +3793,7 @@ ui <- fluidPage(
             div(
               actionButton("new_conversation", "New conversation",
                 style = "background-color: #e67e22; border-color: #ca6f1e; color: white;"),
-              actionButton("quit", "Quit with Code Log", class = "btn-danger",
+              actionButton("quit", "End Session", class = "btn-danger",
                 style = "margin-left: 4px;")
             ),
             uiOutput("conv_remaining_ui")
@@ -4402,7 +4450,7 @@ HELP_TEXTS <- list(
     "structure; for spatial data also the geometry type, coordinate system and extent. For Klausmate's own",
     "datasets (Load Package Data > Klausmate (online datasets)) there is also a Variable description tab that",
     "says in plain English what each variable means. The window can be dragged by its title bar and stays open",
-    "while you work; it closes with its Close button, or when you press Answer, Ask for Code, Run, Pause or Quit.",
+    "while you work; it closes with its Close button, or when you press Answer, Ask for Code, Run, Pause or End Session.",
     "Variable names (in the Table headings, the Variables tab and the Variable description tab) can be dragged into the",
     "prompt box, or double-clicked to put them in at the cursor.",
     "It is shown on your own",
@@ -4417,11 +4465,11 @@ HELP_TEXTS <- list(
   ),
   pastcode_close_btn = paste(
     "Close — Closes the floating Past code window. It also closes when you press Answer, Ask for Code, Run,",
-    "Pause or Quit."
+    "Pause or End Session."
   ),
   inspect_close_btn = paste(
     "Close — Closes the Look-at window. The window also closes when you press Answer, Ask for Code, Run,",
-    "Pause or Quit."
+    "Pause or End Session."
   ),
   spend_reset = paste(
     "Reset to zero — Starts the Daily spend figure again from zero. Your usage record is kept; only the",
@@ -4454,6 +4502,12 @@ HELP_TEXTS <- list(
     "into R: the AI is told the file names and paths, and the column names of data",
     "files, so that its code is accurate (for example, when reading your data). The",
     "data values themselves are not sent."
+  ),
+  load_session_btn = paste(
+    "Recent Session — Brings back a session you ended earlier with End Session: its prompts, code, results and conversation.",
+    "It opens a list of the saved sessions, named by the date and time they were saved (up to five, each kept for a week).",
+    "Your current session is saved in the list in its place, so you can go back to it. Greyed out when there are no saved sessions.",
+    "Objects and files that are no longer available are listed before you load; your data itself is never saved."
   ),
   add_objects = paste(
     "Select objects — Lets you choose objects from your current R workspace to share",
@@ -4532,7 +4586,7 @@ HELP_TEXTS <- list(
     "this conversation, each piece with the prompt that produced it, together with any explanations you",
     "asked for (Explain, and Tell me more), shown as quoted text so the notebook still runs. Press Save in that window to",
     paste0("save the log as an R Notebook (.Rmd) in your project folder and open it in ", if (in_rstudio()) "RStudio" else "your editor", ", as"),
-    "happens with Pause, Quit with Code Log and New conversation, but part-way through. You can",
+    "happens with Pause, End Session and New conversation, but part-way through. You can",
     "carry on in Klausmate afterwards; a later save contains everything so far."
   ),
   quick_console = paste(
@@ -4570,9 +4624,9 @@ HELP_TEXTS <- list(
     "remaining is shown beneath this button."
   ),
   quit = paste(
-    "Quit with Code Log — Closes Klausmate and saves your code log as an R Notebook",
-    "(.Rmd), which opens in your editor. Your session is not kept for resuming (use",
-    "Save for that), and your R workspace is not affected."
+    "End Session — Closes Klausmate. By default it saves your code log as an R Notebook (.Rmd), which opens in your",
+    "editor; a tick box in the confirmation window lets you turn that off. The session is kept for a week so that Recent",
+    "Session can bring it back (use Pause to carry straight on next time), and your R workspace is not affected."
   ),
 
   # Buttons inside Explanation and Fix windows
@@ -5474,6 +5528,11 @@ server <- function(input, output, session) {
   # The expanded plot offers the Preferences image options plus a file name, and appends standard
   # R code (png(), pdf()... around the statements that drew the plot) to the Code window. Running
   # that block runs only the block, not the whole script (see pending_export).
+  # The "Save this plot..." tick box is remembered for the rest of the session, for static and interactive plots
+  # alike: off to begin with, then as the student last left it
+  save_tick <- reactiveVal(FALSE)
+  observeEvent(input$plot_exp_on,   save_tick(isTRUE(input$plot_exp_on)))
+  observeEvent(input$widget_exp_on, save_tick(isTRUE(input$widget_exp_on)))
   expanded_plot  <- reactiveVal(NULL)   # full path of the PNG being shown
   pending_export <- reactiveVal(NULL)   # list(snippet = <block appended>, full = <editor text after>)
   export_ext     <- function(fmt) switch(fmt, jpg = "jpg", tif = "tif", fmt)
@@ -5520,7 +5579,7 @@ server <- function(input, output, session) {
       if (has_code) tagList(
         tags$div(style = "display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px;",
           tags$span("Save this plot to a file", style = "font-size: 1.1em;"),
-          tags$div(class = "cm-savetick", checkboxInput("plot_exp_on", NULL, value = FALSE, width = "auto"))),
+          tags$div(class = "cm-savetick", checkboxInput("plot_exp_on", NULL, value = isolate(save_tick()), width = "auto"))),
         conditionalPanel("input.plot_exp_on", tagList(
         fluidRow(
           column(3, textInput("plot_exp_name", "File name:", value = paste0("plot_", length(plot_files_rv()), "_", match(f, plot_files_rv()), ""))),
@@ -5551,7 +5610,8 @@ server <- function(input, output, session) {
                 "inside a function or loop), so it cannot write the saving code for it.")),
                     style = "font-size: 0.85em; color: #888;"),
       footer = tagList(
-        if (has_code) actionButton("plot_exp_add", "Add to code", class = "btn-primary", style = "display: none;"),
+        if (has_code) actionButton("plot_exp_add", "Add to code", class = "btn-primary",
+                                  style = if (isolate(save_tick())) NULL else "display: none;"),
         modalButton("Close")),
       easyClose = TRUE
     ))
@@ -5652,7 +5712,7 @@ server <- function(input, output, session) {
       if (has_code) tagList(
         tags$div(style = "display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px;",
           tags$span("Save this plot as a web page", style = "font-size: 1.1em;"),
-          tags$div(class = "cm-savetick", checkboxInput("widget_exp_on", NULL, value = FALSE, width = "auto"))),
+          tags$div(class = "cm-savetick", checkboxInput("widget_exp_on", NULL, value = isolate(save_tick()), width = "auto"))),
         conditionalPanel("input.widget_exp_on", tagList(
           fluidRow(column(5, textInput("widget_exp_name", "File name:", value = paste0("interactive_", if (is.na(n)) 1L else n)))),
           uiOutput("widget_exp_note"),
@@ -5662,7 +5722,8 @@ server <- function(input, output, session) {
       ) else tags$p(em("Klausmate could not work out which lines of code drew this, so it cannot write the saving code for it."),
                     style = "font-size: 0.85em; color: #888;"),
       footer = tagList(
-        if (has_code) actionButton("widget_exp_add", "Add to code", class = "btn-primary", style = "display: none;"),
+        if (has_code) actionButton("widget_exp_add", "Add to code", class = "btn-primary",
+                                  style = if (isolate(save_tick())) NULL else "display: none;"),
         modalButton("Close")),
       easyClose = TRUE))
   }
@@ -8444,7 +8505,7 @@ server <- function(input, output, session) {
           if (max_c != 1) "s" else "",
           " permitted in this session."
         )),
-        tags$p("Please quit and restart Klausmate, or ask your instructor for guidance."),
+        tags$p("Please end the session and restart Klausmate, or ask your instructor for guidance."),
         footer = modalButton("OK"),
         easyClose = TRUE
       ))
@@ -8613,7 +8674,7 @@ server <- function(input, output, session) {
     assign("stopApp", function(...) stop("__QC_STOPAPP__"), envir = .GlobalEnv)
     .qc_not_here_msg <- paste0(
       "This function is not available inside Klausmate's Quick Console.\n",
-      "Please leave Klausmate (using Pause or Quit with Code Log) and run it from your main R console."
+      "Please leave Klausmate (using Pause or End Session) and run it from your main R console."
     )
     for (.qc_fn in .qc_klausmate_fns)
       assign(.qc_fn, local({ msg <- .qc_not_here_msg; function(...) message(msg) }), envir = .GlobalEnv)
@@ -10461,8 +10522,7 @@ server <- function(input, output, session) {
   save_recovery <- function() {
     if (recov$off || isTRUE(recov$blocked)) return(invisible(NULL))
     isolate({
-      if (length(interactions()) == 0L && length(conversation_history()) == 0L && !nzchar(trimws(input$prompt %||% "")))
-        return(invisible(NULL))
+      if (session_is_empty()) return(invisible(NULL))
       tryCatch({
         tmp <- paste0(recovery_file(), ".tmp")
         saveRDS(list(saved = Sys.time(), pid = Sys.getpid(), state = session_state()), tmp)
@@ -10475,6 +10535,90 @@ server <- function(input, output, session) {
     conversation_history(), run_history(), prompt_history(), answer_latest(), all_log_entries(), interactions(),
     selected_files(), selected_objects(), ask_mode(), input$prompt, input$code_editor)), 4000)
   observeEvent(recov_changed(), save_recovery(), ignoreInit = TRUE)
+
+  # --- Load Session: bring back a session ended earlier with End Session ---------------------------------
+  session_is_empty <- function()
+    isolate(length(interactions()) == 0L && length(conversation_history()) == 0L && length(run_history()) == 0L &&
+            length(full_log()) == 0L && !nzchar(trimws(input$prompt %||% "")))
+  sessions_rv <- reactiveVal(list_sessions())
+  # The button is greyed out when there is nothing to load (and while the data-protection notice or a request is working)
+  observe({
+    shinyjs::toggleState("load_session_btn",
+      length(sessions_rv()) > 0L && !isTRUE(protection_notice_active()) && !isTRUE(ui_busy()))
+  })
+  show_sessions_modal <- function() {
+    recs <- list_sessions(); sessions_rv(recs)
+    if (length(recs) == 0L) {
+      showNotification("There are no saved sessions to load.", type = "message", duration = 5)
+      return(invisible(NULL))
+    }
+    names_ <- vapply(recs, function(r) fmt_date(r$saved, with_time = TRUE), "")
+    detail <- vapply(recs, function(r) paste0(r$n_prompts, if (r$n_prompts == 1L) " prompt" else " prompts"), "")
+    showModal(modalDialog(
+      title = "Load a session",
+      tags$p("Choose a session you ended earlier. Sessions are named by the date and time they were saved."),
+      radioButtons("sess_pick", NULL, width = "100%",
+        choiceNames  = lapply(seq_along(recs), function(i)
+          tagList(tags$strong(names_[i]), tags$span(style = "color: #888; margin-left: 8px;", detail[i]))),
+        choiceValues = lapply(recs, function(r) r$file),
+        selected     = recs[[1]]$file),
+      uiOutput("sess_info"),
+      tags$p(em(paste0("Up to ", SESSION_KEEP_N, " sessions are kept, each for ", SESSION_KEEP_DAYS, " days, then deleted.")),
+             style = "font-size: 0.85em; color: #888;"),
+      footer = tagList(actionButton("sess_load", "Load", class = "btn-primary"), modalButton("Cancel")),
+      easyClose = FALSE))
+  }
+  observeEvent(input$load_session_btn, show_sessions_modal())
+  sess_record <- function(file) {
+    recs <- list_sessions()
+    for (r in recs) if (identical(r$file, file)) return(r)
+    NULL
+  }
+  output$sess_info <- renderUI({
+    r <- sess_record(input$sess_pick %||% ""); req(r)
+    x <- tryCatch(readRDS(r$path), error = function(e) NULL); req(x)
+    notes <- cm_clean_state(x$state)$restore_note
+    tagList(
+      tags$p(if (session_is_empty())
+               "Your current session is empty, so it will not be saved."
+             else
+               "Your current session will be saved in the list in its place, so you can come back to it."),
+      if (length(notes) > 0) tagList(tags$p("Some things in the saved session are no longer available:"),
+                                     tags$ul(lapply(notes, tags$li))))
+  })
+  observeEvent(input$sess_load, {
+    r <- sess_record(input$sess_pick %||% "")
+    if (is.null(r)) {
+      removeModal()
+      showNotification("That session is no longer available.", type = "error", duration = 6)
+      sessions_rv(list_sessions())
+      return(invisible(NULL))
+    }
+    x <- tryCatch(readRDS(r$path), error = function(e) NULL)
+    if (is.null(x)) {
+      removeModal()
+      showNotification("That session could not be read.", type = "error", duration = 6)
+      return(invisible(NULL))
+    }
+    removeModal()
+    st <- cm_clean_state(x$state)
+    st$restored <- TRUE
+    st$port <- suppressWarnings(as.integer(isolate(session$clientData$url_port)))
+    unlink(r$path)                                   # the loaded session becomes the current one
+    if (!session_is_empty()) {                       # the current session takes its place in the list
+      if (length(full_log()) > 0) do_save_log()
+      save_session_snapshot(session_state())
+    }
+    ok <- tryCatch({ saveRDS(st, pause_file()); TRUE }, error = function(e) FALSE)
+    if (!ok) {
+      showNotification("Could not load the session.", type = "error", duration = 8)
+      return(invisible(NULL))
+    }
+    unlink(recovery_file())
+    recov$off <- TRUE
+    options(klausmate.restart_app = TRUE)
+    stopApp()
+  })
   # One observer per button: combining the inputs in one observeEvent(c(...)) loses the action-button
   # class, so the 0 an action button reports when it is first drawn would count as a click
   observeEvent(input$confirm_pause_app, do_pause_app())
@@ -10482,22 +10626,30 @@ server <- function(input, output, session) {
   observeEvent(input$qc_install_pause,  do_pause_app())
 
   # --- Quit ------------------------------------------------------------------
-  do_quit_with_autosave <- function() {
-    if (length(full_log()) > 0) do_save_log()
+  do_quit_with_autosave <- function(save_log = TRUE) {
+    # Unticking "Save your Code Log..." in the End Session window also stops the automatic save when the session ends
+    if (!save_log) recov$nolog <- TRUE
+    if (save_log && length(full_log()) > 0) do_save_log()
+    if (!session_is_empty()) save_session_snapshot(session_state())   # kept so that Load Session can bring it back
     do_quit()
   }
 
   show_quit_confirm_modal <- function() {
-    save_note <- if (length(full_log()) > 0)
-      paste0("Your code notebook will be saved automatically and ", opened_in_txt(), ".")
-    else
-      "There is nothing to save."
+    has_log <- length(full_log()) > 0
     showModal(modalDialog(
-      title = "Quit with Code Log?",
-      tags$p("Are you sure you want to quit? Your R workspace will not be cleared."),
-      tags$p(save_note),
+      title = "End the session?",
+      tags$p("Are you sure you want to end the session? Your R workspace will not be cleared."),
+      if (!has_log) tags$p("There is nothing to save in a Code Log."),
+      if (!session_is_empty())
+        tags$p(paste0("The session is also kept for ", SESSION_KEEP_DAYS, " days, so you can bring it back with Recent Session.",
+                      if (length(list_sessions()) >= SESSION_KEEP_N) " The oldest saved session will be deleted to make room." else "")),
+      if (has_log)
+        checkboxInput("end_save_log",
+                      paste0("Save your Code Log and open it in ", if (in_rstudio()) "RStudio" else "your editor",
+                             "? [Recommended]"),
+                      value = TRUE, width = "100%"),     # full width (Shiny's default is 300 px), so it wraps only if it must
       footer = tagList(
-        actionButton("confirm_quit", "Yes, quit", class = "btn-danger"),
+        actionButton("confirm_quit", "Yes, end session", class = "btn-danger"),
         modalButton("Cancel")
       )
     ))
@@ -10519,14 +10671,14 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$quit,         { show_quit_confirm_modal() })
-  observeEvent(input$confirm_quit, { removeModal(); do_quit_with_autosave() })
+  observeEvent(input$confirm_quit, { removeModal(); do_quit_with_autosave(save_log = !isFALSE(input$end_save_log)) })
 
   # --- Auto-save on unexpected close (browser tab closed, Escape in console) --
   session$onSessionEnded(function() {
     # pending_log_entries is cleared by do_save_log; non-empty means unsaved runs exist
     entries <- isolate(full_log())
     pending <- isolate(pending_log_entries())
-    if (length(entries) > 0 && (length(pending) > 0 || !is.null(isolate(held_explain())))) {
+    if (!isTRUE(recov$nolog) && length(entries) > 0 && (length(pending) > 0 || !is.null(isolate(held_explain())))) {
       tryCatch({
         p <- make_log_path()
         cat(format_log_entries(entries), "\n\n", file = p, append = FALSE, sep = "")

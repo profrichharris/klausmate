@@ -42,7 +42,7 @@ klaus <- function() {
   updated <- klausmate_preflight()
   if (isTRUE(updated)) return(invisible(NULL))   # new klaus() launched inside preflight
 
-  # Drop the private copy of the student's API key however the app ends (Pause, Quit, Escape in
+  # Drop the private copy of the student's API key however the app ends (Pause, End Session, Escape in
   # the console, an error)
   on.exit(cm_clear_key(), add = TRUE)
 
@@ -55,7 +55,7 @@ klaus <- function() {
   }
 
   options(klausmate.restart_app = FALSE)
-  # The app asks for a restart (klausmate.restart_app) when a session that did not end with Quit or Pause is
+  # The app asks for a restart (klausmate.restart_app) when a session that did not end with End Session or Pause is
   # restored: the saved state is written as a pause file and the app is started again, resuming as after a Pause.
   repeat {
   # A paused session remembers the port it ran on. Starting on the same port lets the old (disconnected) browser
@@ -399,8 +399,7 @@ km_req_retry <- function(req, max_tries = 4L) {
 #' whether a newer version is waiting.
 #'
 #' This function will not run while a paused \code{klaus()} session exists: a
-#' paused session cannot be updated. Open Klausmate, choose \emph{Quit with
-#' Code Log}, then run \code{klausmate_update()} (or just \code{klaus()} in a
+#' paused session cannot be updated. Open Klausmate, choose \emph{End Session}, then run \code{klausmate_update()} (or just \code{klaus()} in a
 #' fresh R session).
 #'
 #' @return Invisible NULL (called for side effects).
@@ -414,7 +413,7 @@ klausmate_update <- function() {
   if (klausmate_paused()) {
     message(
       "Klausmate is paused, so it cannot be updated now.\n",
-      "To update it: open Klausmate with klaus(), choose Quit with Code Log, then run klausmate_update()\n",
+      "To update it: open Klausmate with klaus(), choose End Session, then run klausmate_update()\n",
       "and then klaus() again."
     )
     return(invisible(NULL))

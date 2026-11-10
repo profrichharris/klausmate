@@ -28,7 +28,7 @@ Chrome, Edge and Brave leave the mouse pointer out of Klausmate's screenshots
 (Cmd/Ctrl+Alt+S); Safari does not.
 
 This function will refuse to run while a paused \code{klaus()} session
-exists: open Klausmate and use \emph{Quit with Code Log} first.
+exists: open Klausmate and use \emph{End Session} first.
 }
 \examples{
 \dontrun{
