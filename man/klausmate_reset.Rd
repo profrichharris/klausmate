@@ -13,7 +13,10 @@ Invisible NULL (called for side effects).
 Deletes the saved key (student key or API key), resets the response
 language to English and forgets the record of which R packages work, so
 that the next \code{klaus()} runs the first-time set-up again (checking, and
-if necessary installing, the packages Klausmate needs).
+if necessary installing, the packages Klausmate needs). It also deletes every
+session saved by End Session (and the recovery files), whatever the working
+directory they were saved from, so they cannot then be restored. Code Logs
+are not deleted.
 }
 \details{
 This function will refuse to run while \code{klaus_watch()} is active or while

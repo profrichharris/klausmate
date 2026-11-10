@@ -79,3 +79,12 @@ cm_get_key <- function() {
   if (exists("key", envir = .cm_secret, inherits = FALSE)) get("key", envir = .cm_secret)
   else Sys.getenv("ANTHROPIC_API_KEY")
 }
+
+# Saved sessions (End Session) and the crash-recovery file live in the user's data folder, one sub-folder per working
+# directory (named by a hash of the folder's path; each record also holds the path itself), so that they are kept out
+# of project folders that are synced to the cloud or shared, and so that klausmate_reset() can delete them all.
+klausmate_sessions_root <- function() file.path(klausmate_user_dir("data"), "sessions")
+klausmate_sessions_dir <- function(wd = getwd()) {
+  wd <- normalizePath(wd, winslash = "/", mustWork = FALSE)
+  file.path(klausmate_sessions_root(), substr(as.character(openssl::sha256(charToRaw(wd))), 1, 16))
+}

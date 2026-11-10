@@ -920,7 +920,10 @@ klausmate_reset_key <- function() {
 #' Deletes the saved key (student key or API key), resets the response
 #' language to English and forgets the record of which R packages work, so
 #' that the next \code{klaus()} runs the first-time set-up again (checking, and
-#' if necessary installing, the packages Klausmate needs).
+#' if necessary installing, the packages Klausmate needs). It also deletes every
+#' session saved by End Session (and the recovery files), whatever the working
+#' directory they were saved from, so they cannot then be restored. Code Logs
+#' are not deleted.
 #'
 #' This function will refuse to run while \code{klaus_watch()} is active or while
 #' a paused \code{klaus()} session exists. Stop \code{klaus_watch()} with
@@ -949,12 +952,25 @@ klausmate_reset <- function() {
     return(invisible(NULL))
   }
 
+  # Sessions kept by End Session and the crash-recovery files live in the user's data folder, one sub-folder per
+  # working directory (versions 0.6.43 and 0.6.44 kept them in the working directory itself: those are removed too)
+  sess_root  <- klausmate_sessions_root()
+  work_dir   <- getOption(".klausmate_project_root", getwd())
+  old_dir    <- file.path(work_dir, ".klausmate_sessions")
+  old_rec    <- file.path(work_dir, ".klausmate_recovery.rds")
+  n_saved    <- length(list.files(sess_root, pattern = "\\.rds$", recursive = TRUE, all.files = TRUE)) +
+                length(list.files(old_dir, pattern = "\\.rds$", all.files = TRUE)) + file.exists(old_rec)
+
   # --- Confirm with the user ------------------------------------------------
   message(
     "klausmate_reset() will:\n",
     "  • Delete the saved key\n",
     "  • Reset the response language to English\n",
-    "  • Forget the package set-up, so that it is run again the next time klaus() starts\n"
+    "  • Forget the package set-up, so that it is run again the next time klaus() starts",
+    if (n_saved > 0)
+      paste0("\n  • Delete the ", n_saved, if (n_saved == 1) " saved session" else " saved sessions",
+             " (from every working directory), which cannot then be restored (Code Logs are not deleted)"),
+    "\n"
   )
   answer <- trimws(readline("Are you sure you want to reset? (yes/no): "))
   if (!tolower(answer) %in% c("yes", "y")) {
@@ -987,6 +1003,14 @@ klausmate_reset <- function() {
   if (file.exists(status_path)) {
     file.remove(status_path)
     message("Package set-up record removed: it will be run again the next time klaus() starts.")
+  }
+
+  # --- Delete the saved sessions ---------------------------------------------------------
+  if (n_saved > 0) {
+    unlink(sess_root, recursive = TRUE)
+    unlink(old_dir, recursive = TRUE)
+    unlink(old_rec)
+    message("Saved sessions removed.")
   }
 
   message("Klausmate has been reset.")

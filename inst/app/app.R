@@ -8,6 +8,10 @@ library(httr2)
 # restart R) uses it, so other environments (the R GUI, a terminal, VS Code ...) are told something that is true there.
 in_rstudio <- function()
   requireNamespace("rstudioapi", quietly = TRUE) && isTRUE(tryCatch(rstudioapi::isAvailable(), error = function(e) FALSE))
+# The script showing in RStudio's source editor (the last tab used there): its text, path and selection, or NULL.
+# (A separate function so that it can be replaced when testing without RStudio.)
+grab_context <- function()
+  tryCatch(rstudioapi::getSourceEditorContext(), error = function(e) NULL)
 # Phrases used in several messages
 opened_in_txt   <- function() if (in_rstudio()) "opened in RStudio" else "opened in your editor"
 restart_r_txt   <- function() if (in_rstudio()) "restart R (Session > Restart R in RStudio)" else "restart R"
@@ -34,6 +38,8 @@ CM_NEEDS <- c(
   "klausmate_pin_locked",
   "klausmate_pin_tries_left",
   "klausmate_save_state",
+  "klausmate_sessions_dir",
+  "klausmate_sessions_root",
   "klausmate_state_path",
   "klausmate_user_dir",
   "cm_clear_key",
@@ -68,7 +74,7 @@ pause_file   <- function() file.path(project_root(), "claude_assistant_pause.rds
 # While the app runs, its state is saved (a few seconds after each change) to a hidden recovery file in the working
 # directory. Quit and Pause remove it. If it is still there at the next start, the session ended some other way
 # (browser tab closed, Escape in the console, the computer shut down) and the student is offered the session back.
-recovery_file     <- function() file.path(project_root(), ".klausmate_recovery.rds")
+recovery_file     <- function() file.path(sessions_dir(), "recovery.rds")
 RECOVERY_MAX_DAYS <- 7
 # Is another R process (not this one) still running? Unix only: on Windows pskill() would end the process, so
 # it is not called there (the answer is then "no").
@@ -138,7 +144,23 @@ cm_clean_state <- function(st) {
 # saved: students are meant to do most of their coding in R itself, not to depend on the app for storage.
 SESSION_KEEP_N    <- 5L
 SESSION_KEEP_DAYS <- 7
-sessions_dir <- function() file.path(project_root(), ".klausmate_sessions")
+# In the user's data folder, one sub-folder per working directory (see klausmate_sessions_dir()); each record holds `wd`
+sessions_dir <- function() klausmate:::klausmate_sessions_dir(project_root())
+# Sessions and the recovery file kept by versions 0.6.43 and 0.6.44 in the working directory itself are moved across
+migrate_old_sessions <- function() {
+  tryCatch({
+    old_dir <- file.path(project_root(), ".klausmate_sessions")
+    old_rec <- file.path(project_root(), ".klausmate_recovery.rds")
+    if (!dir.exists(old_dir) && !file.exists(old_rec)) return(invisible(NULL))
+    d <- sessions_dir(); dir.create(d, showWarnings = FALSE, recursive = TRUE)
+    for (f in list.files(old_dir, pattern = "^session_.*\\.rds$", full.names = TRUE))
+      if (file.copy(f, file.path(d, basename(f)), overwrite = FALSE)) unlink(f)
+    if (file.exists(old_rec) && !file.exists(recovery_file()) && file.copy(old_rec, recovery_file())) unlink(old_rec)
+    unlink(old_rec)
+    unlink(old_dir, recursive = TRUE)
+  }, error = function(e) invisible(NULL))
+  invisible(NULL)
+}
 # The saved sessions, newest first: list of list(file, path, saved, n_prompts, state-free summary). Expired and
 # unreadable files are deleted, and so is anything beyond the newest SESSION_KEEP_N.
 list_sessions <- function() {
@@ -171,7 +193,7 @@ save_session_snapshot <- function(state) {
   while (file.exists(f)) { n <- n + 1L; f <- file.path(d, paste0("session_", format(now, "%Y%m%d_%H%M%S"), "_", n, ".rds")) }
   ok <- tryCatch({
     tmp <- paste0(f, ".tmp")
-    saveRDS(list(saved = now, pid = Sys.getpid(), state = state), tmp)
+    saveRDS(list(saved = now, pid = Sys.getpid(), wd = normalizePath(project_root(), winslash = "/", mustWork = FALSE), state = state), tmp)
     file.rename(tmp, f)
   }, error = function(e) FALSE, warning = function(w) FALSE)
   if (isTRUE(ok)) invisible(list_sessions())    # also deletes the oldest beyond the limit
@@ -1363,13 +1385,17 @@ format_explanation_entry <- function(e, i) {
   paste(parts, collapse = "\n\n")
 }
 
-format_log_entries <- function(entries) {
+# `continues`: the file name of the earlier log that this one carries on from (a session that was brought back),
+# or NULL
+format_log_entries <- function(entries, continues = NULL) {
   header <- paste0(
     "---\ntitle: \"Klausmate Code Log\"\ndate: \"",
     format(Sys.time(), "%Y-%m-%d %H:%M"), "\"\noutput: html_notebook\n---\n\n",
     "> **Note:** Please close Klausmate (using Pause or End Session) before running code in this notebook.",
     " Running code here while the app is active may cause conflicts."
   )
+  if (!is.null(continues) && nzchar(continues))
+    header <- paste0(header, "\n\n*This log continues from ", basename(continues), ", saved earlier in this session.*")
   chunks <- lapply(seq_along(entries), function(i) {
     e <- entries[[i]]
     if (identical(e$source, "explanation")) return(format_explanation_entry(e, i))
@@ -3286,6 +3312,9 @@ ui <- fluidPage(
     (function() {
       var splash = document.getElementById('klausmate-splash');
       if (!splash) return;
+      // a restart that Klausmate itself started (restoring or loading a session) is not a fresh open: no splash
+      try { var t = parseInt(sessionStorage.getItem('cmRestart') || '0', 10);
+            if (t && Date.now() - t < 120000) { splash.classList.add('hidden'); return; } } catch (e) {}
       setTimeout(function() {
         splash.classList.add('fade-out');
         setTimeout(function() { splash.classList.add('hidden'); }, 850);
@@ -3712,14 +3741,21 @@ ui <- fluidPage(
     tags$script(HTML("
       // When Klausmate stops (Pause, Quit or a crash) this tab is left disconnected. If it was a Pause, running klaus()
       // again starts the app at the same address, so the tab watches for that and reloads itself.
+      $(document).on('shiny:connected', function() { try { sessionStorage.removeItem('cmRestart'); } catch (e) {} });
       $(document).on('shiny:disconnected', function() {
         if (window.cmWatching) return; window.cmWatching = true;
         var box = document.createElement('div');
         box.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483000;background:#fff3cd;color:#664d03;' +
                             'border-bottom:1px solid #e0c060;padding:10px 16px;font-size:14px;text-align:center;';
-        box.textContent = 'Klausmate has stopped. If you paused it, run klaus() in R and this tab will reconnect by itself; otherwise you can close this tab.';
+        var stopped = 'Klausmate has stopped. If you paused it, run klaus() in R and this tab will reconnect by itself; otherwise you can close this tab.';
+        // A restart that Klausmate started itself (restoring or loading a session) says so, instead of the stop notice,
+        // and falls back to the stop notice if the app has not come back after 30 seconds
+        var restarting = false;
+        try { var t0 = parseInt(sessionStorage.getItem('cmRestart') || '0', 10); restarting = !!t0 && Date.now() - t0 < 120000; } catch (e) {}
+        box.textContent = restarting ? 'Restoring your session...' : stopped;
         document.body.appendChild(box);
         var n = 0, iv = setInterval(function() {
+          if (restarting && n === 30) box.textContent = stopped;
           if (++n > 1800) { clearInterval(iv); return; }
           fetch(location.href, {cache: 'no-store'}).then(function(r) { if (r.ok) { clearInterval(iv); location.reload(); } }).catch(function() {});
         }, 1000);
@@ -3768,7 +3804,13 @@ ui <- fluidPage(
       tags$span(style = "display: inline-block; width: 4px;"),
       shinyFilesButton("load_script", "Load Script",
         title = "Select an R script to load", multiple = FALSE,
-        style = "background-color: white; border-color: #bbb; color: #333;")
+        style = "background-color: white; border-color: #bbb; color: #333;"),
+      tags$span(style = "display: inline-block; width: 4px;"),
+      disabled(actionButton("grab_code", "Grab Code",
+        style = "background-color: white; border-color: #bbb; color: #333;")),
+      tags$span(style = "display: inline-block; width: 4px;"),
+      disabled(actionButton("clear_code", "Clear Code",
+        style = "background-color: white; border-color: #bbb; color: #333;"))
     ),
     uiOutput("run_status"),
 
@@ -4576,6 +4618,17 @@ HELP_TEXTS <- list(
     "Scripts longer than the code-length limit set by your key will be refused.",
     "(Not available while the Answer view is showing.)"
   ),
+  grab_code = paste(
+    "Grab Code — Copies code from the script you are working on in RStudio into the Code editor, including changes",
+    "you have not saved yet. It takes the script in the tab you last used in RStudio, or only the lines you have selected",
+    "there. A window shows the first lines and asks you to Proceed or Cancel before the Code editor is replaced. Code longer",
+    "than the limit set by your key is refused: select part of it in RStudio and try again. Only available when Klausmate is",
+    "run from RStudio, and on the Code tab. (Not available while the Answer view is showing.)"
+  ),
+  clear_code = paste(
+    "Clear Code — Empties the Code editor. Past code and the Code Log are not affected.",
+    "(Not available while the Answer view is showing.)"
+  ),
   save_block = paste(
     "Save Code Block — Saves the code currently in the editor to a named .R",
     "file in your project folder (using the code description as the filename) and",
@@ -4772,7 +4825,16 @@ server <- function(input, output, session) {
   # time to render before the WebSocket drops.
   # recov$off stops the automatic saving of the recovery file; Quit (and Pause) also remove the file. Quitting from the
   # "A message from Klaus" window or the set-up screen leaves an unanswered recovery file in place.
+  # Stop the app so that klaus() starts it again (restoring or loading a session). The page is told first, so that it
+  # shows "Restoring your session..." and no splash after the reload (not the stop notice); stopping waits a moment so
+  # that the message gets through.
+  restart_app_now <- function() {
+    shinyjs::runjs("try { sessionStorage.setItem('cmRestart', String(Date.now())); } catch (e) {}")
+    later::later(function() stopApp(), delay = 0.4)
+    invisible(NULL)
+  }
   recov <- new.env(); recov$off <- FALSE; recov$offered <- FALSE
+  migrate_old_sessions()
   do_quit <- function(clear_recovery = TRUE) {
     recov$off <- TRUE
     if (clear_recovery) unlink(recovery_file())
@@ -4946,7 +5008,7 @@ server <- function(input, output, session) {
     unlink(recovery_file())
     recov$off <- TRUE
     options(klausmate.restart_app = TRUE)
-    stopApp()
+    restart_app_now()
   })
 
   # On every fresh open (not a pause-resume) the data-protection notice is shown over the prompt box (see the
@@ -5930,7 +5992,7 @@ server <- function(input, output, session) {
   observe({
     if (ui_busy()) {
       for (btn in c("ask_plain", "ask_code", "explain_code", "fix_code", "run_code",
-                    "load_script", "save_block", "view_log", "help_toggle",
+                    "load_script", "grab_code", "clear_code", "save_block", "view_log", "help_toggle",
                     "quick_console", "pause_app", "new_conversation", "quit"))
         shinyjs::disable(btn)
       return()
@@ -5969,9 +6031,11 @@ server <- function(input, output, session) {
     } else {
       disable("load_script")
     }
+    if (!answer_view && on_code_tab && !exceeded && in_rstudio()) enable("grab_code") else disable("grab_code")
+    if (!answer_view && (on_code_tab || on_changes_tab) && has_code) enable("clear_code") else disable("clear_code")
     if (protection_notice_active()) {
       for (btn in c("ask_plain", "ask_code", "explain_code", "fix_code", "run_code",
-                    "load_script", "save_block", "view_log", "help_toggle",
+                    "load_script", "grab_code", "clear_code", "save_block", "view_log", "help_toggle",
                     "quick_console", "pause_app", "new_conversation",
                     "add_objects", "load_package_data", "remove_context", "remove_all_context",
                     "preferences",
@@ -6638,6 +6702,75 @@ server <- function(input, output, session) {
     script_origin(list(code = script_text, label = tools::file_path_sans_ext(basename(fname))))
     last_extracted_code("")     # the editor no longer holds code Claude wrote
     updateAceEditor(session, "code_editor", value = script_text)
+    goto_tab("Code")
+  })
+
+  # --- Grab Code: copy the script showing in RStudio into the Code editor ----------------------
+  grab_pending <- reactiveVal(NULL)    # list(text, name, label) waiting for Proceed
+  observeEvent(input$grab_code, {
+    ctx <- grab_context()
+    if (is.null(ctx)) {
+      showNotification("Klausmate could not read a script from RStudio. Click the tab of the script you want in RStudio and try again.",
+                       type = "error", duration = 8)
+      return(invisible(NULL))
+    }
+    sel_text <- tryCatch(paste(vapply(ctx$selection, function(x) x$text %||% "", ""), collapse = "\n"), error = function(e) "")
+    use_sel  <- nzchar(trimws(sel_text))
+    text     <- if (use_sel) sel_text else paste(ctx$contents %||% character(0), collapse = "\n")
+    path     <- ctx$path %||% ""
+    name     <- if (nzchar(path)) basename(path) else "an unsaved script"
+    if (!nzchar(trimws(text))) {
+      showNotification(paste0("There is nothing to grab: ", if (use_sel) "the selection" else name, " is empty."),
+                       type = "warning", duration = 6)
+      return(invisible(NULL))
+    }
+    max_l <- isolate(prefs$max_lines)
+    if (code_too_long(text, max_l)) {
+      showModal(modalDialog(
+        title = "Too long to grab",
+        tags$p(tags$strong(if (use_sel) "The selection" else name), " contains ", count_code_lines(text), " lines of code. ",
+               "Klausmate is designed to work with short, focused code chunks, ideally no more than ", max_l, " lines at a time."),
+        tags$p("Nothing has been grabbed. Select just the section you want in RStudio and press Grab Code again."),
+        footer = modalButton("OK"), easyClose = FALSE))
+      return(invisible(NULL))
+    }
+    lines   <- strsplit(text, "\n", fixed = TRUE)[[1]]
+    shown   <- utils::head(lines, 8L)
+    shown   <- ifelse(nchar(shown) > 100, paste0(substr(shown, 1L, 100L), " ..."), shown)
+    more    <- length(lines) > length(shown)
+    grab_pending(list(text = text, name = name, use_sel = use_sel,
+                      label = if (nzchar(path)) tools::file_path_sans_ext(basename(path)) else "Untitled"))
+    showModal(modalDialog(
+      title = "Replace the code in the Code window?",
+      tags$p("The current contents of the Code window will be replaced with ",
+             if (use_sel) "the lines you selected in " else "the contents of ", tags$strong(paste0(name, ":"))),
+      tags$pre(style = "max-height: 220px; overflow: auto; font-size: 0.85em; white-space: pre; background: #f7f7f7;",
+               paste0(paste(shown, collapse = "\n"), if (more) "\n[continues]" else "")),
+      tags$p(em(paste0(length(lines), if (length(lines) == 1L) " line" else " lines", " in all.")),
+             style = "font-size: 0.85em; color: #888;"),
+      footer = tagList(actionButton("grab_proceed", "Proceed", class = "btn-primary"),
+                       actionButton("grab_cancel", "Cancel")),
+      easyClose = FALSE))
+  })
+  observeEvent(input$grab_cancel, { grab_pending(NULL); removeModal() })
+  observeEvent(input$grab_proceed, {
+    g <- grab_pending(); removeModal()
+    req(g)
+    grab_pending(NULL)
+    loaded_script_name(if (g$use_sel) paste0(g$name, " (selection)") else g$name)
+    last_prompt_for_code("")
+    last_code_description("")
+    script_origin(list(code = g$text, label = if (g$use_sel) paste0(g$label, " (selection)") else g$label))
+    last_extracted_code("")
+    updateAceEditor(session, "code_editor", value = g$text)
+    goto_tab("Code")
+  })
+
+  # --- Clear Code: empty the Code editor ---------------------------------------------------------------
+  observeEvent(input$clear_code, {
+    loaded_script_name(NULL); script_origin(NULL); last_extracted_code("")
+    hide_changes_tab()
+    updateAceEditor(session, "code_editor", value = "")
     goto_tab("Code")
   })
 
@@ -7635,7 +7768,14 @@ server <- function(input, output, session) {
   make_log_path <- function()
     file.path(project_root(),
       paste0("klausmate_log_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".Rmd"))
-  log_path <- reactiveVal(file.path(project_root(), "klausmate_log.Rmd"))  # placeholder
+  log_path <- reactiveVal(NULL)    # the last log file saved in this run of the app
+  # The log file this session carried on from when it was brought back (Pause, restore, Recent Session): named at the
+  # top of the next log written, which holds the whole log so far. Only if that file still exists.
+  log_continues <- reactiveVal(if (!is.null(ps)) ps$log_file else NULL)
+  log_continues_name <- function() {
+    f <- isolate(log_continues())
+    if (!is.null(f) && file.exists(f)) f else NULL
+  }
 
   clarify_restore_prompt <- reactiveVal("")
 
@@ -10412,7 +10552,7 @@ server <- function(input, output, session) {
     if (length(entries) == 0) return(invisible(NULL))
     p <- make_log_path()
     log_path(p)
-    cat(format_log_entries(entries), "\n\n", file = p, append = FALSE, sep = "")
+    cat(format_log_entries(entries, log_continues_name()), "\n\n", file = p, append = FALSE, sep = "")
     pending_log_entries(list())   # clear "unsaved" marker; all_log_entries kept for next save
     open_log_file(p)
   }
@@ -10458,6 +10598,7 @@ server <- function(input, output, session) {
   session_state <- function() {
     capture_active_code()
     list(
+      log_file             = { lp <- isolate(log_path()); if (!is.null(lp) && file.exists(lp)) lp else isolate(log_continues()) },
       port                 = suppressWarnings(as.integer(isolate(session$clientData$url_port))),   # klaus() reuses it when resuming
       prompt               = isolate(input$prompt),
       code_editor          = isolate(input$code_editor),
@@ -10508,6 +10649,8 @@ server <- function(input, output, session) {
     recov$off <- TRUE
     pause_state <- session_state()
     if (length(full_log()) > 0) do_save_log()
+    lp <- isolate(log_path())
+    if (!is.null(lp) && file.exists(lp)) pause_state$log_file <- lp   # the log just written, which the resumed session continues from
     tryCatch(
       saveRDS(pause_state, pause_file()),
       error = function(e)
@@ -10525,7 +10668,9 @@ server <- function(input, output, session) {
       if (session_is_empty()) return(invisible(NULL))
       tryCatch({
         tmp <- paste0(recovery_file(), ".tmp")
-        saveRDS(list(saved = Sys.time(), pid = Sys.getpid(), state = session_state()), tmp)
+        dir.create(dirname(tmp), showWarnings = FALSE, recursive = TRUE)
+        saveRDS(list(saved = Sys.time(), pid = Sys.getpid(),
+                     wd = normalizePath(project_root(), winslash = "/", mustWork = FALSE), state = session_state()), tmp)
         file.rename(tmp, recovery_file())
       }, error = function(e) invisible(NULL), warning = function(w) invisible(NULL))
     })
@@ -10617,7 +10762,7 @@ server <- function(input, output, session) {
     unlink(recovery_file())
     recov$off <- TRUE
     options(klausmate.restart_app = TRUE)
-    stopApp()
+    restart_app_now()
   })
   # One observer per button: combining the inputs in one observeEvent(c(...)) loses the action-button
   # class, so the 0 an action button reports when it is first drawn would count as a click
@@ -10683,7 +10828,7 @@ server <- function(input, output, session) {
     if (!isTRUE(recov$nolog) && length(entries) > 0 && (length(pending) > 0 || !is.null(isolate(held_explain())))) {
       tryCatch({
         p <- make_log_path()
-        cat(format_log_entries(entries), "\n\n", file = p, append = FALSE, sep = "")
+        cat(format_log_entries(entries, log_continues_name()), "\n\n", file = p, append = FALSE, sep = "")
         open_log_file(p)
       }, error = function(e) NULL)
     }
