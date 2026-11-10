@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.43 (2026-11-10)  
-**Current version:** 0.6.43
+**Last released:** 0.6.44 (2026-11-10)  
+**Current version:** 0.6.44
+
+Released in 0.6.44 (no unreleased changes; End Session window wording):
+- **End Session window wording corrected** (user): the note now reads "Up to five most recent sessions are kept for 7 days. You can recover them by restarting klaus() and using Recent Session." (plus the "oldest will be deleted" sentence when five are already saved), replacing "The session is also kept for 7 days, so you can bring it back with Recent Session." Parse-checked; not run.
 
 Released in 0.6.43 (no unreleased changes; Recent Session, End Session with a Code Log tick box, remembered plot-save tick box, End Session rename):
 - **End Session window has a tick box for the Code Log** (user request): "Save your Code Log and open it in RStudio? [Recommended]" ("...your editor? [Recommended]" outside RStudio; full width (`width = "100%"`; Shiny's default of 300 px made it wrap early), so it stays on one line unless the window is too narrow, when it wraps (one line at 472 and 540 px)), ticked by default (`end_save_log`), shown only when there is a log (otherwise the window says there is nothing to save). Unticked, nothing is written or opened (`do_quit_with_autosave(save_log = FALSE)`, which also sets `recov$nolog` so the unexpected-close autosave in `onSessionEnded` does not write the log either); the session is still kept for Recent Session. Help text for End Session rewritten (it also still said the session was not kept). `session_is_empty()` now also counts `run_history()` and the code log, so a session in which code was only run (no prompt) is kept and autosaved; it is also used by the autosave. Tested live in a scratch config: the window shows the tick box ticked, unticking and confirming wrote no log, ticking wrote `klausmate_log_<stamp>.Rmd` in the working directory and the session file. (The log goes to the project folder, not `outputs/`; older notes here that say `outputs/` are out of date.)

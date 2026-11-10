@@ -10641,7 +10641,9 @@ server <- function(input, output, session) {
       tags$p("Are you sure you want to end the session? Your R workspace will not be cleared."),
       if (!has_log) tags$p("There is nothing to save in a Code Log."),
       if (!session_is_empty())
-        tags$p(paste0("The session is also kept for ", SESSION_KEEP_DAYS, " days, so you can bring it back with Recent Session.",
+        # "five" and "7" are SESSION_KEEP_N and SESSION_KEEP_DAYS
+        tags$p(paste0("Up to five most recent sessions are kept for ", SESSION_KEEP_DAYS, " days. ",
+                      "You can recover them by restarting klaus() and using Recent Session.",
                       if (length(list_sessions()) >= SESSION_KEEP_N) " The oldest saved session will be deleted to make room." else "")),
       if (has_log)
         checkboxInput("end_save_log",
