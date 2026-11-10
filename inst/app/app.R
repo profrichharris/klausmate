@@ -4,6 +4,12 @@ library(shinyFiles)
 library(shinyAce)
 library(httr2)
 
+# Packages attached by R itself or by Klausmate's own app code: not counted as packages the student's code needed
+CM_OWN_PKGS <- c("stats", "graphics", "grDevices", "utils", "datasets", "methods", "base",
+                 "klausmate", "shiny", "shinyjs", "shinyFiles", "shinyAce", "httr2")
+# The packages attached in this R session that the student's code needed, in the order they were attached
+cm_attached_pkgs <- function() rev(setdiff(.packages(), CM_OWN_PKGS))
+
 # TRUE when this R session is RStudio. Wording that names RStudio (where a file opens, how to stop code, how to
 # restart R) uses it, so other environments (the R GUI, a terminal, VS Code ...) are told something that is true there.
 in_rstudio <- function()
@@ -12,6 +18,19 @@ in_rstudio <- function()
 # (A separate function so that it can be replaced when testing without RStudio.)
 grab_context <- function()
   tryCatch(rstudioapi::getSourceEditorContext(), error = function(e) NULL)
+# The R code chunks of an R Markdown / Quarto document (given as its lines), joined with blank lines between them
+rmd_r_chunks <- function(lines) {
+  out <- list(); cur <- NULL
+  for (ln in lines) {
+    if (is.null(cur)) {
+      if (grepl("^\\s*```+\\s*\\{\\s*[rR]\\s*[ ,}]", ln)) cur <- character(0)
+    } else if (grepl("^\\s*```+\\s*$", ln)) {
+      out[[length(out) + 1L]] <- cur; cur <- NULL
+    } else cur <- c(cur, ln)
+  }
+  out <- Filter(function(ch) any(nzchar(trimws(ch))), out)
+  paste(vapply(out, paste, "", collapse = "\n"), collapse = "\n\n")
+}
 # Phrases used in several messages
 opened_in_txt   <- function() if (in_rstudio()) "opened in RStudio" else "opened in your editor"
 restart_r_txt   <- function() if (in_rstudio()) "restart R (Session > Restart R in RStudio)" else "restart R"
@@ -4621,7 +4640,8 @@ HELP_TEXTS <- list(
   grab_code = paste(
     "Grab Code — Copies code from the script you are working on in RStudio into the Code editor, including changes",
     "you have not saved yet. It takes the script in the tab you last used in RStudio, or only the lines you have selected",
-    "there. A window shows the first lines and asks you to Proceed or Cancel before the Code editor is replaced. Code longer",
+    "there. An R Markdown or Quarto document gives its R code chunks; other kinds of file (a CSV, a text file) are refused",
+    "unless you select the lines you want. A window shows the first lines and asks you to Proceed or Cancel before the Code editor is replaced. Code longer",
     "than the limit set by your key is refused: select part of it in RStudio and try again. Only available when Klausmate is",
     "run from RStudio, and on the Code tab. (Not available while the Answer view is showing.)"
   ),
@@ -6716,9 +6736,27 @@ server <- function(input, output, session) {
     }
     sel_text <- tryCatch(paste(vapply(ctx$selection, function(x) x$text %||% "", ""), collapse = "\n"), error = function(e) "")
     use_sel  <- nzchar(trimws(sel_text))
-    text     <- if (use_sel) sel_text else paste(ctx$contents %||% character(0), collapse = "\n")
     path     <- ctx$path %||% ""
     name     <- if (nzchar(path)) basename(path) else "an unsaved script"
+    ext      <- tolower(tools::file_ext(path))
+    is_doc   <- ext %in% c("rmd", "qmd", "rmarkdown")
+    # Only R scripts and R Markdown / Quarto documents (and unsaved tabs, which have no type) are taken whole; the
+    # lines a person has selected are always taken, whatever the file
+    if (!use_sel && nzchar(path) && !ext %in% c("r", "rscript", "rprofile", "rmd", "qmd", "rmarkdown")) {
+      showNotification(paste0(name, " is not an R script or an R Markdown or Quarto document, so it was not grabbed. ",
+                              "Click the tab of an R script in RStudio and try again, or select the lines you want."),
+                       type = "error", duration = 10)
+      return(invisible(NULL))
+    }
+    lines_all <- ctx$contents %||% character(0)
+    text     <- if (use_sel) sel_text
+                else if (is_doc) rmd_r_chunks(lines_all)
+                else paste(lines_all, collapse = "\n")
+    if (!use_sel && is_doc && !nzchar(trimws(text))) {
+      showNotification(paste0("There are no R code chunks in ", name, " to grab. Select the lines you want and try again."),
+                       type = "warning", duration = 8)
+      return(invisible(NULL))
+    }
     if (!nzchar(trimws(text))) {
       showNotification(paste0("There is nothing to grab: ", if (use_sel) "the selection" else name, " is empty."),
                        type = "warning", duration = 6)
@@ -6743,7 +6781,8 @@ server <- function(input, output, session) {
     showModal(modalDialog(
       title = "Replace the code in the Code window?",
       tags$p("The current contents of the Code window will be replaced with ",
-             if (use_sel) "the lines you selected in " else "the contents of ", tags$strong(paste0(name, ":"))),
+             if (use_sel) "the lines you selected in " else if (is_doc) "the R code chunks of " else "the contents of ",
+             tags$strong(paste0(name, ":"))),
       tags$pre(style = "max-height: 220px; overflow: auto; font-size: 0.85em; white-space: pre; background: #f7f7f7;",
                paste0(paste(shown, collapse = "\n"), if (more) "\n[continues]" else "")),
       tags$p(em(paste0(length(lines), if (length(lines) == 1L) " line" else " lines", " in all.")),
@@ -7772,6 +7811,38 @@ server <- function(input, output, session) {
   # The log file this session carried on from when it was brought back (Pause, restore, Recent Session): named at the
   # top of the next log written, which holds the whole log so far. Only if that file still exists.
   log_continues <- reactiveVal(if (!is.null(ps)) ps$log_file else NULL)
+  # The packages (library()) the code in this session needed, kept with the session and attached again when it is brought
+  # back, so that code which relied on an earlier library() call still runs. Packages attached in R at any time during
+  # the session are included (cm_attached_pkgs(), in the order attached).
+  session_pkgs <- reactiveVal(if (!is.null(ps)) ps$packages %||% character(0) else character(0))
+  record_session_pkgs <- function() {
+    old <- isolate(session_pkgs()); new <- union(old, cm_attached_pkgs())
+    if (!identical(new, old)) session_pkgs(new)
+    invisible(NULL)
+  }
+  all_session_pkgs <- function() union(isolate(session_pkgs()), cm_attached_pkgs())
+  restore_session_packages <- function(pkgs) {
+    todo <- setdiff(pkgs, .packages())
+    if (length(todo) == 0L) return(invisible(NULL))
+    showNotification("Reloading the packages from your earlier session...", id = "cm_reload_pkgs", duration = NULL, type = "message")
+    loaded <- failed <- character(0)
+    for (pk in todo) {
+      ok <- tryCatch({ suppressPackageStartupMessages(suppressWarnings(library(pk, character.only = TRUE))); TRUE },
+                     error = function(e) FALSE)
+      if (ok) loaded <- c(loaded, pk) else failed <- c(failed, pk)
+    }
+    removeNotification("cm_reload_pkgs")
+    if (length(loaded))
+      showNotification(paste0("Reloaded the packages from your earlier session: ", paste(loaded, collapse = ", "), "."),
+                       type = "message", duration = 10)
+    if (length(failed))
+      showNotification(paste0("These packages from your earlier session are not installed, so code that needs them will not run ",
+                              "until they are: ", paste(failed, collapse = ", "), "."), type = "warning", duration = 15)
+    invisible(NULL)
+  }
+  observeEvent(run_history(), record_session_pkgs(), ignoreInit = TRUE)
+  if (!is.null(ps) && length(ps$packages))
+    session$onFlushed(function() restore_session_packages(ps$packages), once = TRUE)
   log_continues_name <- function() {
     f <- isolate(log_continues())
     if (!is.null(f) && file.exists(f)) f else NULL
@@ -10598,6 +10669,7 @@ server <- function(input, output, session) {
   session_state <- function() {
     capture_active_code()
     list(
+      packages             = all_session_pkgs(),
       log_file             = { lp <- isolate(log_path()); if (!is.null(lp) && file.exists(lp)) lp else isolate(log_continues()) },
       port                 = suppressWarnings(as.integer(isolate(session$clientData$url_port))),   # klaus() reuses it when resuming
       prompt               = isolate(input$prompt),
