@@ -1,6 +1,6 @@
-# klausmate — AI Assistant for Teaching R
+# Klausmate — AI Assistant for Teaching R
 
-**klausmate** is an R package that wraps a Shiny front-end around Claude AI, designed
+**Klausmate** is an R package that wraps a Shiny front-end around Claude AI, designed
 for students learning R. One function launches the full interface:
 
 ```r
@@ -8,7 +8,7 @@ library(klausmate)
 klaus()
 ```
 
-> **Renamed.** klausmate was called *classmate* up to version 0.5.143. If you have the old package,
+> **Renamed.** Klausmate was called *classmate* up to version 0.5.143. If you have the old package,
 > install the new one as below (a saved key and language setting are picked up automatically; key
 > files made for classmate still work) and, if you like, remove the old one with
 > `remove.packages("classmate")`.
@@ -95,14 +95,14 @@ Anthropic if a key is ever misused.
 
 ## Console helpers
 
-`whisper()` starts a console-only helper that watches for errors, warnings and messages and
+`klaus_watch()` starts a console-only helper that watches for errors, warnings and messages and
 explains them when you call `raisehand()` (or `rh()`); `ssshh()` switches it off.
 `klausmate_language("Welsh")` sets the language of the responses. `klausmate_reset()` removes
 the saved key and language setting.
 
 ## Scope and privacy
 
-klausmate is designed for R programming and data analysis. Prompts with no R angle are
+Klausmate is designed for R programming and data analysis. Prompts with no R angle are
 declined by Claude itself. Personal data should never be put in prompts or used with the
 app: see [`SECURITY.md`](SECURITY.md) for what is, and is not, sent to Claude, and
 [`DESIGN.md`](DESIGN.md) for how it works.

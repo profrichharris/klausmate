@@ -2,7 +2,7 @@
 % Please edit documentation in R/ask_claude.R
 \name{klausmate_language}
 \alias{klausmate_language}
-\title{Set the language klausmate responds in}
+\title{Set the language Klausmate responds in}
 \usage{
 klausmate_language(language)
 }
@@ -15,7 +15,7 @@ Invisible canonical language name, or invisible NULL on failure.
 }
 \description{
 Saves a language preference that is applied to all AI responses in both
-\code{klaus()} and \code{whisper()}. R code is always written in English;
+\code{klaus()} and \code{klaus_watch()}. R code is always written in English;
 only explanatory text (and optionally code comments) changes language.
 Call \code{klausmate_language("English")} to revert to British English.
 }

@@ -60,13 +60,13 @@ klausmate_pin_tries_left <- function() max(0L, KLAUSMATE_PIN_MAX_TRIES - klausma
 KLAUSMATE_PIN_LOCKED_MSG <- paste("Too many incorrect PINs. For security, Klausmate will not accept",
                                   "another attempt until R has been restarted.")
 
-# Console version, for whisper(): read a key file, asking for its PIN if it is sealed.
+# Console version, for klaus_watch(): read a key file, asking for its PIN if it is sealed.
 # `current_cfg` is the key already active on this computer, if any; the same key is not asked
 # for again. Returns the payload, or NULL (with a message) if it could not be unlocked.
 klausmate_unlock_key_file <- function(path, current_cfg = NULL) {
   x <- tryCatch(readRDS(path), error = function(e) NULL)
   switch(klausmate_key_kind(x),
-    invalid = { message("That file does not appear to be a valid klausmate key."); NULL },
+    invalid = { message("That file does not appear to be a valid Klausmate key."); NULL },
     legacy  = { message("That key file is from an older version of Klausmate and can no longer ",
                         "be used. Please ask your instructor for a new one."); NULL },
     sealed  = {

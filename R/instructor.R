@@ -1,4 +1,4 @@
-#' Create a klausmate key file for distribution to students
+#' Create a Klausmate key file for distribution to students
 #'
 #' Bundles an Anthropic API key together with per-student usage-limit settings
 #' into a single \code{.key} file that can be emailed to students. Students
@@ -31,6 +31,12 @@
 #'       do not give \code{final_expiry}, the default expiry is then 24 hours
 #'       after the start rather than 15 weeks
 #'   }
+#' @param final_expiry When the key stops working: a date (optionally with a time, e.g.
+#'   \code{"31/12/2026 17:00"}), or a period after the start date such as
+#'   \code{"24 hours"}, \code{"1 day"}, \code{"2 weeks"}, \code{"1 month"} or
+#'   \code{"2 years"} (also h, d, w, mo, y). A day is 24 hours, so \code{"1 day"} expires 24 hours
+#'   after the start. The shortest period is 1 hour: minutes and seconds are refused. Default 15
+#'   weeks from today (24 hours after the start if \code{reset_period} is \code{"none"}).
 #' @param valid_from When the key becomes usable: a date (optionally with a
 #'   time, e.g. \code{"31/12/2026 09:00"}) or a \code{POSIXct}. Default is now.
 #'   Dates typed at the prompt or passed as text are read in either
@@ -179,12 +185,17 @@ klausmate_make_key <- function(api_key           = NULL,
     once_only      <- identical(tolower(trimws(reset_period)), "none")
     default_expiry <- if (once_only) as.POSIXct(valid_from) + 24 * 60 * 60 else Sys.Date() + 7L * 15L
     default_str    <- klausmate_format_date(default_expiry, date_order)
-    message("Final expiry date, with an optional time HH:MM, as ", pattern, ".")
+    message("Final expiry: a date, with an optional time HH:MM, as ", pattern, ",")
+    message("or a period after the start, such as 24 hours, 1 day, 2 weeks, 1 month or 1 year (at least 1 hour).")
     if (once_only)
       message("The reset period is 'none', so the default expiry is 24 hours after the start.")
     repeat {
-      final_expiry <- ask(paste0("Final expiry date [press Enter to accept the default: ", default_str, "]: "),
+      final_expiry <- ask(paste0("Final expiry [press Enter to accept the default: ", default_str, "]: "),
                           default_expiry, function(ans) {
+        dur <- km_parse_duration(ans, valid_from)
+        if (identical(dur$kind, "short"))
+          return(list(ok = FALSE, msg = "The shortest period allowed is 1 hour."))
+        if (identical(dur$kind, "ok")) return(list(ok = TRUE, value = dur$value))
         parsed <- klausmate_parse_date(ans, date_order)
         if (is.na(parsed)) list(ok = FALSE, msg = paste0("'", ans, "' is not a date I can read. Enter it as ", pattern, ", with an optional time HH:MM."))
         else list(ok = TRUE, value = if (isTRUE(attr(parsed, "has_time"))) as.POSIXct(parsed) else as.Date(format(parsed)))
@@ -193,9 +204,11 @@ klausmate_make_key <- function(api_key           = NULL,
       message("The final expiry must be in the future and after the start date. Please try again.")
     }
   } else if (is.character(final_expiry)) {
-    parsed <- klausmate_parse_date(final_expiry, date_order)
+    dur <- km_parse_duration(final_expiry, valid_from)
+    if (identical(dur$kind, "short")) stop("The shortest final_expiry period allowed is 1 hour.", call. = FALSE)
+    parsed <- if (identical(dur$kind, "ok")) dur$value else klausmate_parse_date(final_expiry, date_order)
     if (is.na(parsed)) stop("Could not understand final_expiry: '", final_expiry, "'", call. = FALSE)
-    final_expiry <- if (isTRUE(attr(parsed, "has_time"))) as.POSIXct(parsed)
+    final_expiry <- if (identical(dur$kind, "ok") || isTRUE(attr(parsed, "has_time"))) as.POSIXct(parsed)
                     else as.Date(format(parsed))
   }
   if (!expiry_ok(final_expiry))
@@ -282,7 +295,7 @@ klausmate_make_key <- function(api_key           = NULL,
 }
 
 
-#' Show the current klausmate configuration
+#' Show the current Klausmate configuration
 #'
 #' Prints the active cost limit and reset period stored in the most recently
 #' loaded key file.
@@ -292,7 +305,7 @@ klausmate_make_key <- function(api_key           = NULL,
 klausmate_config_show <- function() {
   cfg_path <- klausmate_state_path("config")
 
-  cat("klausmate configuration\n")
+  cat("Klausmate configuration\n")
   if (file.exists(cfg_path)) {
     cfg <- tryCatch(readRDS(cfg_path), error = function(e) NULL)
     if (!is.null(cfg)) {

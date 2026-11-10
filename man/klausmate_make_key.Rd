@@ -2,7 +2,7 @@
 % Please edit documentation in R/instructor.R
 \name{klausmate_make_key}
 \alias{klausmate_make_key}
-\title{Create a klausmate key file for distribution to students}
+\title{Create a Klausmate key file for distribution to students}
 \usage{
 klausmate_make_key(
   api_key = NULL,
@@ -39,6 +39,13 @@ If omitted, you are prompted to confirm or change the default. Options:
     do not give \code{final_expiry}, the default expiry is then 24 hours
     after the start rather than 15 weeks
 }}
+
+\item{final_expiry}{When the key stops working: a date (optionally with a time, e.g.
+\code{"31/12/2026 17:00"}), or a period after the start date such as
+\code{"24 hours"}, \code{"1 day"}, \code{"2 weeks"}, \code{"1 month"} or
+\code{"2 years"} (also h, d, w, mo, y). A day is 24 hours, so \code{"1 day"} expires 24 hours
+after the start. The shortest period is 1 hour: minutes and seconds are refused. Default 15
+weeks from today (24 hours after the start if \code{reset_period} is \code{"none"}).}
 
 \item{valid_from}{When the key becomes usable: a date (optionally with a
 time, e.g. \code{"31/12/2026 09:00"}) or a \code{POSIXct}. Default is now.

@@ -63,6 +63,74 @@ project_root <- function() {
 }
 outputs_dir  <- function() file.path(project_root(), "outputs")
 pause_file   <- function() file.path(project_root(), "claude_assistant_pause.rds")
+
+# --- Recovery of a session that was not closed with Quit or Pause -------------------------------------
+# While the app runs, its state is saved (a few seconds after each change) to a hidden recovery file in the working
+# directory. Quit and Pause remove it. If it is still there at the next start, the session ended some other way
+# (browser tab closed, Escape in the console, the computer shut down) and the student is offered the session back.
+recovery_file     <- function() file.path(project_root(), ".klausmate_recovery.rds")
+RECOVERY_MAX_DAYS <- 7
+# Is another R process (not this one) still running? Unix only: on Windows pskill() would end the process, so
+# it is not called there (the answer is then "no").
+cm_pid_alive <- function(pid) {
+  if (!is.numeric(pid) || length(pid) != 1L || is.na(pid) || pid == Sys.getpid()) return(FALSE)
+  if (!identical(.Platform$OS.type, "unix")) return(FALSE)
+  isTRUE(tryCatch(tools::pskill(as.integer(pid), 0L), error = function(e) FALSE))
+}
+# The saved recovery record: list(saved, pid, state), or NULL if there is none, it is unreadable, older than
+# RECOVERY_MAX_DAYS (removed), or belongs to another R session that is still running (kept).
+read_recovery <- function() {
+  f <- recovery_file()
+  if (!file.exists(f)) return(NULL)
+  x <- tryCatch(readRDS(f), error = function(e) NULL)
+  if (!is.list(x) || !inherits(x$saved, "POSIXct") || !is.list(x$state)) { unlink(f); return(NULL) }
+  if (as.numeric(difftime(Sys.time(), x$saved, units = "days")) > RECOVERY_MAX_DAYS) { unlink(f); return(NULL) }
+  if (cm_pid_alive(x$pid)) return(NULL)
+  x
+}
+# "3 minutes ago", "about 2 hours ago", "yesterday", "4 days ago"
+cm_ago <- function(t) {
+  m <- as.numeric(difftime(Sys.time(), t, units = "mins"))
+  if (m < 1) "less than a minute ago"
+  else if (m < 60) { n <- round(m); paste0(n, if (n == 1) " minute ago" else " minutes ago") }
+  else if (m < 60 * 24) { n <- round(m / 60); paste0("about ", n, if (n == 1) " hour ago" else " hours ago") }
+  else { n <- round(m / 1440); if (n == 1) "yesterday" else paste0(n, " days ago") }
+}
+# Make a saved state fit what is available now: objects that are no longer in R and files that have gone are taken
+# out of the context, and plots that are no longer there are dropped from the past outputs. The code, prompts,
+# conversation and printed results are kept. `restore_note` lists what was dropped.
+cm_clean_state <- function(st) {
+  notes <- character(0)
+  objs <- st$selected_objects %||% character(0)
+  if (length(objs)) {
+    gone <- objs[!vapply(objs, function(x) exists(x, envir = .GlobalEnv, inherits = FALSE), logical(1))]
+    if (length(gone)) {
+      st$selected_objects <- setdiff(objs, gone)
+      notes <- c(notes, paste0("Not in R now, so removed from the context: ", paste(gone, collapse = ", "), "."))
+    }
+  }
+  fls <- st$selected_files %||% character(0)
+  if (length(fls)) {
+    gone <- fls[!file.exists(fls)]
+    if (length(gone)) {
+      st$selected_files <- setdiff(fls, gone)
+      notes <- c(notes, paste0("Files not found, so removed from the context: ", paste(basename(gone), collapse = ", "), "."))
+    }
+  }
+  dropped <- 0L
+  st$interactions <- lapply(st$interactions %||% list(), function(r) {
+    pl <- r$plots %||% character(0)
+    if (length(pl)) { keep <- file.exists(pl); dropped <<- dropped + sum(!keep); r$plots <- pl[keep] }
+    wd <- r$widgets %||% character(0)
+    if (length(wd)) { keep <- file.exists(file.path(tempdir(), wd)); dropped <<- dropped + sum(!keep); r$widgets <- wd[keep] }
+    r
+  })
+  if (dropped > 0L)
+    notes <- c(notes, paste0(dropped, if (dropped == 1L) " plot from an earlier run is" else " plots from earlier runs are",
+                             " no longer available. Run the code again to redraw ", if (dropped == 1L) "it." else "them."))
+  st$restore_note <- notes
+  st
+}
 dir.create(outputs_dir(), showWarnings = FALSE, recursive = TRUE)
 
 # If the project folder has disappeared (moved, deleted, drive unplugged), fall back to the nearest
@@ -3744,7 +3812,7 @@ fetch_key_from_web <- function(url) {
                    page, perl = TRUE))))
   links <- sub("^href=[\"']", "", links)
   if (length(links) == 0)
-    return(list(error = paste("No klausmate key was found at that address. It should",
+    return(list(error = paste("No Klausmate key was found at that address. It should",
                               "point to a .key file, or to a page that links to one.")))
   parts <- regmatches(url, regexec("^(https://[^/]+)(/.*)?$", url))[[1]]
   origin <- parts[2]
@@ -3767,7 +3835,7 @@ fetch_key_from_web <- function(url) {
   }
   if (length(keys) == 0)
     return(list(error = paste("Found .key links at that address, but none could be",
-                              "read as a valid klausmate key.")))
+                              "read as a valid Klausmate key.")))
   created <- vapply(keys, function(k)
     tryCatch(as.numeric(as.POSIXct(k$created)), error = function(e) NA_real_),
     numeric(1))
@@ -4473,7 +4541,7 @@ HELP_TEXTS <- list(
     "same workspace and project folder as the main app. The rest of the app is",
     "frozen while the Quick Console is open. Close it when you are done to return",
     "to the app. Typing q() or quit() will just close the Quick Console, not end",
-    "your R session, and Klausmate's own functions (klaus(), whisper() and so on)",
+    "your R session, and Klausmate's own functions (klaus(), klaus_watch() and so on)",
     "are not available there — run those from your main R console.",
     "Along the bottom of the Quick Console, Clear output wipes the displayed history;",
     "Clear Workspace removes every object from your R workspace — the equivalent of",
@@ -4648,7 +4716,12 @@ server <- function(input, output, session) {
 
   # Show a clean "session ended" page, then stop after 400 ms so the JS has
   # time to render before the WebSocket drops.
-  do_quit <- function() {
+  # recov$off stops the automatic saving of the recovery file; Quit (and Pause) also remove the file. Quitting from the
+  # "A message from Klaus" window or the set-up screen leaves an unanswered recovery file in place.
+  recov <- new.env(); recov$off <- FALSE; recov$offered <- FALSE
+  do_quit <- function(clear_recovery = TRUE) {
+    recov$off <- TRUE
+    if (clear_recovery) unlink(recovery_file())
     runjs("document.getElementById('session-ended-overlay').classList.add('visible');")
     later::later(function() stopApp(), delay = 0.4)
   }
@@ -4688,13 +4761,13 @@ server <- function(input, output, session) {
     showModal(modalDialog(
       title = "A message from Klaus",
       tags$p(
-        "klausmate uses Anthropic's Claude AI (operated by Anthropic, Inc., USA)",
+        "Klausmate uses Anthropic's Claude AI (operated by Anthropic, Inc., USA)",
         "to help you with your R code. Before continuing, please note:"
       ),
       tags$ul(
         tags$li(
           "Your prompts and any R code you write are sent to Anthropic's servers",
-          "for processing. klausmate is designed to minimise what is shared —",
+          "for processing. Klausmate is designed to minimise what is shared —",
           "only your questions, code, and variable names are transmitted;",
           "your actual data values are not. The one exception is the Answer button:",
           "to write its answer, Klausmate may run a short calculation on your data",
@@ -4707,10 +4780,10 @@ server <- function(input, output, session) {
         ),
         tags$li(
           tags$strong(style = "color: #8b0000;",
-            "Do not use klausmate with datasets that contain identifiable personal data.")
+            "Do not use Klausmate with datasets that contain identifiable personal data.")
         ),
         tags$li(
-          "Use of klausmate must comply with your university's policies on the",
+          "Use of Klausmate must comply with your university's policies on the",
           "use of AI tools in academic work. If you are unsure whether AI",
           "assistance is permitted for a particular assessment, check with your",
           "module leader before proceeding."
@@ -4729,8 +4802,8 @@ server <- function(input, output, session) {
     ))
   }
 
-  observeEvent(input$disclaimer_ok,   removeModal())
-  observeEvent(input$disclaimer_quit, { removeModal(); do_quit() })
+  observeEvent(input$disclaimer_ok,   { removeModal(); offer_restore() })
+  observeEvent(input$disclaimer_quit, { removeModal(); do_quit(clear_recovery = FALSE) })
 
   # --- App mode and usage state ----------------------------------------------
   # Restore student mode from the previously saved config (survives restarts).
@@ -4771,6 +4844,56 @@ server <- function(input, output, session) {
   if (.disclaimer_needed) {
     session$onFlushed(function() request_disclaimer(), once = TRUE)
   }
+
+  # --- Offer to restore a session that did not end with Quit or Pause -------------------------------
+  # Shown after "A message from Klaus" (or straight away if that has already been seen in this R session).
+  # Restore writes the saved state as a pause file and restarts the app, which then resumes exactly as after a Pause
+  # (klaus() starts the app again when the option klausmate.restart_app is set).
+  .recov <- if (!.resuming_pause) read_recovery() else NULL
+  recov$blocked <- file.exists(recovery_file()) && is.null(.recov) && !.resuming_pause &&
+    isTRUE(tryCatch(cm_pid_alive(readRDS(recovery_file())$pid), error = function(e) FALSE))   # another live R session owns it
+  offer_restore <- function() {
+    if (is.null(.recov) || recov$offered) return(invisible(NULL))
+    recov$offered <- TRUE
+    st    <- .recov$state
+    notes <- cm_clean_state(st)$restore_note
+    n     <- length(st$prompt_history %||% character(0))
+    showModal(modalDialog(
+      title = "Restore your previous session?",
+      tags$p(paste0("Klausmate did not close properly last time (it was last saved ", cm_ago(.recov$saved),
+                    if (n > 0) paste0("; ", n, if (n == 1) " prompt" else " prompts", " so far"), ").")),
+      tags$p("Restore brings back your prompts, code, results and conversation as they were. Start fresh discards them."),
+      if (length(notes) > 0) tagList(
+        tags$p("Some things are no longer available:"),
+        tags$ul(lapply(notes, tags$li))),
+      footer = tagList(
+        actionButton("recovery_restore", "Restore",     class = "btn-primary"),
+        actionButton("recovery_fresh",   "Start fresh")),
+      easyClose = FALSE))
+  }
+  if (!.disclaimer_needed && !.resuming_pause && !is.null(.recov) && !is.null(.saved_cfg))
+    session$onFlushed(function() offer_restore(), once = TRUE)
+  observeEvent(input$recovery_fresh, { removeModal(); unlink(recovery_file()) })
+  observeEvent(input$recovery_restore, {
+    removeModal()
+    rc <- read_recovery()
+    if (is.null(rc)) {
+      showNotification("The saved session could not be read, so it was not restored.", type = "error", duration = 8)
+      return(invisible(NULL))
+    }
+    st <- cm_clean_state(rc$state)
+    st$restored <- TRUE
+    st$port <- suppressWarnings(as.integer(isolate(session$clientData$url_port)))
+    ok <- tryCatch({ saveRDS(st, pause_file()); TRUE }, error = function(e) FALSE)
+    if (!ok) {
+      showNotification("Could not restore the saved session.", type = "error", duration = 8)
+      return(invisible(NULL))
+    }
+    unlink(recovery_file())
+    recov$off <- TRUE
+    options(klausmate.restart_app = TRUE)
+    stopApp()
+  })
 
   # On every fresh open (not a pause-resume) the data-protection notice is shown over the prompt box (see the
   # prompt_notice element in the UI) and Ask / Ask for Code stay frozen until the student presses Clear.
@@ -5015,7 +5138,7 @@ server <- function(input, output, session) {
     if (identical(kind, "invalid")) {
       showModal(modalDialog(
         title = "Invalid key file",
-        "This file does not appear to be a valid klausmate key file.",
+        "This file does not appear to be a valid Klausmate key file.",
         footer = modalButton("OK")
       ))
       return(invisible(NULL))
@@ -5114,7 +5237,7 @@ server <- function(input, output, session) {
     shinyjs::reset("key_file")
   })
 
-  observeEvent(input$quit_setup, do_quit())
+  observeEvent(input$quit_setup, do_quit(clear_recovery = FALSE))
 
   observeEvent(input$key_error_ok, removeModal())
 
@@ -7947,7 +8070,7 @@ server <- function(input, output, session) {
         tags$div(style = "align-self: end; margin-bottom: 15px;",
           actionButton("pref_lang_change", "Change", class = "btn-default btn-sm"))),
       tags$p(em(
-        "The language klausmate uses for explanations. R code is always written in English."
+        "The language Klausmate uses for explanations. R code is always written in English."
       )),
       hr(),
       tags$h5("Preferred approach for..."),
@@ -8239,6 +8362,13 @@ server <- function(input, output, session) {
   if (!is.null(ps)) {
     if (length(ps$selected_files)   > 0) selected_files(ps$selected_files)
     if (length(ps$selected_objects) > 0) selected_objects(ps$selected_objects)
+    if (isTRUE(ps$restored))
+      session$onFlushed(function() {
+        showNotification(
+          tagList(tags$p("Your previous session has been restored."),
+                  if (length(ps$restore_note)) tags$ul(lapply(ps$restore_note, tags$li))),
+          type = "message", duration = if (length(ps$restore_note)) NULL else 8)
+      }, once = TRUE)
     session$onFlushed(function() {
       updateTextAreaInput(session, "prompt",      value = ps$prompt      %||% "")
       updateAceEditor(session, "code_editor", value =ps$code_editor %||% "")
@@ -8465,7 +8595,7 @@ server <- function(input, output, session) {
                                  "Use Change Working Directory to choose a folder."),
                   is_error = TRUE, plot_path = NULL))
     # Temporarily shadow q/quit/stopApp/ask in globalenv to intercept them
-    .qc_klausmate_fns <- c("klaus", "whisper", "raisehand", "rh", "ssshh",
+    .qc_klausmate_fns <- c("klaus", "klaus_watch", "raisehand", "rh", "ssshh",
                            "klausmate_reset_key", "klausmate_reset", "klausmate_language",
                            "klausmate_make_key", "klausmate_config_show", "klausmate_update", "klausmate_browser")
     shadow <- c(
@@ -10263,10 +10393,10 @@ server <- function(input, output, session) {
   observeEvent(input$pause_app, show_pause_modal())
 
   # Pause is also offered directly by the Quick Console's install warning and timeout pop-ups
-  do_pause_app <- function() {
-    removeModal()
+  # Everything that is saved to resume a session (Pause) or to restore it (recovery file)
+  session_state <- function() {
     capture_active_code()
-    pause_state <- list(
+    list(
       port                 = suppressWarnings(as.integer(isolate(session$clientData$url_port))),   # klaus() reuses it when resuming
       prompt               = isolate(input$prompt),
       code_editor          = isolate(input$code_editor),
@@ -10311,6 +10441,11 @@ server <- function(input, output, session) {
       ask_mode             = ask_mode(),
       pkg_choices          = .cm$pkg_choices
     )
+  }
+  do_pause_app <- function() {
+    removeModal()
+    recov$off <- TRUE
+    pause_state <- session_state()
     if (length(full_log()) > 0) do_save_log()
     tryCatch(
       saveRDS(pause_state, pause_file()),
@@ -10318,8 +10453,28 @@ server <- function(input, output, session) {
         showNotification(paste("Could not save pause state:", conditionMessage(e)),
                          type = "error", duration = 8)
     )
+    unlink(recovery_file())
     stopApp()
   }
+
+  # Automatic saving of the recovery file, a few seconds after the last change (not while something is still being typed)
+  save_recovery <- function() {
+    if (recov$off || isTRUE(recov$blocked)) return(invisible(NULL))
+    isolate({
+      if (length(interactions()) == 0L && length(conversation_history()) == 0L && !nzchar(trimws(input$prompt %||% "")))
+        return(invisible(NULL))
+      tryCatch({
+        tmp <- paste0(recovery_file(), ".tmp")
+        saveRDS(list(saved = Sys.time(), pid = Sys.getpid(), state = session_state()), tmp)
+        file.rename(tmp, recovery_file())
+      }, error = function(e) invisible(NULL), warning = function(w) invisible(NULL))
+    })
+    invisible(NULL)
+  }
+  recov_changed <- shiny::debounce(reactive(list(
+    conversation_history(), run_history(), prompt_history(), answer_latest(), all_log_entries(), interactions(),
+    selected_files(), selected_objects(), ask_mode(), input$prompt, input$code_editor)), 4000)
+  observeEvent(recov_changed(), save_recovery(), ignoreInit = TRUE)
   # One observer per button: combining the inputs in one observeEvent(c(...)) loses the action-button
   # class, so the 0 an action button reports when it is first drawn would count as a click
   observeEvent(input$confirm_pause_app, do_pause_app())

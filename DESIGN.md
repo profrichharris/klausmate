@@ -1,12 +1,12 @@
-# klausmate — Design, Purpose and Architecture
+# Klausmate — Design, Purpose and Architecture
 
-This document provides a comprehensive account of what klausmate is, why it was built the way it was, and the thinking behind its key design decisions. It is intended to give a future developer or maintainer full context if the original development conversation is unavailable.
+This document provides a comprehensive account of what Klausmate is, why it was built the way it was, and the thinking behind its key design decisions. It is intended to give a future developer or maintainer full context if the original development conversation is unavailable.
 
 ---
 
-## What klausmate is
+## What Klausmate is
 
-klausmate is an R package that gives university students AI-assisted help with learning R, directly inside RStudio. It wraps Anthropic's Claude API in a purpose-built interface that keeps students focused on their own data and code, rather than having an unconstrained conversation with a general AI.
+Klausmate is an R package that gives university students AI-assisted help with learning R, directly inside RStudio. It wraps Anthropic's Claude API in a purpose-built interface that keeps students focused on their own data and code, rather than having an unconstrained conversation with a general AI.
 
 It is **not** a general-purpose AI chat client. It is a teaching tool, designed with the same care that you would apply to any piece of educational infrastructure: scoped, accountable, and ethically constrained.
 
@@ -32,13 +32,13 @@ The package is authored by Richard Harris (profrichharris@gmail.com) at a UK uni
 
 The klaus app is the primary interface for students doing structured practical work. It guides the AI towards code that works with their actual data, keeps a log of what they asked and what was generated, and enforces all the safeguards described below.
 
-### 2. whisper() — the lightweight console mode
+### 2. klaus_watch() — the lightweight console mode
 
-`whisper()` runs entirely in the background with no Shiny interface. Once called, it silently watches for R errors and records the last 30 commands the student typed. When something goes wrong, the student types `raisehand()` (or the shorthand `rh()`) and receives a plain-English explanation of what went wrong and how to fix it, printed directly to the R console.
+`klaus_watch()` runs entirely in the background with no Shiny interface. Once called, it silently watches for R errors and records the last 30 commands the student typed. When something goes wrong, the student types `raisehand()` (or the shorthand `rh()`) and receives a plain-English explanation of what went wrong and how to fix it, printed directly to the R console.
 
 This mode was designed for students who are working through exercises in the standard R console and do not need the full klaus interface. It is minimal, unobtrusive, and uses the cheaper Haiku model rather than Sonnet, since the explanations are short and the task is lower-stakes.
 
-`ssshh()` stops the whisper mode. `klausmate_reset_key()` clears the saved API key.
+`ssshh()` stops klaus_watch(). `klausmate_reset_key()` clears the saved API key.
 
 ---
 
@@ -46,12 +46,12 @@ This mode was designed for students who are working through exercises in the sta
 
 Students do not use their own Anthropic API keys. Instead, an instructor generates a `.key` file using `klausmate_make_key()`. This file encodes:
 
-- A rate-limited API key (the instructor's, used via klausmate's own API calls)
+- A rate-limited API key (the instructor's, used via Klausmate's own API calls)
 - A usage quota (maximum total spend per reset period, e.g. £2/week)
 - A `final_expiry` date (typically 15 weeks — the length of a university semester)
 - A mode flag: student, help, or non-student (instructor/developer)
 
-The key file is sealed with a 6-digit PIN chosen by the instructor (`R/key_pin.R`: bcrypt_pbkdf key derivation, AES-256-CBC, HMAC-SHA256; the PIN is not stored). Students load the key once (via the app's key prompt or by calling `whisper(key = "path/to/file.key")`) and enter the PIN once at that point; the unlocked key is then saved to the R config directory, so the PIN is not asked for again for that key. Ten wrong PINs lock further attempts until R is restarted (an R option). It is a deterrent, not strong security; the real safeguard is revoking the API key at Anthropic. It is saved persistently to the user's R config directory and shared between both modes — a key loaded in `klaus()` is immediately available to `whisper()` and vice versa.
+The key file is sealed with a 6-digit PIN chosen by the instructor (`R/key_pin.R`: bcrypt_pbkdf key derivation, AES-256-CBC, HMAC-SHA256; the PIN is not stored). Students load the key once (via the app's key prompt or by calling `klaus_watch(key = "path/to/file.key")`) and enter the PIN once at that point; the unlocked key is then saved to the R config directory, so the PIN is not asked for again for that key. Ten wrong PINs lock further attempts until R is restarted (an R option). It is a deterrent, not strong security; the real safeguard is revoking the API key at Anthropic. It is saved persistently to the user's R config directory and shared between both modes — a key loaded in `klaus()` is immediately available to `klaus_watch()` and vice versa.
 
 This design means:
 - Students never need an Anthropic account
@@ -80,11 +80,11 @@ The full `klaus()` app runs in Shiny for several reasons:
 
 ## System prompt design
 
-Every API call includes a carefully constructed system prompt built from a set of named rules. These rules are the core of what makes klausmate a teaching tool rather than a generic AI assistant. Current rules:
+Every API call includes a carefully constructed system prompt built from a set of named rules. These rules are the core of what makes Klausmate a teaching tool rather than a generic AI assistant. Current rules:
 
 **COLUMN NAME RULE** — when a file or object with a known schema is in the context, the AI must use exact column names from that schema. It must never guess, abbreviate, or invent variable names. This is the single most important rule for making generated code actually run on the student's data.
 
-**tmap v4 instruction** — klausmate is used heavily for spatial data work. tmap v4 introduced breaking changes from v3. Without this rule the AI frequently generates v3 syntax that fails silently.
+**tmap v4 instruction** — Klausmate is used heavily for spatial data work. tmap v4 introduced breaking changes from v3. Without this rule the AI frequently generates v3 syntax that fails silently.
 
 **tmap breaks instruction** — interval labels on classified maps must use unambiguous notation (`(0,10]` not `0-10`).
 
@@ -106,7 +106,7 @@ All sentinel responses (`OUT_OF_SCOPE`, `NEEDS_CLARIFICATION`, `DISCLOSURE_RISK`
 
 ## Data minimisation
 
-klausmate is designed so that as little personal data as possible leaves the student's machine.
+Klausmate is designed so that as little personal data as possible leaves the student's machine.
 
 **What is sent to the API:**
 - The student's typed prompt
@@ -132,9 +132,9 @@ klausmate is designed so that as little personal data as possible leaves the stu
 
 ## The preflight update system
 
-When `klaus()` or `whisper()` is called for the first time in an R session, `klausmate_preflight()` checks the GitHub releases API for a newer version. If one is found, it downloads and installs the tarball silently, then relaunches the appropriate function. This ensures students always run the latest version without any manual intervention.
+When `klaus()` or `klaus_watch()` is called for the first time in an R session, `klausmate_preflight()` checks the GitHub releases API for a newer version. If one is found, it downloads and installs the tarball silently, then relaunches the appropriate function. This ensures students always run the latest version without any manual intervention.
 
-A session guard (`options(klausmate.update_checked = TRUE)`) ensures the check runs at most once per R session, regardless of how many times `klaus()` or `whisper()` is called. If both are called in the same session, whichever runs first sets the flag and the second skips the check.
+A session guard (`options(klausmate.update_checked = TRUE)`) ensures the check runs at most once per R session, regardless of how many times `klaus()` or `klaus_watch()` is called. If both are called in the same session, whichever runs first sets the flag and the second skips the check.
 
 ---
 
@@ -209,7 +209,7 @@ When comment density changes, the current editor code is automatically rewritten
 
 - **Main app (klaus):** `claude-sonnet-5-5` — used for Ask for Code, Answer, Explain and Fix. An earlier Haiku (4.5) hallucinated non-existent tmap functions, so Sonnet is used for the main calls.
 - **Comment density rewrite, conversation titles, key validation:** `claude-haiku-5-5` — fast and very cheap, appropriate for small cosmetic or low-stakes tasks.
-- **whisper / raisehand:** `claude-haiku-5-5` — responses are short plain-English explanations; Haiku is adequate and roughly 20× cheaper per token than Sonnet.
+- **klaus_watch / raisehand:** `claude-haiku-5-5` — responses are short plain-English explanations; Haiku is adequate and roughly 20× cheaper per token than Sonnet.
 
 ---
 
@@ -237,9 +237,9 @@ NAMESPACE is managed by roxygen2. Never edit it manually — add or remove `@exp
 |------|---------|
 | `inst/app/app.R` | Entire Shiny UI and server logic (single file, ~4500 lines) |
 | `R/ask_claude.R` | `klaus()`, `klausmate_preflight()`, `klausmate_do_update()`, `%||%` |
-| `R/watch.R` | `whisper()`, `raisehand()`, `ssshh()`, `klausmate_reset_key()` and all supporting helpers |
+| `R/watch.R` | `klaus_watch()`, `raisehand()`, `ssshh()`, `klausmate_reset_key()` and all supporting helpers |
 | `R/instructor.R` | `klausmate_make_key()`, `klausmate_config_show()` |
-| `R/key_pin.R` | PIN sealing / opening of key files, wrong-PIN counter, console unlock for `whisper()` |
+| `R/key_pin.R` | PIN sealing / opening of key files, wrong-PIN counter, console unlock for `klaus_watch()` |
 | `DESCRIPTION` | Package metadata and version |
 | `NAMESPACE` | Generated by roxygen2 — do not edit manually |
 | `CLAUDE.md` | Persistent context file for Claude Code sessions |

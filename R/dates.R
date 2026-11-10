@@ -149,3 +149,32 @@ klausmate_not_yet_valid <- function(valid_from) {
   if (is.null(valid_from) || length(valid_from) == 0L || is.na(valid_from)) return(FALSE)
   Sys.time() < as.POSIXct(valid_from)
 }
+
+
+# A period of time typed instead of a date, e.g. "1 day", "2 days", "36 hours", "4 weeks", "1 month", "2 years"
+# (also h, d, w, mo, y; singular or plural). Returns list(kind, value): kind "ok" with `value` = `from` plus the period
+# (a day is 24 hours, a week 7 days, a month or year a calendar month or year); "short" for a period under one
+# hour (minutes and seconds are refused); "none" if `x` is not a period at all (so it can be read as a date).
+km_parse_duration <- function(x, from = Sys.time()) {
+  m <- regmatches(tolower(trimws(x)),
+                  regexec("^([0-9]+(?:\\.[0-9]+)?)\\s*(seconds?|secs?|s|minutes?|mins?|hours?|hrs?|h|days?|d|weeks?|wks?|w|months?|mos?|years?|yrs?|y)$",
+                          tolower(trimws(x)), perl = TRUE))[[1]]
+  if (length(m) < 3) return(list(kind = "none", value = NULL))
+  n    <- as.numeric(m[2])
+  unit <- m[3]
+  if (grepl("^(s|sec|min)", unit)) return(list(kind = "short", value = NULL))
+  from <- as.POSIXct(from)
+  value <- if (grepl("^(h)", unit)) from + n * 3600
+           else if (grepl("^d", unit)) from + n * 86400
+           else if (grepl("^w", unit)) from + n * 7 * 86400
+           else {
+             if (n != round(n)) return(list(kind = "none", value = NULL))
+             k <- if (grepl("^(mo)", unit)) n else 12 * n
+             lt <- as.POSIXlt(from); day <- lt$mday; lt$mday <- 1L; lt$mon <- lt$mon + k
+             first <- as.POSIXct(lt)                       # the 1st of the target month, same time of day
+             mlen  <- as.integer(format(seq(as.Date(first), by = "month", length.out = 2)[2] - 1, "%d"))
+             first + (min(day, mlen) - 1L) * 86400         # a 31st becomes the month's last day
+           }
+  if (is.na(value) || value < from + 3600 - 1e-6) return(list(kind = "short", value = NULL))
+  list(kind = "ok", value = value)
+}

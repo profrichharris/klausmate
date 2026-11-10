@@ -103,7 +103,7 @@ km_browser_launcher <- function(found = km_browser_find()) {
   function(url) km_browser_open(spec, url)
 }
 
-#' Choose the web browser klausmate opens in
+#' Choose the web browser Klausmate opens in
 #'
 #' By default \code{klaus()} opens in your computer's default web browser. Call
 #' \code{klausmate_browser()} to choose from the other browsers found on your

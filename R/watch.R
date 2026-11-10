@@ -1,5 +1,5 @@
 # ---------------------------------------------------------------------------
-# whisper() / raisehand() / ssshh() / klausmate_reset_key()
+# klaus_watch() / raisehand() / ssshh() / klausmate_reset_key()
 #
 # A lightweight background watcher that captures R errors and recent command
 # history, then explains them in plain English via Claude when the student
@@ -123,14 +123,14 @@
 # Calling handlers registered with globalCallingHandlers() see every warning (including the
 # "immediate" ones that install.packages() issues, which never reach .Last.warning) and every
 # message(), without changing what is printed. They only record; the task callback installed by
-# whisper() turns what was recorded during a command into last_warning / last_notice (and adds
+# klaus_watch() turns what was recorded during a command into last_warning / last_notice (and adds
 # it to last_error), once the command has finished.
 # ---------------------------------------------------------------------------
 
 .watch_record_condition <- function(type, cond) {
   if (!isTRUE(.watch_env$active)) return(invisible(NULL))
   txt <- trimws(paste(conditionMessage(cond), collapse = " "))
-  if (!nzchar(txt) || grepl("^\\[klausmate\\]|^klausmate", txt)) return(invisible(NULL))
+  if (!nzchar(txt) || grepl("^\\[klausmate\\]|^klausmate", txt, ignore.case = TRUE)) return(invisible(NULL))
   cl <- tryCatch(paste(deparse(conditionCall(cond))[1], collapse = ""), error = function(e) "")
   if (identical(cl, "NULL")) cl <- ""
   entry <- list(type = type, text = substr(txt, 1L, 1000L), call = substr(cl, 1L, 120L))
@@ -380,11 +380,11 @@
   }, error = function(e) {
     msg <- conditionMessage(e)
     friendly <- if (grepl("timed? ?out|timeout|time.?out", msg, ignore.case = TRUE))
-      "klausmate could not reach the AI — the request timed out. Please try again."
+      "Klausmate could not reach the AI — the request timed out. Please try again."
     else if (grepl("Could not resolve|network|connection", msg, ignore.case = TRUE))
-      "klausmate could not reach the AI — please check your internet connection and try again."
+      "Klausmate could not reach the AI — please check your internet connection and try again."
     else
-      "klausmate could not reach the AI. Please try again."
+      "Klausmate could not reach the AI. Please try again."
     list(text = friendly, cost = 0, failed = TRUE)
   })
   result
@@ -396,7 +396,7 @@
 
 .watch_prompt_for_key <- function() {
   message("")
-  message("No klausmate key found. Do you have:")
+  message("No Klausmate key found. Do you have:")
   message("  1. A key file (.key) provided by your instructor")
   message("  2. Your own Anthropic API key")
   message("")
@@ -435,10 +435,10 @@
 }
 
 # ---------------------------------------------------------------------------
-# whisper()
+# klaus_watch()
 # ---------------------------------------------------------------------------
 
-#' Start the klausmate whisper mode
+#' Start Klausmate's console helper
 #'
 #' Runs silently in the background. After any error, type \code{raisehand()}
 #' for a plain-English explanation. Use \code{ssshh()} to stop.
@@ -449,18 +449,18 @@
 #'   omit this argument.
 #' @return Invisible NULL (called for side effects).
 #' @export
-whisper <- function(key = NULL) {
+klaus_watch <- function(key = NULL) {
 
   if (.watch_env$active) {
-    message("klausmate whisper is already running. Use ssshh() to stop.")
+    message("klaus_watch() is already running. Use ssshh() to stop.")
     return(invisible(NULL))
   }
 
   # --- The package may have been reinstalled while this R session was running ---
-  if (klausmate_session_is_stale("whisper", list(key = key))) return(invisible(NULL))
+  if (klausmate_session_is_stale("klaus_watch", list(key = key))) return(invisible(NULL))
 
   # --- Preflight update check ------------------------------------------------
-  updated <- klausmate_preflight(relaunch = "whisper", args = list(key = key))
+  updated <- klausmate_preflight(relaunch = "klaus_watch", args = list(key = key))
   if (isTRUE(updated)) return(invisible(NULL))
 
   # --- Resolve API key -------------------------------------------------------
@@ -487,7 +487,7 @@ whisper <- function(key = NULL) {
     }
   }
 
-  # 2. Saved student key settings (written by klaus() or a prior whisper())
+  # 2. Saved student key settings (written by klaus() or a prior klaus_watch())
   if (is.null(api_key)) {
     cfg <- .watch_load_cfg()
     if (!is.null(cfg) && nzchar(cfg$api_key %||% ""))
@@ -510,12 +510,12 @@ whisper <- function(key = NULL) {
   quota <- .watch_quota(cfg)
   if (!is.null(quota)) {
     if (isTRUE(quota$not_yet)) {
-      message("Your klausmate key is not valid until ",
+      message("Your Klausmate key is not valid until ",
               klausmate_format_date(quota$valid_from, with_time = TRUE), ".")
       return(invisible(NULL))
     }
     if (quota$expired) {
-      message("Your klausmate key has expired. Please ask your instructor for a new one.")
+      message("Your Klausmate key has expired. Please ask your instructor for a new one.")
       return(invisible(NULL))
     }
     if (quota$over_limit) {
@@ -562,7 +562,7 @@ whisper <- function(key = NULL) {
               call      = wl[[1]]$call,
               notices   = pend[!is_w],
               cmd       = cmd, history = buf, workspace = ws, time = Sys.time())
-            message("  [klausmate] Type raisehand() or rh() for help with this warning.")
+            message("  [Klausmate] Type raisehand() or rh() for help with this warning.")
           } else {
             .watch_env$last_notice <- list(
               notices = pend, cmd = cmd, history = buf, workspace = ws, time = Sys.time())
@@ -592,7 +592,7 @@ whisper <- function(key = NULL) {
             ),
             time      = Sys.time()
           )
-          message("  [klausmate] Type raisehand() or rh() for help with this warning.")
+          message("  [Klausmate] Type raisehand() or rh() for help with this warning.")
         }
       }
     }
@@ -625,7 +625,7 @@ whisper <- function(key = NULL) {
       time      = Sys.time()
     )
 
-    message("  [klausmate] Type raisehand() or rh() for help with this error.")
+    message("  [Klausmate] Type raisehand() or rh() for help with this error.")
   })
 
   # Hook 3: see every warning and message (not just those kept in .Last.warning)
@@ -649,7 +649,7 @@ whisper <- function(key = NULL) {
   }, onexit = TRUE)
 
   .watch_env$active <- TRUE
-  message("klausmate whisper is running. Type raisehand() or rh() to have an error, warning or message explained, or ssshh() to stop.")
+  message("klaus_watch() is running. Type raisehand() or rh() to have an error, warning or message explained, or ssshh() to stop.")
   invisible(NULL)
 }
 
@@ -673,7 +673,7 @@ whisper <- function(key = NULL) {
 raisehand <- function() {
 
   if (!.watch_env$active) {
-    message("klausmate whisper is not running. Start with whisper().")
+    message("klaus_watch() is not running. Start with klaus_watch().")
     return(invisible(NULL))
   }
 
@@ -682,12 +682,12 @@ raisehand <- function() {
   quota <- .watch_quota(cfg)
   if (!is.null(quota)) {
     if (isTRUE(quota$not_yet)) {
-      message("Your klausmate key is not valid until ",
+      message("Your Klausmate key is not valid until ",
               klausmate_format_date(quota$valid_from, with_time = TRUE), ".")
       return(invisible(NULL))
     }
     if (quota$expired) {
-      message("Your klausmate key has expired. Please ask your instructor for a new one.")
+      message("Your Klausmate key has expired. Please ask your instructor for a new one.")
       return(invisible(NULL))
     }
     if (quota$over_limit) {
@@ -735,7 +735,7 @@ raisehand <- function() {
       "\n\nWorkspace:\n",
       .watch_format_workspace(n$workspace)
     )
-    message("klausmate is thinking...")
+    message("Klausmate is thinking...")
     result <- .watch_call_claude(prompt, .watch_env$api_key, mode = "message")
 
   } else if (use_warning) {
@@ -761,7 +761,7 @@ raisehand <- function() {
       .watch_format_workspace(w$workspace)
     )
 
-    message("klausmate is thinking...")
+    message("Klausmate is thinking...")
     result <- .watch_call_claude(prompt, .watch_env$api_key, mode = "warning")
 
   } else {
@@ -791,7 +791,7 @@ raisehand <- function() {
       .watch_format_workspace(e$workspace)
     )
 
-    message("klausmate is thinking...")
+    message("Klausmate is thinking...")
     result <- .watch_call_claude(prompt, .watch_env$api_key, mode = "error")
   }
 
@@ -810,7 +810,7 @@ raisehand <- function() {
         if (!is.null(quota2$limit_usd)) {
           remaining <- max(0, quota2$limit_usd - quota2$used_usd)
           cat(sprintf(
-            "[klausmate] $%.4f used this period · $%.4f remaining · resets %s\n\n",
+            "[Klausmate] $%.4f used this period · $%.4f remaining · resets %s\n\n",
             quota2$used_usd, remaining, quota2$reset_label
           ))
         }
@@ -828,13 +828,13 @@ raisehand <- function() {
 #' Stop watching for R errors
 #'
 #' Removes the error hook and command history callback installed by
-#' \code{whisper()}.
+#' \code{klaus_watch()}.
 #'
 #' @return Invisible NULL (called for side effects).
 #' @export
 ssshh <- function() {
   if (!.watch_env$active) {
-    message("klausmate whisper is not currently running.")
+    message("klaus_watch() is not currently running.")
     return(invisible(NULL))
   }
   options(error = .watch_env$original_error)
@@ -843,7 +843,7 @@ ssshh <- function() {
   .watch_env$handlers_on <- FALSE
   .watch_env$pending     <- list()
   .watch_env$last_notice <- NULL
-  # Remove rh() shortcut unless it existed before whisper() was called
+  # Remove rh() shortcut unless it existed before klaus_watch() was called
   if (!isTRUE(.watch_env$rh_existed))
     if (exists("rh", .GlobalEnv, inherits = FALSE)) rm(list = "rh", envir = .GlobalEnv)
   .watch_env$active           <- FALSE
@@ -854,7 +854,7 @@ ssshh <- function() {
   .watch_env$history_buffer   <- list()
   .watch_env$callback_id      <- NULL
   .watch_env$rh_existed       <- FALSE
-  message("klausmate has stopped watching.")
+  message("Klausmate has stopped watching.")
   invisible(NULL)
 }
 
@@ -866,11 +866,11 @@ ssshh <- function() {
 klausmate_paused <- function()
   file.exists(file.path(getOption(".klausmate_project_root", getwd()), "claude_assistant_pause.rds"))
 
-#' Clear the saved klausmate key
+#' Clear the saved Klausmate key
 #'
-#' Removes the key file saved by \code{whisper()} or \code{klaus()} and unsets
+#' Removes the key file saved by \code{klaus_watch()} or \code{klaus()} and unsets
 #' the \code{ANTHROPIC_API_KEY} environment variable. The next call to
-#' \code{whisper()} or \code{klaus()} will prompt for a new key.
+#' \code{klaus_watch()} or \code{klaus()} will prompt for a new key.
 #'
 #' This function will refuse to run while a paused \code{klaus()} session
 #' exists: open Klausmate and use \emph{Quit with Code Log} first.
@@ -906,7 +906,7 @@ klausmate_reset_key <- function() {
   if (!removed) message("No saved key found.")
 
   if (.watch_env$active)
-    message("Note: klausmate whisper is still running with the previous key until ssshh() is called.")
+    message("Note: klaus_watch() is still running with the previous key until ssshh() is called.")
 
   invisible(NULL)
 }
@@ -915,15 +915,15 @@ klausmate_reset_key <- function() {
 # klausmate_reset()
 # ---------------------------------------------------------------------------
 
-#' Reset klausmate to factory defaults
+#' Reset Klausmate to factory defaults
 #'
 #' Deletes the saved key (student key or API key), resets the response
 #' language to English and forgets the record of which R packages work, so
 #' that the next \code{klaus()} runs the first-time set-up again (checking, and
 #' if necessary installing, the packages Klausmate needs).
 #'
-#' This function will refuse to run while \code{whisper()} is active or while
-#' a paused \code{klaus()} session exists. Stop \code{whisper()} with
+#' This function will refuse to run while \code{klaus_watch()} is active or while
+#' a paused \code{klaus()} session exists. Stop \code{klaus_watch()} with
 #' \code{ssshh()} first, or resume the app and use \emph{Quit with Code Log}
 #' before resetting.
 #'
@@ -931,11 +931,11 @@ klausmate_reset_key <- function() {
 #' @export
 klausmate_reset <- function() {
 
-  # --- Refuse if whisper() is running ----------------------------------------
+  # --- Refuse if klaus_watch() is running ----------------------------------------
   if (.watch_env$active) {
     message(
-      "klausmate_reset() cannot run while whisper() is active.\n",
-      "Please call ssshh() to stop whisper first, then reset."
+      "klausmate_reset() cannot run while klaus_watch() is active.\n",
+      "Please call ssshh() to stop klaus_watch() first, then reset."
     )
     return(invisible(NULL))
   }
@@ -989,6 +989,6 @@ klausmate_reset <- function() {
     message("Package set-up record removed: it will be run again the next time klaus() starts.")
   }
 
-  message("klausmate has been reset.")
+  message("Klausmate has been reset.")
   invisible(NULL)
 }

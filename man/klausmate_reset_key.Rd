@@ -2,7 +2,7 @@
 % Please edit documentation in R/watch.R
 \name{klausmate_reset_key}
 \alias{klausmate_reset_key}
-\title{Clear the saved klausmate key}
+\title{Clear the saved Klausmate key}
 \usage{
 klausmate_reset_key()
 }
@@ -10,9 +10,9 @@ klausmate_reset_key()
 Invisible NULL (called for side effects).
 }
 \description{
-Removes the key file saved by \code{whisper()} or \code{klaus()} and unsets
+Removes the key file saved by \code{klaus_watch()} or \code{klaus()} and unsets
 the \code{ANTHROPIC_API_KEY} environment variable. The next call to
-\code{whisper()} or \code{klaus()} will prompt for a new key.
+\code{klaus_watch()} or \code{klaus()} will prompt for a new key.
 }
 \details{
 This function will refuse to run while a paused \code{klaus()} session

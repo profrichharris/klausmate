@@ -2,7 +2,7 @@
 % Please edit documentation in R/browser.R
 \name{klausmate_browser}
 \alias{klausmate_browser}
-\title{Choose the web browser klausmate opens in}
+\title{Choose the web browser Klausmate opens in}
 \usage{
 klausmate_browser(browser = NULL)
 }

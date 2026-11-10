@@ -20,9 +20,9 @@ KLAUSMATE_GITHUB_REPO <- "profrichharris/klausmate"
 #' }
 klaus <- function() {
 
-  # --- Stop whisper() if running — avoid conflicts with the app -------------
+  # --- Stop klaus_watch() if running — avoid conflicts with the app -------------
   if (.watch_env$active) {
-    message("Stopping klausmate whisper before launching the app...")
+    message("Stopping klaus_watch() before launching the app...")
     ssshh()
   }
 
@@ -51,9 +51,13 @@ klaus <- function() {
 
   app_dir <- system.file("app", package = "klausmate")
   if (!nzchar(app_dir)) {
-    stop("Could not locate the klausmate app directory. Try reinstalling the package.")
+    stop("Could not locate the Klausmate app directory. Try reinstalling the package.")
   }
 
+  options(klausmate.restart_app = FALSE)
+  # The app asks for a restart (klausmate.restart_app) when a session that did not end with Quit or Pause is
+  # restored: the saved state is written as a pause file and the app is started again, resuming as after a Pause.
+  repeat {
   # A paused session remembers the port it ran on. Starting on the same port lets the old (disconnected) browser
   # tab reconnect by itself and carry on; a new tab is opened only if no tab has connected a few seconds later.
   port <- klausmate_paused_port()
@@ -70,6 +74,9 @@ klaus <- function() {
   run_args <- list(appDir = app_dir, launch.browser = launch)
   if (!is.null(port)) run_args$port <- port
   suppressWarnings(suppressMessages(do.call(shiny::runApp, run_args)))
+  if (isTRUE(getOption("klausmate.restart_app"))) { options(klausmate.restart_app = FALSE); next }
+  break
+  }
 
   # runApp() restores the working directory it found. If the user changed it
   # inside Klausmate (Change Working Directory, or setwd() in the Quick Console),
@@ -204,7 +211,7 @@ klausmate_do_update <- function(latest_version, download_url, relaunch = "klaus"
     options(klausmate.failed_update_version = latest_version)
     message("Klausmate: version ", latest_version, " is available but could not be installed automatically",
             if (length(problems)) paste0(" (", substr(paste(unique(problems), collapse = "; "), 1, 300), ")"), ".\n",
-            "To update, restart R and, before loading klausmate, run:\n",
+            "To update, restart R and, before loading Klausmate, run:\n",
             "  remotes::install_github(\"", KLAUSMATE_GITHUB_REPO, "\")")
     FALSE
   }
@@ -220,7 +227,7 @@ klausmate_do_update <- function(latest_version, download_url, relaunch = "klaus"
   # Swap the new version in and carry on, with no restart of R needed
   if (klausmate_reload_and_relaunch(relaunch, args)) return(TRUE)
 
-  relaunch_call <- if (relaunch == "whisper") "whisper()" else "klaus()"
+  relaunch_call <- if (relaunch == "klaus_watch") "klaus_watch()" else "klaus()"
   message(
     "Klausmate has been updated to v", latest_version, ".\n",
     "Please restart R and then run ", relaunch_call, " to continue."
@@ -240,7 +247,7 @@ klausmate_force_lazy_objects <- function() {
 }
 
 # After a successful in-session update: unload the old copy, load the new one (re-attaching it if
-# it was attached) and start klaus()/whisper() again from it. TRUE if that worked; FALSE means the
+# it was attached) and start klaus()/klaus_watch() again from it. TRUE if that worked; FALSE means the
 # caller should ask for a restart of R instead.
 # TRUE if the files of the installed package are newer than the copy loaded in this R session (the
 # package was reinstalled or updated while R was running, so the loaded R code may not match the
@@ -267,7 +274,7 @@ klausmate_reload_and_relaunch <- function(relaunch = "klaus", args = list()) {
     TRUE
   }, error = function(e) FALSE)
   if (!ok) return(FALSE)
-  # Not inside tryCatch(): whisper() registers global calling handlers, which R only allows when
+  # Not inside tryCatch(): klaus_watch() registers global calling handlers, which R only allows when
   # no other handlers are on the stack.
   do.call(getExportedValue("klausmate", relaunch), args)
   TRUE
@@ -296,10 +303,10 @@ klausmate_reload_and_relaunch <- function(relaunch = "klaus", args = list()) {
 .klausmate_lang_path <- function()
   file.path(klausmate_user_dir("config"), "language.rds")
 
-#' Set the language klausmate responds in
+#' Set the language Klausmate responds in
 #'
 #' Saves a language preference that is applied to all AI responses in both
-#' \code{klaus()} and \code{whisper()}. R code is always written in English;
+#' \code{klaus()} and \code{klaus_watch()}. R code is always written in English;
 #' only explanatory text (and optionally code comments) changes language.
 #' Call \code{klausmate_language("English")} to revert to British English.
 #'
@@ -318,7 +325,7 @@ klausmate_language <- function(language) {
                    ignore.case = TRUE, value = TRUE, max.distance = 0.25)
   if (length(matches) == 0) {
     message(
-      "klausmate does not recognise '", lang, "' as a language.\n",
+      "Klausmate does not recognise '", lang, "' as a language.\n",
       "Examples of supported languages: Arabic, Chinese, Dutch, French, German, ",
       "Hindi, Italian, Japanese, Korean, Polish, Portuguese, Russian, Spanish, ",
       "Swahili, Turkish, Ukrainian, Welsh — and many more.\n",
@@ -335,11 +342,11 @@ klausmate_language <- function(language) {
   dir.create(config_dir, recursive = TRUE, showWarnings = FALSE)
   saveRDS(canonical, .klausmate_lang_path())
   if (tolower(canonical) == "english") {
-    message("klausmate will respond in British English.",
-            " Restart klaus() or whisper() to apply.")
+    message("Klausmate will respond in British English.",
+            " Restart klaus() or klaus_watch() to apply.")
   } else {
-    message("klausmate will respond in ", canonical, ".",
-            " Restart klaus() or whisper() to apply.")
+    message("Klausmate will respond in ", canonical, ".",
+            " Restart klaus() or klaus_watch() to apply.")
   }
   invisible(canonical)
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/watch.R
 \name{klausmate_reset}
 \alias{klausmate_reset}
-\title{Reset klausmate to factory defaults}
+\title{Reset Klausmate to factory defaults}
 \usage{
 klausmate_reset()
 }
@@ -16,8 +16,8 @@ that the next \code{klaus()} runs the first-time set-up again (checking, and
 if necessary installing, the packages Klausmate needs).
 }
 \details{
-This function will refuse to run while \code{whisper()} is active or while
-a paused \code{klaus()} session exists. Stop \code{whisper()} with
+This function will refuse to run while \code{klaus_watch()} is active or while
+a paused \code{klaus()} session exists. Stop \code{klaus_watch()} with
 \code{ssshh()} first, or resume the app and use \emph{Quit with Code Log}
 before resetting.
 }

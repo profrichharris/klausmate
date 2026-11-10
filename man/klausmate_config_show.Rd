@@ -2,7 +2,7 @@
 % Please edit documentation in R/instructor.R
 \name{klausmate_config_show}
 \alias{klausmate_config_show}
-\title{Show the current klausmate configuration}
+\title{Show the current Klausmate configuration}
 \usage{
 klausmate_config_show()
 }
