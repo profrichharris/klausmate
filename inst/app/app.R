@@ -765,6 +765,19 @@ consistency_rule <- function(level) {
     "the first one that comes to mind from the list of the most standard textbook solutions.")
 }
 
+# When the student's code is already in the editor (a loaded or grabbed script, or earlier code) and the request builds
+# on it, the code is amended, not rewritten. The reply still holds the whole code, because it replaces the editor's
+# text, and the Changes tab compares it with what was there.
+amend_rule <- paste(
+  "AMEND RULE: When the message includes the student's current code from their editor and the request refers to it or",
+  "builds on it (to change, fix, extend, tidy or add to it), amend that code: keep its structure, order, object names,",
+  "packages and comments, and change only what the request needs. Always return the complete revised code, not just the",
+  "changed lines, because it replaces the code in the editor. If the request is clearly a new, unrelated task, write new",
+  "code instead. Apply the student's preferences and the other rules (tmap version, package loading, basemaps, scope,",
+  "disclosure risk) to the lines you add or change; the other rules win over keeping existing code, and the",
+  "CONSISTENCY RULE applies to code you write, not to existing lines you are keeping. If you notice a genuine problem in",
+  "the existing code (an error, or a result that would mislead), correct it and say so in a short code comment.")
+
 build_system_prompt <- function(coding, plotting, mapping, img_format, img_quality, img_size,
                                 max_lines = 50, comment_density = "Minimal",
                                 loaded_pkgs = character(0),
@@ -784,6 +797,7 @@ build_system_prompt <- function(coding, plotting, mapping, img_format, img_quali
     tmap_breaks_instruction,
     basemap_rule,
     consistency_rule(consistency),
+    amend_rule,
     code_description_rule,
     code_only_rule,
     scope_rule,
@@ -2441,6 +2455,43 @@ parse_explain_response <- function(raw) {
 # and code as prose.)
 explanation_to_html <- function(text) answer_to_html(text)
 
+# --- Explanation tab: the explanations of the code in the editor -------------------
+# Every explanation of the code (or of a selection of it) is kept, with the code it explained. They belong to that code:
+# whatever puts different code into the editor (Ask for Code, Load Script, Grab Code, Clear Code, Fix, Past code...) hides
+# the tab, and putting the same code back (from Past code, say) brings its explanations back. An entry is a list(id, group,
+# ctx, code, subject, row, kind, level, text, more, ts); entries of the same group are explanations of the code as it was
+# edited from one version to the next.
+about_norm <- function(x) trimws(gsub("\r\n?", "\n", x %||% ""))
+# Share of the (non-blank) lines of `a` that are also lines of `b`
+about_overlap <- function(a, b) {
+  la <- trimws(strsplit(about_norm(a), "\n", fixed = TRUE)[[1]]); la <- la[nzchar(la)]
+  lb <- trimws(strsplit(about_norm(b), "\n", fixed = TRUE)[[1]])
+  if (length(la) == 0) return(0)
+  mean(la %in% lb)
+}
+# The group of explanations that belong to this code (the newest, if more than one), or NULL
+about_group_for <- function(code, entries) {
+  code <- about_norm(code)
+  if (!nzchar(code) || length(entries) == 0) return(NULL)
+  hit <- Filter(function(e) identical(about_norm(e$code), code), entries)
+  if (length(hit) == 0) return(NULL)
+  hit[[length(hit)]]$group
+}
+# The line that describes an entry in the Explanation tab: what was explained, and the level
+about_describe <- function(e) {
+  what <- if (identical(e$kind, "selection")) {
+    s <- gsub("\\s+", " ", trimws(e$subject %||% ""))
+    paste0("Selection: ", if (nchar(s) > 50) paste0(substr(s, 1, 47), "...") else s)
+  } else "Whole code"
+  what
+}
+# Is what an entry explained still in the editor as it was? (so that it can be highlighted)
+about_still_there <- function(e, editor_code) {
+  now <- about_norm(editor_code)
+  if (identical(e$kind, "selection")) nzchar(e$subject %||% "") && grepl(e$subject, now, fixed = TRUE)
+  else identical(about_norm(e$code), now)
+}
+
 # --- Usage tracking helpers --------------------------------------------------
 
 # USD per million tokens (platform pricing page): input, 5-minute cache write, cache read, output
@@ -2647,6 +2698,7 @@ ui <- fluidPage(
         if (!editor) return;
         editor.on('changeSelection', function() {
           var sel = editor.getSelectedText().trim();
+          Shiny.setInputValue('code_selection_row', editor.getSelectionRange().start.row);
           Shiny.setInputValue('code_selection', sel);
         });
       }, 500);
@@ -3119,6 +3171,15 @@ ui <- fluidPage(
     #inspect_float:has(.cm-float-head) { display: block; }
     #inspect_float.cm-closing { display: none !important; }
     #pastcode_float { top: 80px; left: 20px; width: min(640px, 92vw); }
+    #about_float { top: 8px; left: 20px; width: min(760px, 94vw); }
+    #about_float .cm-float-body { max-height: 300px; }
+    /* The code that an explanation is about, marked in the editor while the explanation is open */
+    .cm-about-hl { position: absolute; background: rgba(255, 224, 0, 0.55); z-index: 5; }
+    /* While an explanation is open the code cannot be changed: nothing that replaces it can be pressed */
+    body.cm-about-open #ask_code, body.cm-about-open #ask_plain, body.cm-about-open #fix_code,
+    body.cm-about-open #explain_code, body.cm-about-open #load_script, body.cm-about-open #grab_code,
+    body.cm-about-open #clear_code, body.cm-about-open #undo_code, body.cm-about-open #new_conversation {
+      pointer-events: none; opacity: 0.45; }
     .cm-float .cm-float-head { display: flex; align-items: center; justify-content: space-between; cursor: move;
       padding: 6px 10px; background: #eee; border-bottom: 1px solid #ccc; border-radius: 6px 6px 0 0; user-select: none; }
     .cm-float .cm-float-title { font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3143,6 +3204,13 @@ ui <- fluidPage(
                          onclick = "Shiny.setInputValue('pastcode_close', Math.random(), {priority: 'event'});", HTML("&times;"))),
     tags$div(class = "cm-float-body", uiOutput("past_code_float_ui")),
     tags$div(class = "cm-float-foot", actionButton("pastcode_close_btn", "Close"))),
+  tags$div(id = "about_float", class = "cm-float",
+    tags$div(class = "cm-float-head",
+             tags$span(class = "cm-float-title", "Explanation of this code"),
+             tags$button(type = "button", class = "cm-float-x", title = "Close",
+                         onclick = "Shiny.setInputValue('about_close', Math.random(), {priority: 'event'});", HTML("&times;"))),
+    tags$div(class = "cm-float-body", uiOutput("about_float_ui")),
+    tags$div(class = "cm-float-foot", actionButton("about_close_btn", "Close"))),
   tags$script(HTML("
     (function() {
       var drag = null;
@@ -3237,6 +3305,56 @@ ui <- fluidPage(
       }
       // The Past code panel first appears just above the row of tabs (Code, R output, Past code), so it does not cover them,
       // unless the student has already moved it
+      // The explanation window sits above the row of tabs, so that the Code tab and the code stay in view below it. While it is
+      // open the code is read-only and what the explanation is about is marked in yellow.
+      window.cmAboutMarker = null;
+      window.cmAboutUnmark = function() {
+        try {
+          var ed = ace.edit('code_editor');
+          if (window.cmAboutMarker !== null) ed.session.removeMarker(window.cmAboutMarker);
+          window.cmAboutMarker = null;
+          ed.setReadOnly(false);
+        } catch (x) {}
+      };
+      window.cmAboutFloat = function(msg) {
+        var p = document.getElementById('about_float'); if (!p) return;
+        if (!msg || !msg.show) {
+          p.style.display = 'none'; document.body.classList.remove('cm-about-open'); window.cmAboutUnmark(); return;
+        }
+        p.style.display = 'block'; document.body.classList.add('cm-about-open');
+        var t = document.getElementById('main_tabs'), r = t ? t.getBoundingClientRect() : null;
+        var body = p.querySelector('.cm-float-body');
+        if (p.getAttribute('data-moved') !== '1') {
+          p.style.left = (r ? Math.max(8, r.left) : 20) + 'px'; p.style.right = 'auto';
+          var room = r ? r.top - 16 : 0;
+          if (room >= 200) { p.style.top = 'auto'; p.style.bottom = (window.innerHeight - r.top + 8) + 'px'; }
+          else { p.style.bottom = 'auto'; p.style.top = '8px'; }
+          if (body) body.style.maxHeight = Math.max(110, Math.min(300, room - 95)) + 'px';
+        }
+        setTimeout(function() {
+          try {
+            var ed = ace.edit('code_editor'); ed.resize(true);
+            if (window.cmAboutMarker !== null) ed.session.removeMarker(window.cmAboutMarker);
+            window.cmAboutMarker = null; ed.setReadOnly(true);
+            if (!msg.mark) return;
+            var doc = ed.session.getDocument(), text = ed.getValue(), a, b;
+            if (msg.all) { a = 0; b = text.length; }
+            else {
+              var needle = msg.text || '', hits = [], i = text.indexOf(needle);
+              if (!needle) return;
+              while (i >= 0) { hits.push(i); i = text.indexOf(needle, i + 1); }
+              if (!hits.length) return;
+              var best = hits[0], bd = 1e9;
+              hits.forEach(function(h) { var d = Math.abs(doc.indexToPosition(h, 0).row - (msg.row || 0)); if (d < bd) { bd = d; best = h; } });
+              a = best; b = best + needle.length;
+            }
+            var p1 = doc.indexToPosition(a, 0), p2 = doc.indexToPosition(b, 0);
+            var Rg = ed.getSelectionRange().constructor;
+            window.cmAboutMarker = ed.session.addMarker(new Rg(p1.row, p1.column, p2.row, p2.column), 'cm-about-hl', 'text', false);
+            ed.scrollToLine(p1.row, true, true, function() {});
+          } catch (x) {}
+        }, 250);
+      };
       window.cmPlacePastFloat = function() {
         var p = document.getElementById('pastcode_float'); if (!p || p.getAttribute('data-moved') === '1') return;
         var t = document.getElementById('main_tabs'), r = t ? t.getBoundingClientRect() : null;
@@ -3629,6 +3747,11 @@ ui <- fluidPage(
             autoScrollEditorIntoView = TRUE, debounce = 100)
         )
       ),
+      tabPanel("Explanation",
+        tags$div(style = "margin-top: 8px; height: 220px; overflow-y: auto;",   # same height as the code editor
+          uiOutput("about_ui")
+        )
+      ),
       tabPanel("R output",
         tags$div(style = "margin-top: 8px; height: 220px; overflow-y: auto;",   # same height as the code editor
           uiOutput("console_output_ui")
@@ -3722,6 +3845,7 @@ ui <- fluidPage(
             });
             Shiny.addCustomMessageHandler('cm_highlight_prompt',
               function(msg) { setTimeout(function() { cmHighlight(msg); }, 150); });
+            Shiny.addCustomMessageHandler('cm_about_float', function(msg) { window.cmAboutFloat(msg); });
             Shiny.addCustomMessageHandler('cm_highlight_pastcode',
               function(msg) { pastCodeKey = (msg && msg.key) || ''; setTimeout(cmMarkPastCode, 100); });
           } else setTimeout(cmRegister, 200);
@@ -3738,7 +3862,7 @@ ui <- fluidPage(
           var undo = document.getElementById('undo_code_li');
           if (!ul || !undo || !ul.offsetWidth) return;
           var x = 0;
-          ['Code', 'Changes', 'R output', 'Past code'].forEach(function(t) {
+          ['Code', 'Changes', 'Explanation', 'R output', 'Past code'].forEach(function(t) {
             var m = document.createElement('li');
             m.style.cssText = 'position:absolute;visibility:hidden;float:none;';
             var a = document.createElement('a'); a.href = '#'; a.textContent = t; m.appendChild(a);
@@ -4524,6 +4648,10 @@ HELP_TEXTS <- list(
   pkg_choice_cancel = paste(
     "Cancel — Closes this question without asking for code; your prompt stays as it is."
   ),
+  about_close_btn = paste(
+    "Close — Closes the explanation window and takes you back to the Explanation tab. The code can be changed again once it",
+    "is closed."
+  ),
   pastcode_close_btn = paste(
     "Close — Closes the floating Past code window. It also closes when you press Answer, Ask for Code, Run,",
     "Pause or End Session."
@@ -4763,6 +4891,14 @@ HELP_TAB_TEXTS <- list(
     "Use the Code button next to any entry to reload that code into the editor and go to the Code tab; it also",
     "brings back the entry's R output, plots and warnings."
   ),
+  "Explanation" = paste(
+    "Explanation tab — Appears after you have used Explain on the code (or on part of it) and closed the explanation, and",
+    "keeps those explanations so you can read them again: one line for each, saying what was explained (the whole code",
+    "or a selection), the level and the time, with a View button. View opens the explanation, with its Tell me more",
+    "passages, in a window above the tabs while the code it is about is marked in yellow; the code cannot be changed until you",
+    "press Close. The explanations belong to the code in the Code tab: if Ask for Code, Load Script, Grab Code, Clear Code or Fix",
+    "puts different code there the tab goes, and it comes back if that code is brought back, for example from Past code."
+  ),
   "Answer" = paste(
     "Answer tab — Shows the plain-English answer to your last question asked with the Answer button.",
     "Open \"Show my working\" under the answer to see the code Klausmate ran and what it",
@@ -4816,6 +4952,10 @@ HELP_ID_PATTERNS <- list(
     "Output (Past code) — Like Code, but takes you straight to the R output tab, showing the R output, plots",
     "and warnings that this code produced, with the code itself back in the Code editor. It only appears for code",
     "whose run produced some output."
+  ),
+  "^about_view_" = paste(
+    "View (Explanation) — Opens this explanation in a window above the tabs. The part of the code it is about is marked in yellow",
+    "in the Code tab, and the code cannot be changed until you press Close, which returns you to the Explanation tab."
   ),
   "^recall_unconf_" = paste(
     "Code (Past code, unconfirmed) — Reloads this earlier code, which was generated or loaded but",
@@ -6604,6 +6744,7 @@ server <- function(input, output, session) {
     # Restore log entries so the notebook continues from where this conversation left off
     all_log_entries(recalled$log_entries %||% list())
     held_explain(NULL)
+    about_entries(list()); about_group(NULL)
     # Clear transient state
     hide_changes_tab()
     pending_log_entries(list())
@@ -7595,7 +7736,7 @@ server <- function(input, output, session) {
   answer_hist   <- reactiveVal(if (!is.null(ps)) (ps$answer_hist %||% list()) else list())
   # Placeholder -> real value, for the whole conversation (kept locally only)
   placeholder_map <- reactiveVal(if (!is.null(ps)) (ps$placeholder_map %||% character(0)) else character(0))
-  CODE_SIDE_TABS <- c("Code", "R output", "Past code", "Changes")
+  CODE_SIDE_TABS <- c("Code", "Explanation", "R output", "Past code", "Changes")
 
   prior_code_tab   <- reactiveVal("Code")     # the code-side tab showing before the Answer view
   prior_answer_tab <- reactiveVal("Answer")   # the answer tab showing before going back to the code view
@@ -8675,6 +8816,7 @@ server <- function(input, output, session) {
     pending_log_entries(list())
     all_log_entries(list())
     held_explain(NULL)
+    about_entries(list()); about_group(NULL)
     loaded_packages(character(0))
     last_extracted_code(""); script_origin(NULL)
     last_prompt_for_code("")
@@ -9801,10 +9943,10 @@ server <- function(input, output, session) {
   explain_n     <- 0L
   # `code` is the code in the editor when it is what is being explained (a selection, the whole code or the changes):
   # if it is not in the log yet, the explanation is held with it until it is.
-  new_explain_ctx <- function(kind, subject = "", code = "") {
+  new_explain_ctx <- function(kind, subject = "", code = "", row = 0L) {
     explain_n <<- explain_n + 1L
     code <- trimws(code %||% "")
-    explain_ctx(list(id = explain_n, kind = kind, subject = subject, code = code,
+    explain_ctx(list(id = explain_n, kind = kind, subject = subject, code = code, row = row,
                      held = nzchar(code) && !code_is_logged(code)))
   }
   # Is this code already in the log (because it was run)? If not, an explanation of it has to carry the code
@@ -9855,7 +9997,138 @@ server <- function(input, output, session) {
       list(prompt = "", code = "", description = "", source = "explanation", explain_id = ctx$id, kind = ctx$kind,
            subject = ctx$subject, level = if (ctx$kind %in% c("selection", "code", "output")) level else "",
            text = trimws(r$explanation), more = old$more %||% list(), ts = Sys.time()))
+    record_about(ctx, r$explanation, level)
   }, ignoreNULL = TRUE)
+
+  # --- Explanation tab ---------------------------------------------------------------
+  # Explanations of the code (or a selection of it) are kept with the code they explained. `about_group` is the group that
+  # belongs to the code in the editor now (NULL = none, so no Explanation tab); `about_view` is the entry open in the window.
+  about_entries <- reactiveVal(if (!is.null(ps)) (ps$about_entries %||% list()) else list())
+  about_group   <- reactiveVal(if (!is.null(ps)) about_group_for(ps$code_editor %||% "", ps$about_entries %||% list()) else NULL)
+  about_view    <- reactiveVal(NULL)
+  about_visible <- reactive({
+    g <- about_group()
+    if (is.null(g)) return(list())
+    es <- Filter(function(e) identical(e$group, g), about_entries())
+    es[order(-vapply(es, function(e) as.numeric(e$ts %||% 0), numeric(1)))]       # newest first
+  })
+  # Close the explanation window (and unlock the code). `back`: return to the Explanation tab
+  about_close_float <- function(back = FALSE) {
+    if (is.null(isolate(about_view()))) return(invisible(NULL))
+    about_view(NULL)
+    session$sendCustomMessage("cm_about_float", list(show = FALSE))
+    if (back) updateTabsetPanel(session, "main_tabs", selected = "Explanation")
+    invisible(NULL)
+  }
+  # Different code has been put into the editor by Klausmate: the explanations of the old code are hidden, unless this is
+  # code that has been explained before
+  about_code_replaced <- function(value) {
+    about_close_float()
+    about_group(about_group_for(value, isolate(about_entries())))
+  }
+  # Anything that puts code into the editor goes through here (this shadows shinyAce::updateAceEditor in this session)
+  updateAceEditor <- function(session, editorId, ...) {
+    if (identical(editorId, "code_editor")) {
+      v <- list(...)$value
+      if (!is.null(v)) about_code_replaced(v)
+    }
+    shinyAce::updateAceEditor(session, editorId, ...)
+  }
+  # Keep an explanation that has just been generated
+  record_about <- function(ctx, text, level) {
+    if (!isTRUE(ctx$kind %in% c("selection", "code")) || !nzchar(ctx$code %||% "")) return(invisible(NULL))
+    code <- about_norm(ctx$code); subject <- ctx$subject %||% ""
+    ents <- isolate(about_entries())
+    g <- isolate(about_group())
+    if (!is.null(g)) {         # the group goes on only if this is still (an edit of) the code it was about
+      grp <- Filter(function(e) identical(e$group, g), ents)
+      if (!any(vapply(grp, function(e) about_overlap(code, e$code) >= 0.5, logical(1)))) g <- NULL
+    }
+    if (is.null(g)) g <- about_group_for(code, ents)
+    if (is.null(g)) g <- max(c(0L, vapply(ents, function(e) as.integer(e$group), integer(1)))) + 1L
+    ents <- Filter(function(e) !(identical(about_norm(e$code), code) && identical(e$subject %||% "", subject) &&
+                                   identical(e$level, level)), ents)      # asked again at the same level: replaced
+    id <- max(c(0L, vapply(ents, function(e) as.integer(e$id), integer(1)))) + 1L
+    ents <- c(ents, list(list(id = id, group = g, ctx = ctx$id, code = code, subject = subject, row = ctx$row %||% 0L,
+                              kind = ctx$kind, level = level, text = trimws(text), more = list(), ts = Sys.time())))
+    about_entries(utils::tail(ents, 60L))
+    about_group(g)
+  }
+  # "Tell me more" adds to the explanation it was asked about
+  record_about_more <- function(passage, text) {
+    ctx <- isolate(explain_ctx()); level <- isolate(explain_level_at_last_gen()) %||% ""
+    ents <- isolate(about_entries())
+    hit <- which(vapply(ents, function(e) identical(e$ctx, ctx$id) && identical(e$level, level), logical(1)))
+    if (length(hit) == 0) return(invisible(NULL))
+    i <- hit[length(hit)]
+    ents[[i]]$more <- c(ents[[i]]$more %||% list(), list(list(passage = passage, text = trimws(text))))
+    about_entries(ents)
+  }
+  # The tab is there while there are explanations for the code in the editor (and the code side of the app is showing)
+  observe({
+    n <- length(about_visible()); answer_view <- identical(ask_mode(), "answer")
+    if (n > 0 && !answer_view) showTab("main_tabs", "Explanation", session = session)
+    else {
+      if (isTRUE(isolate(input$main_tabs) == "Explanation") && !answer_view)
+        updateTabsetPanel(session, "main_tabs", selected = "Code")
+      hideTab("main_tabs", "Explanation", session = session)
+    }
+  })
+  output$about_ui <- renderUI({
+    ents <- about_visible(); now <- about_norm(input$code_editor)
+    if (length(ents) == 0) return(tags$p(em("Nothing explained yet."), style = "color: #999; margin: 4px 0; font-size: 0.9em;"))
+    btn_style <- paste0("flex-shrink: 0; margin-left: 6px; padding: 1px 8px; font-size: 0.8em; background: white;",
+                        "border: 1px solid #bbb; border-radius: 3px; cursor: pointer; color: #555;")
+    tagList(
+      tags$p(style = "margin: 0 0 6px 0; font-size: 0.8em; color: #888;",
+             "Explanations of this code, newest first. Press View to read one with the code it is about marked."),
+      lapply(ents, function(e) {
+        changed <- !about_still_there(e, now)
+        tags$div(style = "display: flex; align-items: flex-start; border-bottom: 1px solid #eee; padding: 3px 0;",
+          tags$p(style = "margin: 0; flex: 1; font-size: 0.85em; color: #444; white-space: pre-wrap; word-break: break-word;",
+                 about_describe(e)),
+          tags$span(style = "flex-shrink: 0; margin: 2px 6px 0 6px; font-size: 0.72em; color: #888;",
+                    paste(c(if (nzchar(e$level %||% "")) e$level,
+                            format(e$ts, if (as.Date(e$ts) == Sys.Date()) "%H:%M" else "%d %b %H:%M"),
+                            if (length(e$more)) paste0("+", length(e$more), " more")), collapse = " · "),
+                    if (changed) tags$span(style = "color: #b36b00;", " · code changed since")),
+          tags$button("View", id = paste0("about_view_", e$id), style = btn_style,
+                      onclick = paste0("Shiny.setInputValue('about_open', ", as.integer(e$id), ", {priority: 'event'});")))
+      }))
+  })
+  observeEvent(input$about_open, {
+    e <- Filter(function(x) identical(as.integer(x$id), as.integer(input$about_open)), about_entries())
+    req(length(e) == 1); e <- e[[1]]
+    about_view(e$id)
+    goto_tab("Code")
+    now <- about_norm(isolate(input$code_editor))
+    session$sendCustomMessage("cm_about_float", list(
+      show = TRUE, mark = about_still_there(e, now), all = identical(e$kind, "code"),
+      text = e$subject %||% "", row = e$row %||% 0L))
+  })
+  observeEvent(input$about_close,     about_close_float(back = TRUE))
+  observeEvent(input$about_close_btn, about_close_float(back = TRUE))
+  # The window needs the Code tab: going to any other tab closes it
+  observeEvent(input$main_tabs, {
+    if (!is.null(about_view()) && !identical(input$main_tabs, "Code")) about_close_float()
+  }, ignoreInit = TRUE)
+  output$about_float_ui <- renderUI({
+    id <- about_view(); req(!is.null(id))
+    e <- Filter(function(x) identical(x$id, id), about_entries()); req(length(e) == 1); e <- e[[1]]
+    now <- about_norm(input$code_editor)
+    div(style = "line-height: 1.55;",
+      tags$p(style = "margin: 0 0 6px 0; font-size: 0.82em; color: #666;",
+             paste(c(about_describe(e), if (nzchar(e$level %||% "")) paste0(e$level, " level")), collapse = " · ")),
+      if (!about_still_there(e, now))
+        tags$p(style = "margin: 0 0 8px 0; font-size: 0.82em; color: #b36b00;",
+               "The code has changed since this was written, so the part it was about cannot be marked."),
+      HTML(explanation_to_html(e$text)),
+      lapply(e$more %||% list(), function(m)
+        div(style = "margin-top: 10px; padding-top: 6px; border-top: 1px solid #eee; font-size: 0.92em;",
+            tags$p(style = "margin: 0 0 4px 0; color: #666;", HTML(paste0("More on: <em>“", htmltools::htmlEscape(m$passage), "”</em>"))),
+            HTML(explanation_to_html(m$text)))))
+  })
+  outputOptions(output, "about_float_ui", suspendWhenHidden = FALSE)
   last_explain_level         <- reactiveVal("Intermediate")  # persists across modal opens
   tell_more_result           <- reactiveVal(NULL)
 
@@ -9921,6 +10194,7 @@ server <- function(input, output, session) {
       if (nzchar(trimws(api_result$text %||% ""))) {
         record_usage(api_result$cost_usd)
         tell_more_result(list(text = api_result$text))
+        record_about_more(sel_text, api_result$text)
         update_explanation_log(function(old) {
           if (is.null(old)) return(NULL)
           old$more <- c(old$more %||% list(), list(list(passage = sel_text, text = trimws(api_result$text))))
@@ -10119,7 +10393,7 @@ server <- function(input, output, session) {
     explain_level_at_last_gen(level)
     disable("explain_regenerate")
     new_explain_ctx(if (nzchar(sel)) "selection" else "code", if (nzchar(sel)) sel else "",
-                    isolate(input$code_editor))
+                    isolate(input$code_editor), row = suppressWarnings(as.integer(isolate(input$code_selection_row %||% 0L))))
     explain_result(list(loading = TRUE))
 
     showModal(modalDialog(
@@ -10702,6 +10976,7 @@ server <- function(input, output, session) {
       pending_log_entries  = pending_log_entries(),
       all_log_entries      = all_log_entries(),
       held_explain         = held_explain(),
+      about_entries        = about_entries(),
       last_extracted_code  = last_extracted_code(),
       last_prompt_for_code = last_prompt_for_code(),
       last_logged_code     = last_logged_code(),
