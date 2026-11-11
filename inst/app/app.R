@@ -2456,7 +2456,7 @@ parse_explain_response <- function(raw) {
 explanation_to_html <- function(text) answer_to_html(text)
 
 # --- Explanation tab: the explanations of the code in the editor -------------------
-# Every explanation of the code (or of a selection of it) is kept, with the code it explained. They belong to that code:
+# Every explanation of the code (of a selection of it, or of the changes made to it) is kept, with the code it explained. They belong to that code:
 # whatever puts different code into the editor (Ask for Code, Load Script, Grab Code, Clear Code, Fix, Past code...) hides
 # the tab, and putting the same code back (from Past code, say) brings its explanations back. An entry is a list(id, group,
 # ctx, code, subject, row, kind, level, text, more, ts); entries of the same group are explanations of the code as it was
@@ -2479,7 +2479,7 @@ about_group_for <- function(code, entries) {
 }
 # The line that describes an entry in the Explanation tab: what was explained, and the level
 about_describe <- function(e) {
-  what <- if (identical(e$kind, "selection")) {
+  what <- if (identical(e$kind, "changes")) "What changed" else if (identical(e$kind, "selection")) {
     s <- gsub("\\s+", " ", trimws(e$subject %||% ""))
     paste0("Selection: ", if (nchar(s) > 50) paste0(substr(s, 1, 47), "...") else s)
   } else "Whole code"
@@ -2489,7 +2489,7 @@ about_describe <- function(e) {
 about_still_there <- function(e, editor_code) {
   now <- about_norm(editor_code)
   if (identical(e$kind, "selection")) nzchar(e$subject %||% "") && grepl(e$subject, now, fixed = TRUE)
-  else identical(about_norm(e$code), now)
+  else identical(about_norm(e$code), now)      # whole code, or the changes (which are about the code as it is now)
 }
 
 # --- Usage tracking helpers --------------------------------------------------
@@ -3307,12 +3307,12 @@ ui <- fluidPage(
       // unless the student has already moved it
       // The explanation window sits above the row of tabs, so that the Code tab and the code stay in view below it. While it is
       // open the code is read-only and what the explanation is about is marked in yellow.
-      window.cmAboutMarker = null;
+      window.cmAboutMarkers = [];
       window.cmAboutUnmark = function() {
         try {
           var ed = ace.edit('code_editor');
-          if (window.cmAboutMarker !== null) ed.session.removeMarker(window.cmAboutMarker);
-          window.cmAboutMarker = null;
+          window.cmAboutMarkers.forEach(function(m) { ed.session.removeMarker(m); });
+          window.cmAboutMarkers = [];
           ed.setReadOnly(false);
         } catch (x) {}
       };
@@ -3334,10 +3334,16 @@ ui <- fluidPage(
         setTimeout(function() {
           try {
             var ed = ace.edit('code_editor'); ed.resize(true);
-            if (window.cmAboutMarker !== null) ed.session.removeMarker(window.cmAboutMarker);
-            window.cmAboutMarker = null; ed.setReadOnly(true);
+            window.cmAboutMarkers.forEach(function(m) { ed.session.removeMarker(m); });
+            window.cmAboutMarkers = []; ed.setReadOnly(true);
             if (!msg.mark) return;
             var doc = ed.session.getDocument(), text = ed.getValue(), a, b;
+            if (msg.lines && msg.lines.length) {          // the changed lines (0-based rows)
+              var Rl = ed.getSelectionRange().constructor, rows = [].concat(msg.lines);
+              rows.forEach(function(r) { window.cmAboutMarkers.push(ed.session.addMarker(new Rl(r, 0, r, 1), 'cm-about-hl', 'fullLine', false)); });
+              ed.scrollToLine(rows[0], true, true, function() {});
+              return;
+            }
             if (msg.all) { a = 0; b = text.length; }
             else {
               var needle = msg.text || '', hits = [], i = text.indexOf(needle);
@@ -3350,7 +3356,7 @@ ui <- fluidPage(
             }
             var p1 = doc.indexToPosition(a, 0), p2 = doc.indexToPosition(b, 0);
             var Rg = ed.getSelectionRange().constructor;
-            window.cmAboutMarker = ed.session.addMarker(new Rg(p1.row, p1.column, p2.row, p2.column), 'cm-about-hl', 'text', false);
+            window.cmAboutMarkers.push(ed.session.addMarker(new Rg(p1.row, p1.column, p2.row, p2.column), 'cm-about-hl', 'text', false));
             ed.scrollToLine(p1.row, true, true, function() {});
           } catch (x) {}
         }, 250);
@@ -4889,13 +4895,14 @@ HELP_TAB_TEXTS <- list(
     "Each entry is labelled with the description of the code, or with the name of the script file you loaded.",
     "Code you changed before running it is labelled with the original label and (edit 1), (edit 2) and so on.",
     "Use the Code button next to any entry to reload that code into the editor and go to the Code tab; it also",
-    "brings back the entry's R output, plots and warnings."
+    "brings back the entry's R output, plots and warnings. Below the list, Not run keeps the latest three pieces of code that were",
+    "replaced before they had been run (by recalling code, loading or grabbing a script, Clear Code...), so they can be brought back."
   ),
   "Explanation" = paste(
-    "Explanation tab — Appears after you have used Explain on the code (or on part of it) and closed the explanation, and",
-    "keeps those explanations so you can read them again: one line for each, saying what was explained (the whole code",
-    "or a selection), the level and the time, with a View button. View opens the explanation, with its Tell me more",
-    "passages, in a window above the tabs while the code it is about is marked in yellow; the code cannot be changed until you",
+    "Explanation tab — Appears after you have used Explain on the code (or on part of it, or on the Changes tab) and closed the explanation, and",
+    "keeps those explanations so you can read them again: one line for each, saying what was explained (the whole code,",
+    "a selection, or what changed), the level and the time, with a View button. View opens the explanation, with its Tell me more",
+    "passages, in a window above the tabs while the code it is about (for a change, the changed lines) is marked in yellow; the code cannot be changed until you",
     "press Close. The explanations belong to the code in the Code tab: if Ask for Code, Load Script, Grab Code, Clear Code or Fix",
     "puts different code there the tab goes, and it comes back if that code is brought back, for example from Past code."
   ),
@@ -4956,6 +4963,10 @@ HELP_ID_PATTERNS <- list(
   "^about_view_" = paste(
     "View (Explanation) — Opens this explanation in a window above the tabs. The part of the code it is about is marked in yellow",
     "in the Code tab, and the code cannot be changed until you press Close, which returns you to the Explanation tab."
+  ),
+  "^recall_held_" = paste(
+    "Code (Past code, not run) — Brings back code that was replaced before it had been run, from the Not run part of Past code",
+    "(the latest three are kept). The code now in the editor, if it has not been run, takes its place in that part, so nothing is lost."
   ),
   "^recall_unconf_" = paste(
     "Code (Past code, unconfirmed) — Reloads this earlier code, which was generated or loaded but",
@@ -6413,8 +6424,9 @@ server <- function(input, output, session) {
     # Keep original indices so button IDs match the observer's lookup
     keep_idx <- which(vapply(full_history, function(e) identical(e$source, "ask_code"), logical(1)))
     unconf   <- list()      # Past code lists only code that has been run successfully (no unconfirmed entries)
+    held_ui <- build_held_code_ui(suffix)
     if (length(keep_idx) == 0)
-      return(tags$p(em("No code blocks yet."), style = "color: #999; margin: 4px 0; font-size: 0.9em;"))
+      return(tagList(tags$p(em("No code blocks yet."), style = "color: #999; margin: 4px 0; font-size: 0.9em;"), held_ui))
 
     make_label <- function(entry) {
       # Prefer AI-generated description, then prompt, then first line of code
@@ -6476,8 +6488,47 @@ server <- function(input, output, session) {
         }
       )
     })
-    tagList(items)
+    tagList(items, held_ui)
 }
+  # The "Not run" part of Past code: code that was replaced before it had been run (see stash_unrun())
+  build_held_code_ui <- function(suffix = "") {
+    h <- held_code()
+    if (length(h) == 0) return(NULL)
+    label <- function(code) {
+      ls <- trimws(strsplit(about_norm(code), "\n", fixed = TRUE)[[1]])
+      first <- ls[nzchar(ls) & !grepl("^#", ls)][1]; if (is.na(first)) first <- ls[1]
+      first <- if (nchar(first) > 60) paste0(substr(first, 1, 57), "...") else first
+      paste0(first, if (length(ls) > 1) paste0("  (", length(ls), " lines)") else "")
+    }
+    btn_style <- paste0("flex-shrink: 0; margin-left: 6px; padding: 1px 6px; font-size: 0.75em; background: white;",
+                        "border: 1px solid #bbb; border-radius: 3px; cursor: pointer; color: #555;")
+    tagList(
+      tags$p(style = "margin: 10px 0 2px 0; font-size: 0.78em; color: #888;",
+             "Not run: code you replaced before it had been run (the latest three; it moves up to the list above once run)"),
+      lapply(h, function(e)
+        div(style = "display: flex; align-items: flex-start; border-bottom: 1px solid #eee; padding: 2px 0;",
+          tags$p(style = "margin: 0; flex: 1; font-size: 0.85em; color: #666; white-space: pre-wrap; word-break: break-word;", label(e$code)),
+          tags$span(style = "flex-shrink: 0; margin: 2px 6px 0 6px; font-size: 0.72em; color: #888;", "(not run)"),
+          tags$button("Code", id = paste0("recall_held_", e$uid, suffix), style = btn_style,
+                      onclick = paste0("Shiny.setInputValue('recall_held', ", as.integer(e$uid), ", {priority: 'event'});")))))
+  }
+  observeEvent(input$recall_held, {
+    close_expanded()
+    e <- Filter(function(x) identical(as.integer(x$uid), as.integer(input$recall_held)), held_code())
+    req(length(e) == 1); e <- e[[1]]
+    capture_active_code()
+    set_ask_mode("code"); hide_changes_tab()
+    updateAceEditor(session, "code_editor", value = e$code)       # the code it replaces is kept in its place
+    held_code(Filter(function(x) !identical(as.integer(x$uid), as.integer(e$uid)), held_code()))
+    console_output_rv(character(0)); warnings_rv(character(0)); plot_files_rv(character(0)); widget_files_rv(character(0))
+    last_run_code(NULL); last_run_failed(FALSE); last_error_msg("")
+    last_extracted_code(""); last_prompt_for_code(""); last_code_description("")
+    loaded_script_name(NULL); code_before_fix(NULL); diff_rv(NULL); active_code_id(NULL)
+    output$run_status <- renderUI(NULL)
+    goto_tab("Code")
+    open_past_float()
+    focus_code_editor()
+  }, ignoreInit = TRUE)
   output$past_code_ui       <- renderUI(build_past_code_ui())
   output$past_code_float_ui <- renderUI(build_past_code_ui("_f"))
 
@@ -6619,7 +6670,16 @@ server <- function(input, output, session) {
     u <- undo_state()
     !is.null(u) && identical(u$target, current_seq())
   })
+  # The editor holds a loaded or grabbed script (or has been cleared) in place of the code of the current interaction:
+  # Undo then goes back to that code first, and Redo returns to the script
+  undo_foreign <- reactive({
+    id <- active_code_id()
+    if (is.null(id) || identical(ask_mode(), "answer")) return(FALSE)
+    if (!any(vapply(interactions(), function(r) identical(r$seq, id) && identical(r$kind, "code"), logical(1)))) return(FALSE)
+    !is.null(loaded_script_name()) || !nzchar(trimws(input$code_editor %||% ""))
+  })
   can_undo    <- reactive({
+    if (isTRUE(undo_foreign())) return(TRUE)
     cur <- current_seq()
     if (is.null(cur)) return(FALSE)
     i <- match(cur, vapply(interactions(), function(r) as.integer(r$seq %||% 0L), integer(1)))
@@ -6650,10 +6710,32 @@ server <- function(input, output, session) {
       rec <- NULL
       for (r in isolate(interactions())) if (identical(r$seq, u$from)) { rec <- r; break }
       req(!is.null(rec))
+      if (!is.null(u$foreign)) {                       # back to the script (or the cleared editor)
+        capture_active_code()
+        updateAceEditor(session, "code_editor", value = u$foreign$code)
+        loaded_script_name(u$foreign$script); last_extracted_code(""); last_run_code(NULL)
+        held_code(Filter(function(e) !identical(about_norm(e$code), about_norm(u$foreign$code)), held_code()))
+        goto_tab("Code")
+        return(invisible(NULL))
+      }
       recall_interaction(rec)
       match_code_tab(rec, want_tab)
       for (k in names(u$prefs)) prefs[[k]] <- u$prefs[[k]]
       show_prompt_in_past(rec$prompt)
+      return(invisible(NULL))
+    }
+    if (isTRUE(isolate(undo_foreign()))) {             # the code that the script (or Clear Code) replaced comes first
+      from  <- isolate(current_seq())
+      state <- list(from = from, prompt = isolate(input$prompt) %||% "", tab = isolate(input$main_tabs), prefs = relevant_prefs(),
+                    foreign = list(code = isolate(input$code_editor) %||% "", script = isolate(loaded_script_name())))
+      rec <- NULL
+      for (r in isolate(interactions())) if (identical(r$seq, from)) { rec <- r; break }
+      req(!is.null(rec))
+      recall_prompt_entry(rec, rec$prompt %||% "", fill_prompt = FALSE)
+      match_code_tab(rec, want_tab)
+      show_prompt_in_past(rec$prompt)
+      state$target <- isolate(current_seq())
+      undo_state(state)
       return(invisible(NULL))
     }
     i <- undo_pos()
@@ -6765,6 +6847,7 @@ server <- function(input, output, session) {
       last_prompt_for_code(last_entry$prompt %||% "")     # the prompt behind the code now on view (Past prompts highlights it)
     } else
       updateAceEditor(session, "code_editor", value = "")
+    held_code(list())
     output$run_status <- renderUI(NULL)
     answer_latest(recalled$answer_latest)
     answer_hist(recalled$answer_hist %||% list())
@@ -6857,6 +6940,7 @@ server <- function(input, output, session) {
       ))
       return()
     }
+    capture_active_code()       # the code being replaced stays with its interaction (Undo goes back to it)
     loaded_script_name(fname)
     last_prompt_for_code("")    # a loaded script has no prompt behind it
     last_code_description("")   # and is described by its file name (loaded_script_name)
@@ -6937,6 +7021,7 @@ server <- function(input, output, session) {
     g <- grab_pending(); removeModal()
     req(g)
     grab_pending(NULL)
+    capture_active_code()       # the code being replaced stays with its interaction (Undo goes back to it)
     loaded_script_name(if (g$use_sel) paste0(g$name, " (selection)") else g$name)
     last_prompt_for_code("")
     last_code_description("")
@@ -7801,7 +7886,10 @@ server <- function(input, output, session) {
       if (length(i) == 0) return(invisible(NULL))
       r   <- recs[[i[1]]]
       cur <- input$main_tabs
-      r$editor_code   <- input$code_editor %||% ""
+      # A loaded or grabbed script (or an emptied editor) is not what this interaction's code became, so it is not kept
+      # with it (the script is held in "Not run" in Past code if it is replaced)
+      ed <- input$code_editor %||% ""
+      r$editor_code   <- if (nzchar(trimws(ed)) && is.null(loaded_script_name())) ed else (r$editor_code %||% r$code %||% "")
       # The run state belongs to this interaction only if the last run was of its code (as generated or
       # as now edited); otherwise it is left over from an earlier interaction and is not kept
       lr       <- last_run_code()
@@ -8832,6 +8920,7 @@ server <- function(input, output, session) {
     prompt_history(character(0))
     updateTextAreaInput(session, "prompt",      value = "")
     updateAceEditor(session, "code_editor", value = "")
+    held_code(list())
     output$run_status <- renderUI(NULL)
     disable("save_block")
   }
@@ -9943,10 +10032,10 @@ server <- function(input, output, session) {
   explain_n     <- 0L
   # `code` is the code in the editor when it is what is being explained (a selection, the whole code or the changes):
   # if it is not in the log yet, the explanation is held with it until it is.
-  new_explain_ctx <- function(kind, subject = "", code = "", row = 0L) {
+  new_explain_ctx <- function(kind, subject = "", code = "", row = 0L, lines = integer(0)) {
     explain_n <<- explain_n + 1L
     code <- trimws(code %||% "")
-    explain_ctx(list(id = explain_n, kind = kind, subject = subject, code = code, row = row,
+    explain_ctx(list(id = explain_n, kind = kind, subject = subject, code = code, row = row, lines = lines,
                      held = nzchar(code) && !code_is_logged(code)))
   }
   # Is this code already in the log (because it was run)? If not, an explanation of it has to carry the code
@@ -10030,13 +10119,41 @@ server <- function(input, output, session) {
   updateAceEditor <- function(session, editorId, ...) {
     if (identical(editorId, "code_editor")) {
       v <- list(...)$value
-      if (!is.null(v)) about_code_replaced(v)
+      if (!is.null(v)) { stash_unrun(v); about_code_replaced(v) }
     }
     shinyAce::updateAceEditor(session, editorId, ...)
   }
+  # --- Code that was replaced before it had been run ----------------------------------------------------
+  # Past code lists only code that has run. Code that is replaced without having been run (by recalling something, loading or
+  # grabbing a script, Clear Code, Ask for Code...) would be lost, so up to three such pieces are kept, newest first, in a
+  # separate "Not run" part of Past code, each with a Code button. Recalling one puts the code it replaces in its place.
+  HELD_MAX <- 3L
+  held_code <- reactiveVal(if (!is.null(ps)) (ps$held_code %||% list()) else list())
+  stash_unrun <- function(new_value) {
+    old <- isolate(input$code_editor) %||% ""
+    o <- about_norm(old)
+    if (!nzchar(o) || identical(o, about_norm(new_value))) return(invisible(NULL))
+    lr <- isolate(last_run_code())
+    if (!is.null(lr) && identical(about_norm(lr), o)) return(invisible(NULL))           # it has been run
+    if (any(vapply(isolate(run_history()), function(e)
+          identical(e$source, "ask_code") && identical(about_norm(e$code), o), logical(1)))) return(invisible(NULL))   # it is in Past code
+    cur <- isolate(held_code())
+    keep <- Filter(function(e) !identical(about_norm(e$code), o), cur)
+    uid  <- max(c(0L, vapply(cur, function(e) as.integer(e$uid), integer(1)))) + 1L
+    held_code(utils::head(c(list(list(uid = uid, code = old, ts = Sys.time())), keep), HELD_MAX))
+    invisible(NULL)
+  }
+  # Code that has now been run is in Past code, so it leaves the "Not run" part
+  observeEvent(run_history(), {
+    runs <- vapply(Filter(function(e) identical(e$source, "ask_code"), run_history()), function(e) about_norm(e$code), character(1))
+    cur <- held_code()
+    keep <- Filter(function(e) !(about_norm(e$code) %in% runs), cur)
+    if (length(keep) != length(cur)) held_code(keep)
+  }, ignoreInit = TRUE)
+
   # Keep an explanation that has just been generated
   record_about <- function(ctx, text, level) {
-    if (!isTRUE(ctx$kind %in% c("selection", "code")) || !nzchar(ctx$code %||% "")) return(invisible(NULL))
+    if (!isTRUE(ctx$kind %in% c("selection", "code", "changes")) || !nzchar(ctx$code %||% "")) return(invisible(NULL))
     code <- about_norm(ctx$code); subject <- ctx$subject %||% ""
     ents <- isolate(about_entries())
     g <- isolate(about_group())
@@ -10047,10 +10164,12 @@ server <- function(input, output, session) {
     if (is.null(g)) g <- about_group_for(code, ents)
     if (is.null(g)) g <- max(c(0L, vapply(ents, function(e) as.integer(e$group), integer(1)))) + 1L
     ents <- Filter(function(e) !(identical(about_norm(e$code), code) && identical(e$subject %||% "", subject) &&
-                                   identical(e$level, level)), ents)      # asked again at the same level: replaced
+                                   identical(e$level, if (identical(ctx$kind, "changes")) "" else level) &&
+                                   identical(e$kind, ctx$kind)), ents)      # asked again at the same level: replaced
     id <- max(c(0L, vapply(ents, function(e) as.integer(e$id), integer(1)))) + 1L
     ents <- c(ents, list(list(id = id, group = g, ctx = ctx$id, code = code, subject = subject, row = ctx$row %||% 0L,
-                              kind = ctx$kind, level = level, text = trimws(text), more = list(), ts = Sys.time())))
+                              kind = ctx$kind, level = if (identical(ctx$kind, "changes")) "" else level, lines = ctx$lines %||% integer(0),
+                              text = trimws(text), more = list(), ts = Sys.time())))
     about_entries(utils::tail(ents, 60L))
     about_group(g)
   }
@@ -10104,7 +10223,8 @@ server <- function(input, output, session) {
     now <- about_norm(isolate(input$code_editor))
     session$sendCustomMessage("cm_about_float", list(
       show = TRUE, mark = about_still_there(e, now), all = identical(e$kind, "code"),
-      text = e$subject %||% "", row = e$row %||% 0L))
+      text = e$subject %||% "", row = e$row %||% 0L,
+      lines = if (identical(e$kind, "changes")) as.list(as.integer(e$lines %||% integer(0)) - 1L) else list()))
   })
   observeEvent(input$about_close,     about_close_float(back = TRUE))
   observeEvent(input$about_close_btn, about_close_float(back = TRUE))
@@ -10347,7 +10467,7 @@ server <- function(input, output, session) {
         "```r\n", new_annotated, "\n```\n\n",
         "Please explain what was changed and why."
       )
-      new_explain_ctx("changes", "", isolate(input$code_editor))
+      new_explain_ctx("changes", "", isolate(input$code_editor), lines = as.integer(d$changed))
       explain_result(list(loading = TRUE))
       showModal(modalDialog(
         title     = "What changed?",
@@ -10977,6 +11097,7 @@ server <- function(input, output, session) {
       all_log_entries      = all_log_entries(),
       held_explain         = held_explain(),
       about_entries        = about_entries(),
+      held_code            = held_code(),
       last_extracted_code  = last_extracted_code(),
       last_prompt_for_code = last_prompt_for_code(),
       last_logged_code     = last_logged_code(),
