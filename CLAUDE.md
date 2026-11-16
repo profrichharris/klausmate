@@ -236,8 +236,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.48 (2026-11-11)  
-**Current version:** 0.6.48 (no unreleased changes)
+**Last released:** 0.6.49 (2026-11-16)  
+**Current version:** 0.6.49 (no unreleased changes)
+
+Released in 0.6.49 (no unreleased changes; app runs from a private copy of its folder):
+- **klaus() runs the app from a private copy of its folder** (user report: a traceback ending `setwd` printed in the console, thought to follow the Mac sleeping). Cause found by reproducing it: Shiny sets R's working directory to the app folder for as long as the app runs and, on every browser request, does `wasDir <- setwd(appDir); on.exit(setwd(wasDir))`. Reinstalling Klausmate (the "Update package" install, or `klausmate_update()`) replaces `.../library/klausmate/`, so the folder R is standing in is gone, `setwd()` returns NULL and the next request fails with that trace (the one after works). The project folder being unavailable (Dropbox after wake) is NOT the cause: R is in the app folder, not the project, while the app runs. `klaus()` now copies the installed `app/` folder (788K) to `tempdir()/klausmate_app` and runs `runApp()` from it (falls back to the installed folder if the copy fails), so a reinstall cannot touch it. Tested: with the old code, reinstalling into the library while the app ran gave one HTTP 500 and the `64: setwd` trace; with the copy, three requests after a reinstall all returned 200, and the page loaded its images and ran code. Side effect: the running app is no longer re-read from disk when the package is reinstalled (the stale-session guard still applies to the R functions).
 
 Released in 0.6.48 (no unreleased changes; Changes explanations in the Explanation tab, Not run section in Past code, Undo to replaced code):
 - **Undo goes back to the code a loaded script or Clear Code replaced** (user request): `undo_foreign()` is TRUE when the editor holds a loaded/grabbed script (`loaded_script_name()` set) or is empty while the current interaction is a code one. Undo then recalls that interaction's code first (state keeps `foreign` = the script text and name) and Redo puts the script back (the entry also leaves "Not run"). Load Script and Grab Code call `capture_active_code()` before replacing the editor, so edits made to the generated code are kept with its interaction. Tested live in a scratch copy (stubbed Ask for Code, test hook for Load Script): edited code, script load, Undo gave the edited code, Redo the script, Undo again the edited code; Clear Code then Undo gave the code and Redo the empty editor. Not tested with the real Load Script / Grab Code dialogs.

@@ -54,6 +54,18 @@ klaus <- function() {
     stop("Could not locate the Klausmate app directory. Try reinstalling the package.")
   }
 
+  # Run the app from a private copy of its folder. Shiny works inside the app's folder (R is moved into it while the
+  # app runs), so if Klausmate is reinstalled or updated while the app is open, that folder is replaced and the next
+  # browser request fails at setwd() (a trace ending "setwd" appears in the console, and the page may fail to load).
+  # The copy is not touched by a reinstall, and it keeps the app and the package code it runs on from getting out of step.
+  run_dir <- file.path(tempdir(), "klausmate_app")
+  copied  <- tryCatch({
+    unlink(run_dir, recursive = TRUE)
+    dir.create(run_dir, recursive = TRUE)
+    all(file.copy(list.files(app_dir, full.names = TRUE, all.files = FALSE), run_dir, recursive = TRUE))
+  }, error = function(e) FALSE)
+  if (copied) app_dir <- run_dir
+
   options(klausmate.restart_app = FALSE)
   # The app asks for a restart (klausmate.restart_app) when a session that did not end with End Session or Pause is
   # restored: the saved state is written as a pause file and the app is started again, resuming as after a Pause.
