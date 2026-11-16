@@ -2714,12 +2714,19 @@ ui <- fluidPage(
         while (node) {
           if (node.id === 'explain_text_ui') {
             Shiny.setInputValue('explain_selection', text, {priority: 'event'});
+            Shiny.setInputValue('about_selection', '', {priority: 'event'});
+            return;
+          }
+          if (node.id === 'about_float_ui') {
+            Shiny.setInputValue('about_selection', text, {priority: 'event'});
+            Shiny.setInputValue('explain_selection', '', {priority: 'event'});
             return;
           }
           node = node.parentElement;
         }
       }
       Shiny.setInputValue('explain_selection', '', {priority: 'event'});
+      Shiny.setInputValue('about_selection', '', {priority: 'event'});
     });
 
     // R expression completeness check for Quick Console smart-Enter
@@ -3210,7 +3217,9 @@ ui <- fluidPage(
              tags$button(type = "button", class = "cm-float-x", title = "Close",
                          onclick = "Shiny.setInputValue('about_close', Math.random(), {priority: 'event'});", HTML("&times;"))),
     tags$div(class = "cm-float-body", uiOutput("about_float_ui")),
-    tags$div(class = "cm-float-foot", actionButton("about_close_btn", "Close"))),
+    tags$div(class = "cm-float-foot", style = "display: flex; justify-content: space-between; align-items: center;",
+             shinyjs::disabled(actionButton("about_tell_more", "Tell me more")),
+             actionButton("about_close_btn", "Close"))),
   tags$script(HTML("
     (function() {
       var drag = null;
@@ -3696,8 +3705,8 @@ ui <- fluidPage(
         function place() {
           var a = document.getElementById('prompt_tabs'), la = document.getElementById('undo_prompt_li');
           var b = document.getElementById('main_tabs'),   lb = document.getElementById('undo_code_li');
-          if (a && la) a.appendChild(la);
-          if (b && lb) b.appendChild(lb);
+          if (a && la) a.insertBefore(la, a.firstChild);   // left of the first tab
+          if (b && lb) b.insertBefore(lb, b.firstChild);
         }
         $(place);
       })();
@@ -3734,7 +3743,9 @@ ui <- fluidPage(
       .cm-prompt-echo .cm-echo-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
       .cm-prompt-echo .cm-echo-lbl, .cm-prompt-echo .cm-echo-edited { flex-shrink: 0; }
       .cm-prompt-echo .cm-echo-edited { color: #b36b00; }
-      .cm-undo-li { float: left; list-style: none; margin: 11px 0 0 8px; }
+      .cm-undo-li { float: left; list-style: none; margin: 11px 10px 0 2px; }
+      /* invisible (but keeping its place, so the tabs do not move) until there is something to undo or redo */
+      .cm-undo-btn[disabled], .cm-undo-btn.disabled { visibility: hidden; }
       .cm-undo-btn { line-height: 1; padding: 1px 5px; border-radius: 3px; }
       .cm-undo-btn svg { width: 11px; height: 11px; vertical-align: -1px; fill: none; stroke: currentColor;
                          stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -3862,12 +3873,13 @@ ui <- fluidPage(
           if (window.Shiny) Shiny.setInputValue('mode_switch_clicked', cb.checked ? 'answer' : 'code', {priority: 'event'});
         });
         paint();
-        // Undo / Redo and the Code / Answer switch sit where they would if all four code tabs (Code, Changes,
-        // R output, Past code) were showing, so they do not shift as tabs come and go
+        // Undo / Redo sit at the left of the tab bar. The Code / Answer switch sits where it would if all the code tabs
+        // were showing, so it does not shift as tabs come and go
         function cmFixSwitchPos() {
           var undo = document.getElementById('undo_code_li');
           if (!ul || !undo || !ul.offsetWidth) return;
-          var x = 0;
+          var x = undo.offsetWidth + (parseFloat(getComputedStyle(undo).marginLeft) || 0) +
+                  (parseFloat(getComputedStyle(undo).marginRight) || 0);
           ['Code', 'Changes', 'Explanation', 'R output', 'Past code'].forEach(function(t) {
             var m = document.createElement('li');
             m.style.cssText = 'position:absolute;visibility:hidden;float:none;';
@@ -3876,8 +3888,7 @@ ui <- fluidPage(
             x += a.offsetWidth + (parseFloat(getComputedStyle(a).marginRight) || 0);
             ul.removeChild(m);
           });
-          undo.style.left = x + 'px';
-          if (li) li.style.left = (x + undo.offsetWidth + (parseFloat(getComputedStyle(undo).marginLeft) || 0)) + 'px';
+          if (li) li.style.left = x + 'px';
         }
         $(cmFixSwitchPos);
         window.addEventListener('load', cmFixSwitchPos);
@@ -3912,7 +3923,7 @@ ui <- fluidPage(
     ")),
     tags$style(HTML("
       #main_tabs { position: relative; }
-      #main_tabs .cm-undo-li, #main_tabs .cm-switch-li { position: absolute; top: 0; }
+      #main_tabs .cm-switch-li { position: absolute; top: 0; }
       #main_tabs .cm-switch-li { float: left; margin: 0 0 0 16px; padding-top: 11px; font-size: 0.85em; color: #333; white-space: nowrap; }
       #main_tabs .cm-switch-li > * { vertical-align: middle; }
       .cm-switch-lbl { display: inline-block; margin: 0 6px; }
@@ -4653,6 +4664,11 @@ HELP_TEXTS <- list(
   ),
   pkg_choice_cancel = paste(
     "Cancel — Closes this question without asking for code; your prompt stays as it is."
+  ),
+  about_tell_more = paste(
+    "Tell Me More — Highlight a passage of the explanation, then press this to have the AI go a little deeper into just",
+    "that passage, at the same level as the explanation (the level cannot be changed here). The extra explanation is",
+    "added under the explanation, kept in the Explanation tab and recorded in your code log."
   ),
   about_close_btn = paste(
     "Close — Closes the explanation window and takes you back to the Explanation tab. The code can be changed again once it",
@@ -10272,8 +10288,27 @@ server <- function(input, output, session) {
   observeEvent(input$tell_more, {
     sel_text <- trimws(input$explain_selection %||% "")
     req(nzchar(sel_text))
-    level    <- last_explain_level()
-    full_exp <- explain_result()$explanation %||% ""
+    do_tell_more(sel_text, explain_result()$explanation %||% "", last_explain_level())
+  })
+
+  # Enable Tell me more in the Explanation window only when text is selected in it
+  observe({
+    if (nzchar(trimws(input$about_selection %||% ""))) enable("about_tell_more") else disable("about_tell_more")
+  })
+  # Tell me more from a recalled explanation: the level stays that of the explanation, and the new passage is
+  # added to that entry (and to its place in the code log). explain_ctx is pointed at the entry so that
+  # record_about_more() and update_explanation_log() find it.
+  observeEvent(input$about_tell_more, {
+    sel_text <- trimws(input$about_selection %||% ""); req(nzchar(sel_text))
+    id <- about_view(); req(!is.null(id))
+    e <- Filter(function(x) identical(x$id, id), about_entries()); req(length(e) == 1); e <- e[[1]]
+    explain_ctx(list(id = e$ctx, kind = e$kind, subject = e$subject %||% "", code = e$code %||% "",
+                     row = e$row %||% 0L, lines = e$lines %||% integer(0), held = FALSE))
+    explain_level_at_last_gen(e$level %||% "")
+    do_tell_more(sel_text, e$text, if (nzchar(e$level %||% "")) e$level else "Intermediate")
+  })
+
+  do_tell_more <- function(sel_text, full_exp, level) {
     tell_more_result(list(loading = TRUE))
     shinyjs::runjs(paste0(
       "document.getElementById('tell_more_content').innerHTML=",
@@ -10324,7 +10359,7 @@ server <- function(input, output, session) {
         tell_more_result(list(text = "Could not generate additional detail. Please try again."))
       }
     })
-  })
+  }
 
   # Clear tell_more state when explanation modal closes
   observeEvent(input$explain_close, {
