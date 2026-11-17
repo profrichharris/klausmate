@@ -3232,6 +3232,57 @@ ui <- fluidPage(
                          onclick = "Shiny.setInputValue('pastcode_close', Math.random(), {priority: 'event'});", HTML("&times;"))),
     tags$div(class = "cm-float-body", uiOutput("past_code_float_ui")),
     tags$div(class = "cm-float-foot", actionButton("pastcode_close_btn", "Close"))),
+  tags$div(id = "answer_float", class = "cm-float",
+    tags$div(class = "cm-float-head",
+             tags$span(class = "cm-float-title", "Answer"),
+             tags$button(type = "button", class = "cm-float-x", title = "Close (click outside the window to close it too)",
+                         onclick = "window.cmAnswerFloat(false);", HTML("&times;"))),
+    tags$div(class = "cm-float-body", uiOutput("answer_float_ui"))),
+  # The answer pops up in a scrollable window when it is generated or when the Answer tab is opened or clicked, and folds
+  # back into the Answer tab when the student clicks anywhere outside it (a drag that starts inside it to select text does not).
+  tags$script(HTML("
+    (function() {
+      window.cmAnswerFloat = function(show) {
+        var p = document.getElementById('answer_float'); if (!p) return;
+        if (!show) { p.classList.remove('cm-open'); return; }
+        p.classList.add('cm-open');
+        if (p.getAttribute('data-moved') !== '1') {
+          var t = document.getElementById('main_tabs'), r = t ? t.getBoundingClientRect() : null;
+          var top = r ? r.top + 42 : 80;
+          p.style.left = (r ? Math.max(8, r.left) : 20) + 'px'; p.style.right = 'auto'; p.style.bottom = 'auto';
+          p.style.top = top + 'px';
+          p.style.width = (r ? Math.max(320, Math.min(r.width, window.innerWidth - r.left - 8)) : 760) + 'px';
+          p.querySelector('.cm-float-body').style.maxHeight = Math.max(160, window.innerHeight - top - 70) + 'px';
+        }
+      };
+      function answerShowing() {
+        var a = document.querySelector('#main_tabs > li.active > a[data-value=\"Answer\"]');
+        return !!a;
+      }
+      document.addEventListener('mousedown', function(e) {
+        var p = document.getElementById('answer_float');
+        if (!p || !p.classList.contains('cm-open')) return;
+        var t = e.target;
+        if (!t || !t.closest || !document.body.contains(t)) return;
+        if (t.closest('#answer_float, .cm-answer-preview, .cm-answer-open-note, .modal, .cm-float, .cm-help-pop')) return;
+        window.cmAnswerFloat(false);
+      }, true);
+      document.addEventListener('click', function(e) {
+        if (e.target && e.target.closest && e.target.closest('.cm-answer-preview, .cm-answer-open-note') && answerShowing())
+          window.cmAnswerFloat(true);
+      });
+      if (window.jQuery) jQuery(document).on('shown.bs.tab', function(e) {
+        var v = e.target && e.target.getAttribute && e.target.getAttribute('data-value');
+        if (!e.target || !e.target.closest || !e.target.closest('#main_tabs')) return;
+        window.cmAnswerFloat(v === 'Answer');
+      });
+      (function reg() {
+        if (window.Shiny && Shiny.addCustomMessageHandler)
+          Shiny.addCustomMessageHandler('cm_answer_float', function(msg) { window.cmAnswerFloat(!!(msg && msg.show)); });
+        else setTimeout(reg, 100);
+      })();
+    })();
+  ")),
   tags$div(id = "about_float", class = "cm-float",
     tags$div(class = "cm-float-head",
              tags$span(class = "cm-float-title", "Explanation of this code"),
@@ -3526,6 +3577,70 @@ ui <- fluidPage(
     })();
   ")),
 
+  # Text size slider (right of the prompt tabs). The default (100%) leaves every rule below inactive. At other sizes the page's
+  # base font and the fixed-pixel Bootstrap sizes are scaled by --cm-s, the code editors' font follows, and the boxes that are
+  # a fixed height (code editor, R output, Answer, Past prompts) grow or shrink with the text. The choice is saved in the
+  # user's config folder (so it survives restarts, whatever port the browser is on) and sent back when the app starts.
+  tags$style(HTML("
+    :root { --cm-s: 1; }
+    html.cm-scaled body { font-size: calc(14px * var(--cm-s)); }
+    html.cm-scaled .btn, html.cm-scaled .form-control, html.cm-scaled .nav-tabs > li > a, html.cm-scaled .selectize-input,
+    html.cm-scaled .selectize-dropdown, html.cm-scaled .dropdown-menu, html.cm-scaled .checkbox, html.cm-scaled .radio,
+    html.cm-scaled label, html.cm-scaled .shiny-notification { font-size: calc(14px * var(--cm-s)); }
+    html.cm-scaled .btn-xs { font-size: calc(12px * var(--cm-s)); }
+    html.cm-scaled h1 { font-size: calc(36px * var(--cm-s)); } html.cm-scaled h2 { font-size: calc(30px * var(--cm-s)); }
+    html.cm-scaled h3 { font-size: calc(24px * var(--cm-s)); } html.cm-scaled h4 { font-size: calc(18px * var(--cm-s)); }
+    html.cm-scaled .ace_editor { font-size: calc(13px * var(--cm-s)) !important; }
+    html.cm-scaled #code_editor { height: calc(220px * var(--cm-s)) !important; }
+    html.cm-scaled .cm-answer-pane { height: calc(220px * var(--cm-s)); }
+    html.cm-scaled .tab-pane > div[style*='height: 220px'] { height: calc(220px * var(--cm-s)) !important; }
+    html.cm-scaled .tab-pane > div[style*='height: 108px'] { height: calc(108px * var(--cm-s)) !important; }
+    .nav-tabs > li.cm-fs-li { float: right !important; padding: 7px 4px 0 0; font-size: 12px; color: #555; white-space: nowrap; list-style: none; }
+    .cm-fs-li > * { vertical-align: middle; }
+    .cm-fs-li input[type=range] { display: inline-block; width: 90px; margin: 0 4px; cursor: pointer; }
+    .cm-fs-li .cm-fs-a { cursor: pointer; user-select: none; }
+  ")),
+  tags$script(HTML("
+    (function() {
+      var LEVELS = [0.85, 1, 1.15, 1.3, 1.5];
+      function apply(idx) {
+        idx = Math.max(0, Math.min(LEVELS.length - 1, idx));
+        var h = document.documentElement;
+        h.style.setProperty('--cm-s', String(LEVELS[idx]));
+        h.classList.toggle('cm-scaled', idx !== 1);
+        var r = document.getElementById('cm_fs'); if (r) r.value = String(idx);
+        setTimeout(function() {
+          try { Array.prototype.forEach.call(document.querySelectorAll('.ace_editor'), function(el) {
+            var ed = ace.edit(el); ed.renderer.updateFontSize(); ed.resize(true); }); } catch (e) {}
+          if (window.cmFixSwitchPos) window.cmFixSwitchPos();
+          try { window.dispatchEvent(new Event('resize')); } catch (e) {}
+        }, 60);
+        return idx;
+      }
+      window.cmTextSize = apply;
+      function place() {
+        var ul = document.getElementById('prompt_tabs');
+        if (!ul) return false;
+        var li = document.getElementById('cm_fs_li'); if (!li) return false;
+        if (li.parentNode !== ul) ul.appendChild(li);
+        if (li.getAttribute('data-wired')) return true; li.setAttribute('data-wired', '1');
+        var r = li.querySelector('input');
+        function send(i) { i = apply(i); if (window.Shiny && Shiny.setInputValue) Shiny.setInputValue('text_size', i, {priority: 'event'}); }
+        r.addEventListener('input', function() { send(parseInt(r.value, 10)); });
+        r.addEventListener('dblclick', function() { send(1); });
+        Array.prototype.forEach.call(li.querySelectorAll('.cm-fs-a'), function(a) {
+          a.addEventListener('click', function() { send(parseInt(r.value, 10) + parseInt(a.getAttribute('data-d'), 10)); }); });
+        return true;
+      }
+      (function wait() { if (!place()) setTimeout(wait, 200); })();
+      (function reg() {
+        if (window.Shiny && Shiny.addCustomMessageHandler)
+          Shiny.addCustomMessageHandler('cm_text_size', function(msg) { place(); apply(parseInt(msg && msg.idx, 10)); });
+        else setTimeout(reg, 100);
+      })();
+    })();
+  ")),
+
   # Answer / Past answers panes: same fixed height as the Code editor, scrolling inside
   tags$style(HTML("
     .cm-answer-pane {
@@ -3533,6 +3648,13 @@ ui <- fluidPage(
       border: 1px solid #ddd; border-radius: 3px; padding: 8px 12px; background: #fff;
     }
     .cm-answer-pane > .shiny-html-output > :first-child { margin-top: 0; }
+    /* The Answer tab shows a short preview; the full answer opens in a scrollable window (#answer_float) */
+    .cm-answer-preview { cursor: pointer; position: relative; max-height: 180px; overflow: hidden; }
+    .cm-answer-preview::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 40px;
+      background: linear-gradient(rgba(255,255,255,0), #fff); pointer-events: none; }
+    .cm-answer-open-note { margin: 6px 0 0 0; font-size: 0.85em; color: #2c5f8a; cursor: pointer; }
+    #answer_float .cm-float-body { max-height: none; overflow: auto; }
+    #answer_float.cm-open:has(.cm-answer-card) { display: block; }
   ")),
 
   # Optional "filter by name" box in the Import files dialog. Folders always stay
@@ -3717,6 +3839,12 @@ ui <- fluidPage(
     ),
 
     tags$div(style = "display: none;",
+      tags$li(id = "cm_fs_li", class = "cm-fs-li", `data-help-id` = "text_size",
+        title = "Text size (double-click the slider to go back to the normal size)",
+        tags$span("Text size"), " ",
+        tags$span(class = "cm-fs-a", style = "font-size:11px", `data-d` = "-1", "A"),
+        tags$input(type = "range", id = "cm_fs", min = "0", max = "4", step = "1", value = "1"),
+        tags$span(class = "cm-fs-a", style = "font-size:17px", `data-d` = "1", "A")),
       tags$li(id = "undo_prompt_li", class = "cm-undo-li",
         shinyjs::disabled(actionButton("undo_prompt", UNDO_ICONS, class = "btn-default btn-xs cm-undo-btn",
                      title = "Step back to the previous prompt, code or answer (Redo returns you here)"))),
@@ -3929,6 +4057,7 @@ ui <- fluidPage(
       $(document).on('shiny:disconnected', function() {
         try { sessionStorage.setItem('cmDisc', String(Date.now())); } catch (e) {}   // no splash when this tab reconnects
         if (window.cmWatching) return; window.cmWatching = true;
+        if (window.cmEnded) return;      // End Session: this tab stays as it is (the ended notice), it never reconnects
         var box = document.createElement('div');
         box.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483000;background:#fff3cd;color:#664d03;' +
                             'border-bottom:1px solid #e0c060;padding:10px 16px;font-size:14px;text-align:center;';
@@ -4777,6 +4906,11 @@ HELP_TEXTS <- list(
     "Forget all — Clears all attached files and objects from the context list (the files and objects themselves are not deleted).",
     "This link appears above the list once you have added something."
   ),
+  text_size = paste(
+    "Text size — Slide to make the text in Klausmate smaller or larger (five steps; the middle one is the normal size,",
+    "and double-clicking the slider returns to it). It changes the prompt, code, answers, explanations, lists and",
+    "buttons together, and Klausmate remembers your choice the next time you start it."
+  ),
   mode_switch = paste(
     "Code / Answer switch — Appears at the end of the tab bar once you have both code and an",
     "answer. The slider shows which you are looking at (Code on the left, Answer on the right):",
@@ -4951,7 +5085,8 @@ HELP_TAB_TEXTS <- list(
   ),
   "Answer" = paste(
     "Answer tab — Shows the plain-English answer to your last question asked with the Answer button.",
-    "Open \"Show my working\" under the answer to see the code Klausmate ran and what it",
+    "The answer opens in a scrollable window; click outside the window to fold it back into this tab,",
+    "and click in the tab to open it again. Open \"Show my working\" under the answer to see the code Klausmate ran and what it",
     "produced. This tab replaces Code, R output and Past code until you use Ask for Code.",
     "Keyboard: Command+< and Command+> (Ctrl+< and Ctrl+> on Windows) move between Answer and Past answers."
   ),
@@ -5047,11 +5182,27 @@ server <- function(input, output, session) {
     later::later(function() stopApp(), delay = 0.4)
     invisible(NULL)
   }
+  # Text size: remembered across restarts in the user's config folder; the slider is in the page, this restores and saves it
+  .ts_file <- function() file.path(klausmate:::klausmate_user_dir("config"), "text_size.rds")
+  local({
+    idx <- tryCatch(as.integer(readRDS(.ts_file())), error = function(e) 1L)
+    if (length(idx) != 1L || is.na(idx) || idx < 0L || idx > 4L) idx <- 1L
+    session$sendCustomMessage("cm_text_size", list(idx = idx))
+  })
+  observeEvent(input$text_size, {
+    i <- suppressWarnings(as.integer(input$text_size))
+    if (length(i) == 1L && !is.na(i) && i >= 0L && i <= 4L)
+      tryCatch({ d <- dirname(.ts_file()); dir.create(d, showWarnings = FALSE, recursive = TRUE); saveRDS(i, .ts_file()) },
+               error = function(e) NULL)
+  }, ignoreInit = TRUE)
   recov <- new.env(); recov$off <- FALSE; recov$offered <- FALSE
   migrate_old_sessions()
   do_quit <- function(clear_recovery = TRUE) {
     recov$off <- TRUE
     if (clear_recovery) unlink(recovery_file())
+    # This tab must not wake up and reconnect when klaus() is run again (it would, since R reuses the same port): only
+    # after Pause or Esc does a tab carry on by itself
+    runjs("window.cmEnded = true;")
     runjs("document.getElementById('session-ended-overlay').classList.add('visible');")
     later::later(function() stopApp(), delay = 0.4)
   }
@@ -9808,6 +9959,7 @@ server <- function(input, output, session) {
       prompt_history(c(current_prompt, prompt_history()))
       output$run_status <- renderUI(NULL)
       set_ask_mode("answer")
+      session$sendCustomMessage("cm_answer_float", list(show = TRUE))
       finish()
       invisible(NULL)
     }
@@ -10012,12 +10164,13 @@ server <- function(input, output, session) {
   }, ignoreInit = FALSE)
 
   # --- Answer tab ------------------------------------------------------------------
-  answer_card <- function(entry) {
+  answer_card <- function(entry, working = TRUE) {
     div(
+      class = "cm-answer-card",
       tags$p(style = "color: #888; font-size: 0.85em; margin: 4px 0 8px 0;",
              tags$em(paste0("You asked: ", entry$question))),
       HTML(answer_to_html(entry$answer)),
-      if (nzchar(entry$code %||% ""))
+      if (working && nzchar(entry$code %||% ""))
         tags$details(
           style = "margin-top: 10px;",
           tags$summary(style = "cursor: pointer; color: #2c5f8a;", "Show my working"),
@@ -10033,8 +10186,16 @@ server <- function(input, output, session) {
     a <- answer_latest()
     if (is.null(a))
       return(tags$p(em("Your answer will appear here."), style = "color: #999; margin: 4px 0;"))
+    tagList(
+      div(class = "cm-answer-preview", answer_card(a, working = FALSE)),
+      tags$p(class = "cm-answer-open-note", "Click to open the full answer"))
+  })
+  output$answer_float_ui <- renderUI({
+    a <- answer_latest()
+    if (is.null(a)) return(NULL)
     answer_card(a)
   })
+  outputOptions(output, "answer_float_ui", suspendWhenHidden = FALSE)
   output$past_answers_ui <- renderUI({
     h <- answer_hist()
     if (length(h) == 0)
@@ -10067,6 +10228,7 @@ server <- function(input, output, session) {
     answer_hist(hist)
     answer_latest(ent)
     updateTabsetPanel(session, "main_tabs", selected = "Answer")
+    session$sendCustomMessage("cm_answer_float", list(show = TRUE))
   })
 
   observeEvent(input$oos_ok_plain, {
