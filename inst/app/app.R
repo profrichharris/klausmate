@@ -10276,7 +10276,7 @@ server <- function(input, output, session) {
     tagList(
       div(class = "cm-answer-preview", answer_card(a, working = FALSE, preview = TRUE)),
       tags$p(class = "cm-answer-open-note", "Click to open the full answer"),
-      if (answer_needs_tr(a)) tags$p(style = "margin: 6px 0 0 0;", tr_button(paste0("Translate into ", prefs$language), "translate_answer", a$seq %||% 0L)))
+      if (!is.null(ti <- answer_tr_info(a))) tags$p(style = "margin: 6px 0 0 0;", tr_button(ti, "translate_answer", a$seq %||% 0L, long = TRUE)))
   })
   output$answer_float_ui <- renderUI({
     a <- answer_latest()
@@ -10293,7 +10293,7 @@ server <- function(input, output, session) {
         tags$p(e$question %||% "", style = paste0(
           "margin: 0; flex: 1; font-size: 0.85em; color: #444;",
           "white-space: pre-wrap; word-break: break-word;")),
-        if (answer_needs_tr(e)) tr_button("Translate", "translate_answer", e$seq %||% 0L,
+        if (!is.null(ti <- answer_tr_info(e))) tr_button(ti, "translate_answer", e$seq %||% 0L,
           style = "flex-shrink: 0; margin-left: 6px; padding: 1px 6px; font-size: 0.75em; background: white; border: 1px solid #bbb; border-radius: 3px; cursor: pointer; color: #555;"),
         tags$button("Recall", id = paste0("recall_answer_", e$seq %||% 0L),
           style = paste0(
@@ -10522,7 +10522,7 @@ server <- function(input, output, session) {
                             format(e$ts, if (as.Date(e$ts) == Sys.Date()) "%H:%M" else "%d %b %H:%M"),
                             if (length(e$more)) paste0("+", length(e$more), " more")), collapse = " · "),
                     if (changed) tags$span(style = "color: #b36b00;", " · code changed since")),
-          if (about_needs_tr(e)) tr_button("Translate", "about_translate", e$id, style = btn_style),
+          if (!is.null(ti <- about_tr_info(e))) tr_button(ti, "about_translate", e$id, style = btn_style),
           tags$button("View", id = paste0("about_view_", e$id), style = btn_style,
                       onclick = paste0("Shiny.setInputValue('about_open', ", as.integer(e$id), ", {priority: 'event'});")))
       }))
@@ -10577,14 +10577,68 @@ server <- function(input, output, session) {
                                      "be", "by", "on", "can", "or", "an", "from", "which", "you", "your", "how", "what")) >= 0.12
   }
   item_lang  <- function(x) x$lang %||% (if (looks_english(x$answer %||% x$text)) "English" else lang_start)
-  answer_needs_tr <- function(e) !is.null(e) && !identical(item_lang(e), prefs$language)
-  about_needs_tr  <- function(e) !is.null(e) &&
-    any(c(item_lang(e), vapply(e$more %||% list(), function(m) m$lang %||% item_lang(e), character(1))) != prefs$language)
-  tr_button <- function(label, input_id, value, style = "")
-    tags$button(type = "button", class = "cm-tr-btn", `data-label` = label, style = style,
-                title = "Translate this into the language chosen in Preferences",
-                onclick = sprintf("this.disabled = true; this.textContent = 'Translating...'; Shiny.setInputValue('%s', %s, {priority: 'event'});",
-                                  input_id, as.integer(value)), label)
+  # Every answer / explanation keeps each version of its text it has had, by language (`versions`), the language of the text first
+  # written (`orig_lang` and orig_answer / orig_text) and the language shown just before the last switch (`prev_lang`).
+  # Translating into a language that is already there is free; a new one is always made from the original.
+  tr_ofield <- function(field) if (identical(field, "answer")) "orig_answer" else "orig_text"
+  tr_versions <- function(x, field, default_lang) {
+    cur <- x$lang %||% default_lang
+    v <- x$versions %||% list()
+    ol <- x$orig_lang %||% cur
+    ot <- x[[tr_ofield(field)]] %||% x[[field]]
+    if (is.null(v[[cur]])) v[[cur]] <- x[[field]]
+    v[[ol]] <- ot
+    list(versions = v, orig_lang = ol, orig_text = ot, cur = cur)
+  }
+  tr_cached <- function(x, field, target, default_lang) !is.null(tr_versions(x, field, default_lang)$versions[[target]])
+  TR_KEEP <- 4L          # versions kept per item (the original, what is shown, the one before and the newest others)
+  tr_set <- function(x, field, target, got, default_lang) {
+    V <- tr_versions(x, field, default_lang)
+    txt <- V$versions[[target]] %||% got
+    V$versions[[target]] <- txt
+    keep <- unique(c(V$orig_lang, target, V$cur))
+    if (length(V$versions) > TR_KEEP) {
+      extra <- setdiff(names(V$versions), keep)
+      V$versions <- V$versions[c(keep, utils::tail(extra, max(0L, TR_KEEP - length(keep))))]
+    }
+    x[[field]] <- txt; x$lang <- target; x$versions <- V$versions
+    x$orig_lang <- V$orig_lang; x[[tr_ofield(field)]] <- V$orig_text
+    if (!identical(V$cur, target)) x$prev_lang <- V$cur
+    x
+  }
+  # The language shown before the last switch (translations made by 0.6.59 / 0.6.60 only record the original)
+  tr_prev <- function(x, cur) x$prev_lang %||% (if (!is.null(x$orig_lang) && !identical(x$orig_lang, cur)) x$orig_lang)
+  # What the button on an item should do: NULL (no button), or list(kind = "into" / "back", target = language)
+  answer_tr_info <- function(e) {
+    if (is.null(e)) return(NULL)
+    pref <- prefs$language; cur <- item_lang(e)
+    if (!identical(cur, pref)) return(list(kind = "into", target = pref, cached = tr_cached(e, "answer", pref, cur)))
+    pv <- tr_prev(e, cur)
+    if (!is.null(pv) && !identical(pv, pref)) list(kind = "back", target = pv, cached = TRUE) else NULL
+  }
+  about_tr_info <- function(e) {
+    if (is.null(e)) return(NULL)
+    pref <- prefs$language; d0 <- item_lang(e); more <- e$more %||% list()
+    langs <- c(d0, vapply(more, function(m) m$lang %||% d0, character(1)))
+    if (any(langs != pref)) {
+      cached <- tr_cached(e, "text", pref, d0) && all(vapply(more, function(m) tr_cached(m, "text", pref, m$lang %||% d0), logical(1)))
+      return(list(kind = "into", target = pref, cached = cached))
+    }
+    pv <- tr_prev(e, d0)
+    if (!is.null(pv) && !identical(pv, pref)) list(kind = "back", target = pv, cached = TRUE) else NULL
+  }
+  # The button: "Translate ..." into the preferred language, or just the language name to go back to it
+  tr_button <- function(info, input_id, value, long = FALSE, style = "") {
+    into <- identical(info$kind, "into")
+    label <- if (into) (if (long) paste0("Translate into ", info$target) else "Translate") else info$target
+    tip <- if (into) {
+      if (isTRUE(info$cached)) paste0("Show this in ", info$target, " (it has been translated before, so there is no cost)")
+      else paste0("Translate this into ", info$target)
+    } else paste0("Go back to the ", info$target, " version (kept, so there is no cost)")
+    tags$button(type = "button", class = "cm-tr-btn", `data-label` = label, style = style, title = tip,
+                onclick = sprintf("this.disabled = true; this.textContent = '%s'; Shiny.setInputValue('%s', %s, {priority: 'event'});",
+                                  if (into && !isTRUE(info$cached)) "Translating..." else "...", input_id, as.integer(value)), label)
+  }
   tr_reset_buttons <- function()
     shinyjs::runjs("Array.prototype.forEach.call(document.querySelectorAll('.cm-tr-btn'), function(b) { b.disabled = false; b.textContent = b.getAttribute('data-label'); });")
   tr_can_go <- function() {
@@ -10599,11 +10653,6 @@ server <- function(input, output, session) {
                      type = "warning", duration = 8)
     tr_reset_buttons()
   }
-  # Text, language and original of one piece, moved to `target` (translated, or the original put back)
-  tr_apply <- function(base_text, base_lang, target, got) {
-    list(text = if (identical(base_lang, target)) base_text else got, lang = target, orig = base_text, orig_lang = base_lang)
-  }
-
   # When the language preference changes, everything written so far that has no language recorded (made by an earlier version)
   # is marked with the language it was written in, so that this is still known after a restart (when `lang_start` would be the
   # new language and the Translate button would be lost)
@@ -10622,21 +10671,21 @@ server <- function(input, output, session) {
 
   observeEvent(input$translate_answer, {
     req(tr_can_go())
-    seq <- as.integer(input$translate_answer); target <- prefs$language
+    seq <- as.integer(input$translate_answer)
     l <- isolate(answer_latest()); h <- isolate(answer_hist())
     e <- NULL; pos <- NA_integer_
     if (!is.null(l) && identical(as.integer(l$seq %||% -1L), seq)) { e <- l; pos <- 0L }
     else { i <- which(vapply(h, function(x) identical(as.integer(x$seq %||% -1L), seq), logical(1))); if (length(i)) { e <- h[[i[1]]]; pos <- i[1] } }
-    if (is.null(e)) { tr_reset_buttons(); return() }
-    base_text <- e$orig_answer %||% e$answer; base_lang <- e$orig_lang %||% item_lang(e)
-    got <- NULL
-    if (!identical(base_lang, target)) {
-      r <- cm_translate(base_text, target, klausmate:::cm_get_key())
+    info <- answer_tr_info(e)
+    if (is.null(e) || is.null(info)) { tr_reset_buttons(); return() }
+    target <- info$target; d0 <- item_lang(e); got <- NULL
+    V <- tr_versions(e, "answer", d0)
+    if (is.null(V$versions[[target]])) {
+      r <- cm_translate(V$orig_text, target, klausmate:::cm_get_key())
       if (is.null(r)) { tr_failed(); return() }
       record_usage(r$cost); got <- r$texts[1]
     }
-    a <- tr_apply(base_text, base_lang, target, got)
-    e$answer <- a$text; e$lang <- target; e$orig_answer <- a$orig; e$orig_lang <- a$orig_lang
+    e <- tr_set(e, "answer", target, got, d0)
     if (pos == 0L) answer_latest(e) else { h[[pos]] <- e; answer_hist(h) }
     recs <- isolate(interactions())     # Undo / Redo bring answers back from here
     for (k in seq_along(recs)) if (identical(recs[[k]]$kind, "answer") && identical(as.integer(recs[[k]]$seq %||% -1L), seq)) recs[[k]]$entry <- e
@@ -10646,24 +10695,27 @@ server <- function(input, output, session) {
 
   observeEvent(input$about_translate, {
     req(tr_can_go())
-    id <- as.integer(input$about_translate); target <- prefs$language
+    id <- as.integer(input$about_translate)
     ents <- isolate(about_entries()); i <- which(vapply(ents, function(x) identical(as.integer(x$id), id), logical(1)))
     if (length(i) == 0) { tr_reset_buttons(); return() }
     e <- ents[[i[1]]]; more <- e$more %||% list()
-    base_text <- c(e$orig_text %||% e$text, vapply(more, function(m) m$orig_text %||% m$text, character(1)))
-    base_lang <- c(e$orig_lang %||% item_lang(e), vapply(more, function(m) m$orig_lang %||% m$lang %||% item_lang(e), character(1)))
-    need <- which(base_lang != target); got <- rep(NA_character_, length(base_text))
+    info <- about_tr_info(e)
+    if (is.null(info)) { tr_reset_buttons(); return() }
+    target <- info$target; d0 <- item_lang(e)
+    ml <- vapply(more, function(m) m$lang %||% d0, character(1))
+    # the pieces (the explanation, then each "Tell me more") that have no version in the target language yet are translated together
+    pieces <- c(list(e), more); pl <- c(d0, ml)
+    need <- which(!vapply(seq_along(pieces), function(k) tr_cached(pieces[[k]], "text", target, pl[k]), logical(1)))
+    got <- rep(list(NULL), length(pieces))
     if (length(need)) {
-      r <- cm_translate(base_text[need], target, klausmate:::cm_get_key())
+      base <- vapply(need, function(k) tr_versions(pieces[[k]], "text", pl[k])$orig_text, character(1))
+      r <- cm_translate(base, target, klausmate:::cm_get_key())
       if (is.null(r)) { tr_failed(); return() }
-      record_usage(r$cost); got[need] <- r$texts
+      record_usage(r$cost); for (j in seq_along(need)) got[[need[j]]] <- r$texts[j]
     }
-    new_text <- ifelse(base_lang == target, base_text, got)
-    e$text <- new_text[1]; e$lang <- target; e$orig_text <- base_text[1]; e$orig_lang <- base_lang[1]
-    for (k in seq_along(more)) {
-      more[[k]]$text <- new_text[k + 1L]; more[[k]]$lang <- target
-      more[[k]]$orig_text <- base_text[k + 1L]; more[[k]]$orig_lang <- base_lang[k + 1L]
-    }
+    more_keep <- e$more
+    e <- tr_set(e, "text", target, got[[1]], d0); e$more <- more_keep
+    for (k in seq_along(more)) more[[k]] <- tr_set(more[[k]], "text", target, got[[k + 1L]], ml[k])
     e$more <- more
     ents[[i[1]]] <- e; about_entries(ents)
     # The same explanation in the code log (not yet written, or already held back) is changed too
