@@ -12,13 +12,18 @@ KLAUSMATE_GITHUB_REPO <- "profrichharris/klausmate"
 #' and saves all generated files there. A session can be paused and resumed:
 #' the pause file is also written to your current working directory.
 #'
+#' If the app was stopped by pressing Esc in the console (or ended some other way without Pause or End Session) during
+#' this R session, \code{klaus()} starts it again straight away, with the same session, in the same browser tab, with no
+#' splash screen. After a restart of R, or after more than 12 hours, you are asked whether to restore the session.
+#'
+#' @param fresh If \code{TRUE}, forget a session that was interrupted and start a new one.
 #' @return Invisible NULL (called for its side effect of launching the app).
 #' @export
 #' @examples
 #' \dontrun{
 #' klaus()
 #' }
-klaus <- function() {
+klaus <- function(fresh = FALSE) {
 
   # --- Stop klaus_watch() if running — avoid conflicts with the app -------------
   if (.watch_env$active) {
@@ -45,9 +50,16 @@ klaus <- function() {
   # Drop the private copy of the student's API key however the app ends (Pause, End Session, Escape in
   # the console, an error)
   on.exit(cm_clear_key(), add = TRUE)
+  # The app can tell, a moment after a session ends, whether the app itself is stopping (then the saved session is
+  # kept and no Code Log is written) or only the browser tab was closed (the app is still running)
+  options(klausmate.app_stopping = FALSE)
+  on.exit(options(klausmate.app_stopping = TRUE), add = TRUE)
 
   # --- Pass the caller's working directory to the app -----------------------
   options(.klausmate_project_root = getwd())
+
+  # --- Stopped with Esc during this R session? Go back to where it was --------
+  if (isTRUE(fresh)) klausmate_forget_interrupted() else klausmate_resume_interrupted()
 
   app_dir <- system.file("app", package = "klausmate")
   if (!nzchar(app_dir)) {
@@ -447,6 +459,43 @@ klausmate_update <- function() {
   } else {
     message("A newer version of Klausmate is available (", release$version, "; you have ", current, ").\n",
             "It will be installed the next time you run klaus().")
+  }
+  invisible(NULL)
+}
+
+
+# The record that the app saves a few seconds after each change (see save_recovery() in the app). Its folder is
+# named from the working directory, as for the saved sessions.
+klausmate_recovery_path <- function(wd = getwd())
+  file.path(klausmate_sessions_dir(wd), "recovery.rds")
+
+# If the app was stopped without Pause or End Session by this same R process (Esc in the console) a short time ago,
+# turn the saved record into a pause file, so that the app starts again as after a Pause: same session, same port (so
+# the old browser tab reconnects by itself), no splash screen and no question. Anything else (another R process, an
+# older record, no record) is left for the app to offer to restore. Returns TRUE if the session is being resumed.
+klausmate_resume_interrupted <- function(wd = getwd(), max_hours = 12) {
+  pause <- file.path(wd, "claude_assistant_pause.rds")
+  if (file.exists(pause)) return(invisible(FALSE))                 # a real Pause: nothing to do
+  f <- klausmate_recovery_path(wd)
+  if (!file.exists(f)) return(invisible(FALSE))
+  x <- tryCatch(readRDS(f), error = function(e) NULL)
+  ok <- is.list(x) && is.list(x$state) && inherits(x$saved, "POSIXct") &&
+        identical(as.integer(x$pid), Sys.getpid()) &&
+        as.numeric(difftime(Sys.time(), x$saved, units = "hours")) < max_hours
+  if (!isTRUE(ok)) return(invisible(FALSE))
+  st <- x$state
+  st$interrupted <- TRUE                                           # the app tidies the state and says what happened
+  saved <- tryCatch({ saveRDS(st, pause); TRUE }, error = function(e) FALSE)
+  if (saved) unlink(f)
+  invisible(saved)
+}
+
+# klaus(fresh = TRUE): forget the interrupted session
+klausmate_forget_interrupted <- function(wd = getwd()) {
+  f <- klausmate_recovery_path(wd)
+  if (file.exists(f)) {
+    x <- tryCatch(readRDS(f), error = function(e) NULL)
+    if (!is.list(x) || identical(as.integer(x$pid), Sys.getpid())) unlink(f)   # not another R session's record
   }
   invisible(NULL)
 }

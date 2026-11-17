@@ -3466,7 +3466,10 @@ ui <- fluidPage(
       if (!splash) return;
       // a restart that Klausmate itself started (restoring or loading a session) is not a fresh open: no splash
       try { var t = parseInt(sessionStorage.getItem('cmRestart') || '0', 10);
-            if (t && Date.now() - t < 120000) { splash.classList.add('hidden'); return; } } catch (e) {}
+            if (t && Date.now() - t < 120000) { splash.classList.add('hidden'); return; }
+            // this tab lost its connection (Pause, Esc in the console...) in the last hour: it is the same visit
+            var d = parseInt(sessionStorage.getItem('cmDisc') || '0', 10);
+            if (d && Date.now() - d < 3600000) { splash.classList.add('hidden'); return; } } catch (e) {}
       setTimeout(function() {
         splash.classList.add('fade-out');
         setTimeout(function() { splash.classList.add('hidden'); }, 850);
@@ -3901,13 +3904,14 @@ ui <- fluidPage(
     tags$script(HTML("
       // When Klausmate stops (Pause, Quit or a crash) this tab is left disconnected. If it was a Pause, running klaus()
       // again starts the app at the same address, so the tab watches for that and reloads itself.
-      $(document).on('shiny:connected', function() { try { sessionStorage.removeItem('cmRestart'); } catch (e) {} });
+      $(document).on('shiny:connected', function() { try { sessionStorage.removeItem('cmRestart'); sessionStorage.removeItem('cmDisc'); } catch (e) {} });
       $(document).on('shiny:disconnected', function() {
+        try { sessionStorage.setItem('cmDisc', String(Date.now())); } catch (e) {}   // no splash when this tab reconnects
         if (window.cmWatching) return; window.cmWatching = true;
         var box = document.createElement('div');
         box.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:2147483000;background:#fff3cd;color:#664d03;' +
                             'border-bottom:1px solid #e0c060;padding:10px 16px;font-size:14px;text-align:center;';
-        var stopped = 'Klausmate has stopped. If you paused it, run klaus() in R and this tab will reconnect by itself; otherwise you can close this tab.';
+        var stopped = 'Klausmate has stopped. To carry on, run klaus() in R and this tab will reconnect by itself (after Pause or Esc you come back to where you were); otherwise you can close this tab.';
         // A restart that Klausmate started itself (restoring or loading a session) says so, instead of the stop notice,
         // and falls back to the stop notice if the app has not come back after 30 seconds
         var restarting = false;
@@ -4830,7 +4834,8 @@ HELP_TEXTS <- list(
   ),
   pause_app = paste(
     "Pause — Saves your entire session — conversation history, code, context, and",
-    "preferences — and closes Klausmate. Your code log is saved too. Reopen the app",
+    "preferences — and closes Klausmate. Your code log is saved and opened too, unless you untick the box in the",
+    "Pause window (that choice is remembered for later Pauses, until you change it). Reopen the app",
     "with klaus() to pick up exactly where you left off.",
     "Use this if you want to take a longer break and return to the same conversation later.",
     "For a quick step out to run some R code, use Quick Console instead."
@@ -5555,8 +5560,14 @@ server <- function(input, output, session) {
     invalidateLater(KEY_CHECK_INTERVAL_MS, session)
     req(key_is_set())
     isolate({
+      # A key found to work in the last five minutes (this R session) is not checked again at once, so that an
+      # app that starts again straight after being stopped opens without waiting for the network
+      last <- getOption("klausmate.key_checked_at")
+      recent <- inherits(last, "POSIXct") && as.numeric(difftime(Sys.time(), last, units = "secs")) < 300
+      st <- if (recent) "ok" else claude_key_status()
+      if (!recent && identical(st, "ok")) options(klausmate.key_checked_at = Sys.time())
       # Only a genuine refusal of the key signs the student out; a network blip must not
-      if (identical(claude_key_status(), "invalid")) {
+      if (identical(st, "invalid")) {
         key_status_msg(paste(
           "Your key is no longer valid — it may have been suspended or deleted.",
           "Please load a new key file, or load the same one again once it has been reactivated."
@@ -7827,7 +7838,15 @@ server <- function(input, output, session) {
     saved
   } else NULL
 
+  # klaus() found that this R session's app was stopped without Pause or End Session (Esc in the console): the saved
+  # record is resumed like a Pause, after dropping what is no longer there (objects, files, plots)
+  .resumed_interrupt <- !is.null(ps) && isTRUE(ps$interrupted)
+  if (.resumed_interrupt) { ps <- cm_clean_state(ps); ps$restored <- TRUE }
   if (!is.null(ps)) .cm$pkg_choices <- ps$pkg_choices %||% list()      # package choices survive a Pause
+  # The "Save your Code Log and open it" tick box of the Pause window: remembered for later Pauses, kept apart from
+  # End Session's, ticked at every fresh start and carried across a real Pause only (not a crash restore or Recent Session)
+  pause_save_log <- reactiveVal(if (!is.null(ps) && !isTRUE(ps$restored) && !is.null(ps$pause_save_log))
+                                  isTRUE(ps$pause_save_log) else TRUE)
 
   # --- Answer view state ------------------------------------------------
   # The tabs follow the most recent kind of ask: "code" shows Code / R output /
@@ -8882,7 +8901,7 @@ server <- function(input, output, session) {
     if (isTRUE(ps$restored))
       session$onFlushed(function() {
         showNotification(
-          tagList(tags$p("Your previous session has been restored."),
+          tagList(tags$p(if (.resumed_interrupt) "Back where you left off." else "Your previous session has been restored."),
                   if (length(ps$restore_note)) tags$ul(lapply(ps$restore_note, tags$li))),
           type = "message", duration = if (length(ps$restore_note)) NULL else 8)
       }, once = TRUE)
@@ -11086,6 +11105,11 @@ server <- function(input, output, session) {
         "conversation history, and preferences — will be saved and restored",
         "automatically when you next start the app."
       )),
+      if (length(full_log()) > 0)
+        checkboxInput("pause_log_tick",
+                      paste0("Save your Code Log and open it in ", if (in_rstudio()) "RStudio" else "your editor",
+                             "? [Recommended]"),
+                      value = pause_save_log(), width = "100%"),
       footer = tagList(
         actionButton("confirm_pause_app", "Pause", class = "btn-primary"),
         modalButton("Cancel")
@@ -11151,7 +11175,10 @@ server <- function(input, output, session) {
     removeModal()
     recov$off <- TRUE
     pause_state <- session_state()
-    if (length(full_log()) > 0) do_save_log()
+    pause_state$pause_save_log <- isolate(pause_save_log())
+    save_it <- isTRUE(isolate(pause_save_log()))
+    if (!save_it) recov$nolog <- TRUE           # also stops the automatic save when the session ends
+    if (save_it && length(full_log()) > 0) do_save_log()
     lp <- isolate(log_path())
     if (!is.null(lp) && file.exists(lp)) pause_state$log_file <- lp   # the log just written, which the resumed session continues from
     tryCatch(
@@ -11269,7 +11296,10 @@ server <- function(input, output, session) {
   })
   # One observer per button: combining the inputs in one observeEvent(c(...)) loses the action-button
   # class, so the 0 an action button reports when it is first drawn would count as a click
-  observeEvent(input$confirm_pause_app, do_pause_app())
+  observeEvent(input$confirm_pause_app, {
+    if (length(full_log()) > 0) pause_save_log(!isFALSE(input$pause_log_tick))   # remembered for later Pauses
+    do_pause_app()
+  })
   observeEvent(input$qc_timeout_pause,  do_pause_app())
   observeEvent(input$qc_install_pause,  do_pause_app())
 
@@ -11325,15 +11355,25 @@ server <- function(input, output, session) {
 
   # --- Auto-save on unexpected close (browser tab closed, Escape in console) --
   session$onSessionEnded(function() {
+    # The last few seconds of work go into the recovery file (it is written a few seconds after each change)
+    if (!isTRUE(recov$off)) tryCatch(save_recovery(), error = function(e) NULL)
     # pending_log_entries is cleared by do_save_log; non-empty means unsaved runs exist
     entries <- isolate(full_log())
     pending <- isolate(pending_log_entries())
-    if (!isTRUE(recov$nolog) && length(entries) > 0 && (length(pending) > 0 || !is.null(isolate(held_explain())))) {
-      tryCatch({
-        p <- make_log_path()
-        cat(format_log_entries(entries, log_continues_name()), "\n\n", file = p, append = FALSE, sep = "")
-        open_log_file(p)
-      }, error = function(e) NULL)
+    if (!isTRUE(recov$off) && !isTRUE(recov$nolog) && length(entries) > 0 &&
+        (length(pending) > 0 || !is.null(isolate(held_explain())))) {
+      # Only the browser tab was closed (the app is still running): write and open the log. If the app itself is
+      # stopping (Esc in the console), the session is kept in the recovery file and klaus() brings it back, so no
+      # log is written; it is written when the session ends with Pause or End Session. The check waits a moment
+      # because klaus() records that the app is stopping only when it returns.
+      later::later(function() {
+        if (isTRUE(getOption("klausmate.app_stopping"))) return(invisible(NULL))
+        tryCatch({
+          p <- make_log_path()
+          cat(format_log_entries(entries, log_continues_name()), "\n\n", file = p, append = FALSE, sep = "")
+          open_log_file(p)
+        }, error = function(e) NULL)
+      }, delay = 1)
     }
   })
 }

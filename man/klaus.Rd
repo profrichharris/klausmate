@@ -4,7 +4,10 @@
 \alias{klaus}
 \title{Launch the Klausmate AI tutor Shiny app}
 \usage{
-klaus()
+klaus(fresh = FALSE)
+}
+\arguments{
+\item{fresh}{If \code{TRUE}, forget a session that was interrupted and start a new one.}
 }
 \value{
 Invisible NULL (called for its side effect of launching the app).
@@ -18,6 +21,10 @@ callr, rstudioapi, httr2) are installed automatically on first use.
 The app creates an \code{outputs/} folder in your current working directory
 and saves all generated files there. A session can be paused and resumed:
 the pause file is also written to your current working directory.
+
+If the app was stopped by pressing Esc in the console (or ended some other way without Pause or End Session) during
+this R session, \code{klaus()} starts it again straight away, with the same session, in the same browser tab, with no
+splash screen. After a restart of R, or after more than 12 hours, you are asked whether to restore the session.
 }
 \examples{
 \dontrun{
