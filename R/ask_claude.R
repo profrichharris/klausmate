@@ -58,6 +58,9 @@ klaus <- function(fresh = FALSE) {
   # --- Pass the caller's working directory to the app -----------------------
   options(.klausmate_project_root = getwd())
 
+  # --- A paused session is kept for a week, like the other saved sessions ----------
+  klausmate_expire_pause()
+
   # --- Stopped with Esc during this R session? Go back to where it was --------
   if (isTRUE(fresh)) klausmate_forget_interrupted() else klausmate_resume_interrupted()
 
@@ -465,6 +468,18 @@ klausmate_update <- function() {
   invisible(NULL)
 }
 
+
+# A paused session (the Pause file in the working directory) is deleted a week after it was saved, like the saved
+# sessions and the recovery file, so that nothing a student did is kept for ever. Run when klaus() starts.
+klausmate_expire_pause <- function(wd = getwd(), max_days = KLAUSMATE_KEEP_DAYS) {
+  f <- file.path(wd, "claude_assistant_pause.rds")
+  if (!file.exists(f)) return(invisible(FALSE))
+  age <- as.numeric(difftime(Sys.time(), file.mtime(f), units = "days"))
+  if (is.na(age) || age <= max_days) return(invisible(FALSE))
+  unlink(f)
+  message("Klausmate: the session paused in this folder was more than ", max_days, " days old, so it has been deleted.")
+  invisible(TRUE)
+}
 
 # The record that the app saves a few seconds after each change (see save_recovery() in the app). Its folder is
 # named from the working directory, as for the saved sessions.

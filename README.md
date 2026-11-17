@@ -62,7 +62,7 @@ instructor (spending, number of conversations, length of code, expiry date).
 | **Quick Console** | A small R console running in the same workspace |
 | **Code log** | **View Code Log** shows everything that has run, with a **Save** button; **End Session** saves it too (a tick box lets you turn that off). It is written as an R Notebook (`.Rmd`) in `outputs/` that reproduces your analysis, including where data came from |
 | **Pause** | Saves the whole session and closes the app; the next `klaus()` resumes it |
-| **Recent Session** | Brings back a session you ended with **End Session** (up to five are kept, each for a week, named by date and time). Your current session is saved in its place, so you can swap back |
+| **Recent Session** | Brings back a session you ended with **End Session** (up to five are kept, each for a week, named by date and time). Your current session is saved in its place, so you can swap back. Sessions are kept in a hidden `.klausmate` folder inside your working folder (with a paused session and the recovery file, all deleted after a week), so they follow you to another computer that uses the same folder |
 | **Preferences** | Coding, plotting, mapping, pipe and other preferred approaches, comment density, response language, image export defaults, time limit for runs |
 | **Help (?)** | Overlays a short explanation on every button and tab |
 

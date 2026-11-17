@@ -80,11 +80,28 @@ cm_get_key <- function() {
   else Sys.getenv("ANTHROPIC_API_KEY")
 }
 
-# Saved sessions (End Session) and the crash-recovery file live in the user's data folder, one sub-folder per working
-# directory (named by a hash of the folder's path; each record also holds the path itself), so that they are kept out
-# of project folders that are synced to the cloud or shared, and so that klausmate_reset() can delete them all.
-klausmate_sessions_root <- function() file.path(klausmate_user_dir("data"), "sessions")
-klausmate_sessions_dir <- function(wd = getwd()) {
+# Saved sessions (End Session) and the crash-recovery file live in a hidden .klausmate folder inside the working
+# directory, so that they follow a student who moves between computers on the same network drive, as the Pause file
+# does. Everything Klausmate keeps there is deleted a week after it was saved (sessions, the recovery file and the
+# Pause file), and the folder carries a .gitignore so that git leaves it alone.
+# Versions 0.6.45 to 0.6.52 kept them in the user's data folder, one sub-folder per working directory (named by a hash of
+# the folder's path): the "legacy" functions find those, so that they can be moved across and removed by a reset.
+KLAUSMATE_SESSIONS_FOLDER <- ".klausmate"
+KLAUSMATE_KEEP_DAYS       <- 7
+klausmate_sessions_dir <- function(wd = getwd())
+  file.path(normalizePath(wd, winslash = "/", mustWork = FALSE), KLAUSMATE_SESSIONS_FOLDER)
+klausmate_legacy_sessions_root <- function() file.path(klausmate_user_dir("data"), "sessions")
+klausmate_legacy_sessions_dir <- function(wd = getwd()) {
   wd <- normalizePath(wd, winslash = "/", mustWork = FALSE)
-  file.path(klausmate_sessions_root(), substr(as.character(openssl::sha256(charToRaw(wd))), 1, 16))
+  file.path(klausmate_legacy_sessions_root(), substr(as.character(openssl::sha256(charToRaw(wd))), 1, 16))
+}
+# Same as the legacy root (kept under its old name for the stale-session check of earlier app copies)
+klausmate_sessions_root <- klausmate_legacy_sessions_root
+# Create the folder if need be, with its .gitignore (and, on Windows, the hidden attribute)
+klausmate_prepare_sessions_dir <- function(d) {
+  if (!dir.exists(d)) dir.create(d, showWarnings = FALSE, recursive = TRUE)
+  gi <- file.path(d, ".gitignore")
+  if (dir.exists(d) && !file.exists(gi)) try(writeLines("*", gi), silent = TRUE)
+  .cm_win_hidden(d, TRUE)
+  invisible(d)
 }

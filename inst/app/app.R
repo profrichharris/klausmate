@@ -59,6 +59,8 @@ CM_NEEDS <- c(
   "klausmate_save_state",
   "klausmate_sessions_dir",
   "klausmate_sessions_root",
+  "klausmate_legacy_sessions_dir",
+  "klausmate_prepare_sessions_dir",
   "klausmate_state_path",
   "klausmate_user_dir",
   "cm_clear_key",
@@ -163,20 +165,27 @@ cm_clean_state <- function(st) {
 # saved: students are meant to do most of their coding in R itself, not to depend on the app for storage.
 SESSION_KEEP_N    <- 5L
 SESSION_KEEP_DAYS <- 7
-# In the user's data folder, one sub-folder per working directory (see klausmate_sessions_dir()); each record holds `wd`
+# In the hidden .klausmate folder of the working directory (see klausmate_sessions_dir()); each record holds `wd`
 sessions_dir <- function() klausmate:::klausmate_sessions_dir(project_root())
-# Sessions and the recovery file kept by versions 0.6.43 and 0.6.44 in the working directory itself are moved across
+# Sessions and recovery files kept by earlier versions are moved into the working directory's .klausmate folder: those
+# of 0.6.45 to 0.6.52 (user data folder, one sub-folder per working directory) and those of 0.6.43 and 0.6.44 (in the
+# working directory itself, .klausmate_sessions and .klausmate_recovery.rds)
 migrate_old_sessions <- function() {
   tryCatch({
     old_dir <- file.path(project_root(), ".klausmate_sessions")
     old_rec <- file.path(project_root(), ".klausmate_recovery.rds")
-    if (!dir.exists(old_dir) && !file.exists(old_rec)) return(invisible(NULL))
-    d <- sessions_dir(); dir.create(d, showWarnings = FALSE, recursive = TRUE)
-    for (f in list.files(old_dir, pattern = "^session_.*\\.rds$", full.names = TRUE))
-      if (file.copy(f, file.path(d, basename(f)), overwrite = FALSE)) unlink(f)
+    leg_dir <- klausmate:::klausmate_legacy_sessions_dir(project_root())
+    if (!dir.exists(old_dir) && !file.exists(old_rec) && !dir.exists(leg_dir)) return(invisible(NULL))
+    d <- sessions_dir(); klausmate:::klausmate_prepare_sessions_dir(d)
+    for (src in c(old_dir, leg_dir))
+      for (f in list.files(src, pattern = "^session_.*\\.rds$", full.names = TRUE))
+        if (file.copy(f, file.path(d, basename(f)), overwrite = FALSE)) unlink(f)
     if (file.exists(old_rec) && !file.exists(recovery_file()) && file.copy(old_rec, recovery_file())) unlink(old_rec)
+    legacy_rec <- file.path(leg_dir, "recovery.rds")
+    if (file.exists(legacy_rec) && !file.exists(recovery_file()) && file.copy(legacy_rec, recovery_file())) unlink(legacy_rec)
     unlink(old_rec)
     unlink(old_dir, recursive = TRUE)
+    unlink(leg_dir, recursive = TRUE)
   }, error = function(e) invisible(NULL))
   invisible(NULL)
 }
@@ -203,10 +212,19 @@ list_sessions <- function() {
   }
   recs
 }
-# Keep `state` as a saved session (named by the time now); the oldest are deleted to stay within SESSION_KEEP_N
+# The saved sessions that can be loaded: not the one the current session was itself loaded from (its file is kept
+# until the current session is saved again, so that a loaded session can never be lost, but loading it again
+# would only duplicate it)
+list_loadable_sessions <- function(loaded_from = NULL) {
+  recs <- list_sessions()
+  if (is.null(loaded_from) || !nzchar(loaded_from)) recs
+  else Filter(function(r) !identical(r$file, loaded_from), recs)
+}
+# Keep `state` as a saved session (named by the time now); the oldest are deleted to stay within SESSION_KEEP_N.
+# If the session was loaded from a saved one (state$loaded_from), that file is replaced by this one.
 save_session_snapshot <- function(state) {
   d <- sessions_dir()
-  dir.create(d, showWarnings = FALSE, recursive = TRUE)
+  klausmate:::klausmate_prepare_sessions_dir(d)
   now <- Sys.time()
   f <- file.path(d, paste0("session_", format(now, "%Y%m%d_%H%M%S"), ".rds")); n <- 1L
   while (file.exists(f)) { n <- n + 1L; f <- file.path(d, paste0("session_", format(now, "%Y%m%d_%H%M%S"), "_", n, ".rds")) }
@@ -215,6 +233,9 @@ save_session_snapshot <- function(state) {
     saveRDS(list(saved = now, pid = Sys.getpid(), wd = normalizePath(project_root(), winslash = "/", mustWork = FALSE), state = state), tmp)
     file.rename(tmp, f)
   }, error = function(e) FALSE, warning = function(w) FALSE)
+  if (isTRUE(ok) && is.character(state$loaded_from) && length(state$loaded_from) == 1L && nzchar(state$loaded_from) &&
+      grepl("^session_.*\\.rds$", state$loaded_from))
+    unlink(file.path(d, state$loaded_from))     # the saved session this one grew from: now superseded
   if (isTRUE(ok)) invisible(list_sessions())    # also deletes the oldest beyond the limit
   isTRUE(ok)
 }
@@ -4836,7 +4857,8 @@ HELP_TEXTS <- list(
     "Pause — Saves your entire session — conversation history, code, context, and",
     "preferences — and closes Klausmate. Your code log is saved and opened too, unless you untick the box in the",
     "Pause window (that choice is remembered for later Pauses, until you change it). Reopen the app",
-    "with klaus() to pick up exactly where you left off.",
+    "with klaus() to pick up exactly where you left off, on this or another computer that uses the same working folder",
+    "(a paused session is deleted after 7 days).",
     "Use this if you want to take a longer break and return to the same conversation later.",
     "For a quick step out to run some R code, use Quick Console instead."
   ),
@@ -7845,6 +7867,8 @@ server <- function(input, output, session) {
   if (!is.null(ps)) .cm$pkg_choices <- ps$pkg_choices %||% list()      # package choices survive a Pause
   # The "Save your Code Log and open it" tick box of the Pause window: remembered for later Pauses, kept apart from
   # End Session's, ticked at every fresh start and carried across a real Pause only (not a crash restore or Recent Session)
+  # The saved session (file name) this session was loaded from with Recent Session, until it is saved again
+  loaded_from <- reactiveVal(if (!is.null(ps) && is.character(ps$loaded_from) && length(ps$loaded_from) == 1L) ps$loaded_from else NULL)
   pause_save_log <- reactiveVal(if (!is.null(ps) && !isTRUE(ps$restored) && !is.null(ps$pause_save_log))
                                   isTRUE(ps$pause_save_log) else TRUE)
 
@@ -11100,10 +11124,10 @@ server <- function(input, output, session) {
     showModal(modalDialog(
       title = "Pause",
       tags$p(tags$strong("Pause Klausmate: your session is saved and Klausmate closes.")),
-      tags$p(paste(
-        "The current session — prompt, code, context files and objects,",
-        "conversation history, and preferences — will be saved and restored",
-        "automatically when you next start the app."
+      tags$p(paste0(
+        "The current session — prompt, code, context files and objects, ",
+        "conversation history, and preferences — will be saved and restored ",
+        "automatically when you next start the app. A paused session is kept for ", SESSION_KEEP_DAYS, " days, then deleted."
       )),
       if (length(full_log()) > 0)
         checkboxInput("pause_log_tick",
@@ -11123,6 +11147,7 @@ server <- function(input, output, session) {
     capture_active_code()
     list(
       packages             = all_session_pkgs(),
+      loaded_from          = isolate(loaded_from()),
       log_file             = { lp <- isolate(log_path()); if (!is.null(lp) && file.exists(lp)) lp else isolate(log_continues()) },
       port                 = suppressWarnings(as.integer(isolate(session$clientData$url_port))),   # klaus() reuses it when resuming
       prompt               = isolate(input$prompt),
@@ -11198,7 +11223,7 @@ server <- function(input, output, session) {
       if (session_is_empty()) return(invisible(NULL))
       tryCatch({
         tmp <- paste0(recovery_file(), ".tmp")
-        dir.create(dirname(tmp), showWarnings = FALSE, recursive = TRUE)
+        klausmate:::klausmate_prepare_sessions_dir(dirname(tmp))
         saveRDS(list(saved = Sys.time(), pid = Sys.getpid(),
                      wd = normalizePath(project_root(), winslash = "/", mustWork = FALSE), state = session_state()), tmp)
         file.rename(tmp, recovery_file())
@@ -11215,14 +11240,14 @@ server <- function(input, output, session) {
   session_is_empty <- function()
     isolate(length(interactions()) == 0L && length(conversation_history()) == 0L && length(run_history()) == 0L &&
             length(full_log()) == 0L && !nzchar(trimws(input$prompt %||% "")))
-  sessions_rv <- reactiveVal(list_sessions())
+  sessions_rv <- reactiveVal(list_loadable_sessions(isolate(loaded_from())))
   # The button is greyed out when there is nothing to load (and while the data-protection notice or a request is working)
   observe({
     shinyjs::toggleState("load_session_btn",
       length(sessions_rv()) > 0L && !isTRUE(protection_notice_active()) && !isTRUE(ui_busy()))
   })
   show_sessions_modal <- function() {
-    recs <- list_sessions(); sessions_rv(recs)
+    recs <- list_loadable_sessions(loaded_from()); sessions_rv(recs)
     if (length(recs) == 0L) {
       showNotification("There are no saved sessions to load.", type = "message", duration = 5)
       return(invisible(NULL))
@@ -11245,7 +11270,7 @@ server <- function(input, output, session) {
   }
   observeEvent(input$load_session_btn, show_sessions_modal())
   sess_record <- function(file) {
-    recs <- list_sessions()
+    recs <- list_loadable_sessions(isolate(loaded_from()))
     for (r in recs) if (identical(r$file, file)) return(r)
     NULL
   }
@@ -11266,7 +11291,7 @@ server <- function(input, output, session) {
     if (is.null(r)) {
       removeModal()
       showNotification("That session is no longer available.", type = "error", duration = 6)
-      sessions_rv(list_sessions())
+      sessions_rv(list_loadable_sessions(isolate(loaded_from())))
       return(invisible(NULL))
     }
     x <- tryCatch(readRDS(r$path), error = function(e) NULL)
@@ -11279,7 +11304,7 @@ server <- function(input, output, session) {
     st <- cm_clean_state(x$state)
     st$restored <- TRUE
     st$port <- suppressWarnings(as.integer(isolate(session$clientData$url_port)))
-    unlink(r$path)                                   # the loaded session becomes the current one
+    st$loaded_from <- r$file                         # its file stays until this session is saved again (End Session)
     if (!session_is_empty()) {                       # the current session takes its place in the list
       if (length(full_log()) > 0) do_save_log()
       save_session_snapshot(session_state())
@@ -11322,7 +11347,7 @@ server <- function(input, output, session) {
         # "five" and "7" are SESSION_KEEP_N and SESSION_KEEP_DAYS
         tags$p(paste0("Up to five most recent sessions are kept for ", SESSION_KEEP_DAYS, " days. ",
                       "You can recover them by restarting klaus() and using Recent Session.",
-                      if (length(list_sessions()) >= SESSION_KEEP_N) " The oldest saved session will be deleted to make room." else "")),
+                      if (length(list_loadable_sessions(isolate(loaded_from()))) >= SESSION_KEEP_N) " The oldest saved session will be deleted to make room." else "")),
       if (has_log)
         checkboxInput("end_save_log",
                       paste0("Save your Code Log and open it in ", if (in_rstudio()) "RStudio" else "your editor",

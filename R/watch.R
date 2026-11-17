@@ -863,8 +863,11 @@ ssshh <- function() {
 # ---------------------------------------------------------------------------
 
 # TRUE while a paused klaus() session exists (its pause file is in the folder klaus() was started from)
-klausmate_paused <- function()
-  file.exists(file.path(getOption(".klausmate_project_root", getwd()), "claude_assistant_pause.rds"))
+klausmate_paused <- function() {
+  wd <- getOption(".klausmate_project_root", getwd())
+  klausmate_expire_pause(wd)                      # a paused session older than a week no longer counts
+  file.exists(file.path(wd, "claude_assistant_pause.rds"))
+}
 
 #' Clear the saved Klausmate key
 #'
@@ -952,13 +955,16 @@ klausmate_reset <- function() {
     return(invisible(NULL))
   }
 
-  # Sessions kept by End Session and the crash-recovery files live in the user's data folder, one sub-folder per
-  # working directory (versions 0.6.43 and 0.6.44 kept them in the working directory itself: those are removed too)
-  sess_root  <- klausmate_sessions_root()
+  # Sessions kept by End Session and the crash-recovery file live in the hidden .klausmate folder of the working
+  # directory. Earlier versions kept them in the user's data folder (one sub-folder per working directory: every one
+  # of those is removed too) and, before that, in the working directory itself.
   work_dir   <- getOption(".klausmate_project_root", getwd())
+  sess_dir   <- klausmate_sessions_dir(work_dir)
+  sess_root  <- klausmate_legacy_sessions_root()
   old_dir    <- file.path(work_dir, ".klausmate_sessions")
   old_rec    <- file.path(work_dir, ".klausmate_recovery.rds")
-  n_saved    <- length(list.files(sess_root, pattern = "\\.rds$", recursive = TRUE, all.files = TRUE)) +
+  n_saved    <- length(list.files(sess_dir, pattern = "\\.rds$", all.files = TRUE)) +
+                length(list.files(sess_root, pattern = "\\.rds$", recursive = TRUE, all.files = TRUE)) +
                 length(list.files(old_dir, pattern = "\\.rds$", all.files = TRUE)) + file.exists(old_rec)
 
   # --- Confirm with the user ------------------------------------------------
@@ -969,7 +975,7 @@ klausmate_reset <- function() {
     "  • Forget the package set-up, so that it is run again the next time klaus() starts",
     if (n_saved > 0)
       paste0("\n  • Delete the ", n_saved, if (n_saved == 1) " saved session" else " saved sessions",
-             " (from every working directory), which cannot then be restored (Code Logs are not deleted)"),
+             " (those in this working directory and any saved by earlier versions in other folders), which cannot then be restored (Code Logs are not deleted)"),
     "\n"
   )
   answer <- trimws(readline("Are you sure you want to reset? (yes/no): "))
@@ -1007,6 +1013,7 @@ klausmate_reset <- function() {
 
   # --- Delete the saved sessions ---------------------------------------------------------
   if (n_saved > 0) {
+    unlink(sess_dir, recursive = TRUE)
     unlink(sess_root, recursive = TRUE)
     unlink(old_dir, recursive = TRUE)
     unlink(old_rec)
