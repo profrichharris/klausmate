@@ -360,23 +360,27 @@ r_system_prompt <- paste(
 )
 
 tmap_v4_instruction <- paste(
-  "IMPORTANT: Always use tmap version 4 syntax. tmap v4 introduced breaking",
-  "changes from v3. Key differences to follow strictly:",
-  "(1) Use tm_shape() + tm_polygons(), tm_lines(), tm_dots(), tm_symbols() etc.",
-  "    as in v3, but note that many argument names changed.",
-  "(2) 'col' replaces the old 'palette' argument for colour mapping,",
-  "    e.g. tm_polygons(col = 'variable', fill.palette = 'Blues').",
-  "    In v4 use fill = 'variable' and fill.palette or col.palette.",
-  "(3) Use fill = 'variable' (not col =) for choropleth polygon fills.",
-  "(4) tm_layout() arguments have changed: use frame = FALSE not frame = FALSE",
-  "    and check v4 docs; legend.outside is still supported.",
-  "(5) tmap_mode('plot') and tmap_mode('view') still work.",
-  "(6) Do NOT use deprecated v3 functions or argument names such as",
-  "    'palette =', 'n =', 'style =' at the top level of tm_polygons();",
-  "    in v4 these are fill.scale = tm_scale_intervals(n=, style=, values=) etc.",
-  "(7) For classified maps use fill.scale = tm_scale_intervals() or",
-  "    tm_scale_fixed() rather than passing style/breaks directly.",
-  "Never produce tmap v3 code even if the user's existing code uses v3."
+  "IMPORTANT: Always use tmap version 4 syntax, never v3, even if the user's existing code uses v3. These patterns are tested:",
+  "(1) Polygon fill: tm_polygons(fill = 'var', fill.scale = tm_scale_intervals(...), fill.legend = tm_legend(...)).",
+  "    'fill' is the fill variable; 'col' is the border colour. Never pass palette =, n =, style =, breaks = or title = to",
+  "    tm_polygons() directly: those are v3.",
+  "(2) Classes: tm_scale_intervals(style = 'jenks', n = 5, values = 'brewer.rd_bu'), or fixed classes with",
+  "    tm_scale_intervals(breaks = c(...), values = ...) where breaks include both end points. Palettes are named like",
+  "    'brewer.rd_bu' or 'brewer.blues'; a leading minus reverses one ('-brewer.rd_bu'). Colour-blind friendly diverging:",
+  "    'brewer.rd_bu', 'brewer.pu_or', 'brewer.pi_yg'.",
+  "(3) Several maps that must share classes, colours and ONE legend (e.g. two data sets): rbind() them into one sf object",
+  "    with an identifying column, then tm_shape(all) + tm_polygons(fill = 'var', ...) + tm_facets(by = 'id', ncol = 2) (or",
+  "    ncol = 1, nrow = 2). The panels are then the same size and share one legend. Do not use tmap_arrange() for that;",
+  "    use it only for maps that need different scales.",
+  "(4) Legend: tm_legend(title = '...', position = tm_pos_out('right', 'center'), reverse = TRUE). tm_pos_out() puts it beside the",
+  "    maps (centred vertically with 'center'); tm_pos_in('left', 'top') puts it inside. By default the LOWEST class is at the",
+  "    top; reverse = TRUE puts the highest at the top. Hide a legend with fill.legend = tm_legend_hide().",
+  "(5) tm_compass(position = c('left', 'top')) and tm_scalebar(position = c('left', 'bottom')), added after the layers",
+  "    (in facets they appear in each panel).",
+  "(6) Jenks classes for data split at zero, pooled across data sets: take classInt::classIntervals(x, n, style = 'jenks')$brks",
+  "    separately for the values below zero and for those at or above zero (pooling the data sets first), set the last",
+  "    negative break and the first positive break to 0, and join them with unique() to give the breaks for (2).",
+  "(7) tmap_mode('plot') and tmap_mode('view') still work; tm_layout(frame = FALSE) removes the frame."
 )
 
 tmap_breaks_instruction <- paste(
@@ -799,11 +803,33 @@ amend_rule <- paste(
   "CONSISTENCY RULE applies to code you write, not to existing lines you are keeping. If you notice a genuine problem in",
   "the existing code (an error, or a result that would mislead), correct it and say so in a short code comment.")
 
+# The versions of R and of the packages the request is likely to use, so that Claude writes for the interface that is installed
+# (ggplot2, tmap, dplyr and others have changed a great deal between major versions). A loaded package reports the version that is
+# loaded, otherwise the installed one. Only names and version numbers are sent, and only for the packages that matter here: the
+# ones behind the student's preferences, the ones loaded in this session and a short list of packages whose interfaces keep
+# changing. Sorted, so the text is the same from one request to the next and the prompt cache keeps matching.
+API_WATCH_PKGS <- c("ggplot2", "dplyr", "tidyr", "purrr", "stringr", "patchwork", "tmap", "sf", "terra", "lme4", "brms",
+                    "data.table", "gt")
+installed_versions_clause <- function(pkgs = character(0)) {
+  pkgs <- unique(c(as.character(pkgs), API_WATCH_PKGS))
+  ver <- vapply(pkgs, function(p) tryCatch({
+    if (isNamespaceLoaded(p)) as.character(getNamespaceVersion(p)[["version"]])
+    else if (nzchar(system.file(package = p))) as.character(utils::packageVersion(p))
+    else NA_character_
+  }, error = function(e) NA_character_), character(1))
+  ver <- ver[!is.na(ver)]
+  ver <- utils::head(ver[order(names(ver))], 40L)
+  paste0("INSTALLED VERSIONS (the student's R and packages): R ", getRversion(),
+         if (length(ver)) paste0("; ", paste0(names(ver), " ", ver, collapse = "; ")), ". Write code for exactly these versions: ",
+         "use only functions and arguments that exist in them, and where a package changed its interface between versions, ",
+         "follow the installed one.")
+}
+
 build_system_prompt <- function(coding, plotting, mapping, img_format, img_quality, img_size,
                                 max_lines = 50, comment_density = "Minimal",
                                 loaded_pkgs = character(0),
                                 language = "English", approaches = list(), consistency = 1L,
-                                package_choices = list()) {
+                                package_choices = list(), version_pkgs = character(0)) {
   library_rule <- paste0(
     "PACKAGE LOADING RULE: Always include an explicit library() call for every ",
     "package your code uses. ",
@@ -826,11 +852,10 @@ build_system_prompt <- function(coding, plotting, mapping, img_format, img_quali
     research_integrity_rule,
     disclosure_risk_rule
   ), collapse = "\n\n")
+  # Three blocks, each cached on its own: what never changes, what changes only when preferences or packages do, and what changes
+  # during a session (the packages loaded so far) last, so that a library() call does not break the cache of the rest
   varying <- paste(c(
-    if (length(loaded_pkgs) > 0)
-      paste0("PACKAGES ALREADY LOADED: the following packages have already been loaded with library() earlier ",
-             "in this session — do NOT include library() for them again: ",
-             paste(loaded_pkgs, collapse = ", "), "."),
+    installed_versions_clause(version_pkgs),
     if (tolower(mapping) == "tmap") tmap_v4_instruction,
     filename_timestamp_instruction(),
     format_preferences_clause(coding, plotting, mapping, max_lines, comment_density, approaches),
@@ -838,7 +863,11 @@ build_system_prompt <- function(coding, plotting, mapping, img_format, img_quali
     format_image_preferences_clause(img_format, img_quality, img_size),
     build_language_clause(language)
   ), collapse = "\n\n")
-  c(shared, varying)
+  volatile <- if (length(loaded_pkgs) > 0)
+    paste0("PACKAGES ALREADY LOADED: the following packages have already been loaded with library() earlier ",
+           "in this session — do NOT include library() for them again: ",
+           paste(loaded_pkgs, collapse = ", "), ".") else ""
+  c(shared, varying, volatile)
 }
 
 # Mark the last earlier message of a conversation for caching, so the next request reads the history from the
@@ -846,7 +875,7 @@ build_system_prompt <- function(coding, plotting, mapping, img_format, img_quali
 # starts to slide, the start of the history changes every turn and a cache entry would never be read).
 cache_history <- function(messages) {
   n <- length(messages) - 1L                     # earlier messages; the last one is the new turn
-  if (n < 1L || n >= MAX_HISTORY_TURNS - 1L) return(messages)
+  if (n < 1L) return(messages)
   m <- messages[[n]]
   blocks <- if (is.character(m$content)) list(list(type = "text", text = m$content)) else m$content
   if (length(blocks) == 0L) return(messages)
@@ -875,6 +904,17 @@ parse_disclosure_risk <- function(text) {
     if (grepl("^REASON:", ln)) reason <- trimws(sub("^REASON:", "", ln))
   }
   list(reason = reason)
+}
+
+# The earlier messages sent with a new request: the recent turns, dropped four messages (two exchanges) at a time, so that where the
+# conversation sent begins stays the same from one request to the next and Claude's prompt cache keeps matching
+window_history <- function(h, max_msgs = MAX_HISTORY_TURNS - 1L) {
+  n <- length(h)
+  if (n <= max_msgs - 1L) return(h)
+  drop <- min(n - 2L, 4L * ceiling((n - (max_msgs - 1L)) / 4))
+  h <- h[seq.int(drop + 1L, n)]
+  while (length(h) > 0L && !identical(h[[1]]$role, "user")) h <- h[-1]
+  h
 }
 
 take_last_n <- function(lst, n) {
@@ -3303,10 +3343,16 @@ ui <- fluidPage(
         if (e.target && e.target.closest && e.target.closest('.cm-answer-preview, .cm-answer-open-note') && answerShowing())
           window.cmAnswerFloat(true);
       });
+      // The window opens when the Answer tab is opened by the student (a click on a tab, the Code / Answer switch or the tab
+      // keyboard shortcut, which clicks the tab), not when the app puts the tab up by itself, as when a session is restored
+      var userTab = 0;
+      document.addEventListener('click', function(e) {
+        if (e.target && e.target.closest && e.target.closest('#main_tabs a, #mode_switch_li')) userTab = Date.now();
+      }, true);
       if (window.jQuery) jQuery(document).on('shown.bs.tab', function(e) {
         var v = e.target && e.target.getAttribute && e.target.getAttribute('data-value');
         if (!e.target || !e.target.closest || !e.target.closest('#main_tabs')) return;
-        window.cmAnswerFloat(v === 'Answer');
+        window.cmAnswerFloat(v === 'Answer' && Date.now() - userTab < 2000);
       });
       (function reg() {
         if (window.Shiny && Shiny.addCustomMessageHandler)
@@ -9726,8 +9772,10 @@ server <- function(input, output, session) {
         file_schemas        = file_schema_cache()
       )
       new_user_turn   <- list(role = "user", content = user_message)
-      history_so_far  <- c(conversation_history(), list(new_user_turn))
-      windowed_prompt <- cache_history(c(take_last_n(conversation_history(), MAX_HISTORY_TURNS - 1), list(new_user_turn)))
+      # What is kept in the conversation is the prompt alone: the data summaries, the code already run and the current code that go
+      # with every request are sent afresh with the newest one, so they are not carried in (and paid for again with) every later turn
+      history_so_far  <- c(conversation_history(), list(list(role = "user", content = current_prompt)))
+      windowed_prompt <- cache_history(c(window_history(conversation_history()), list(new_user_turn)))
 
       api_result <- tryCatch(
         call_claude(
@@ -9742,7 +9790,8 @@ server <- function(input, output, session) {
                                                                 modelling = prefs$modelling, pipeline = prefs$pipeline,
                                                                 tables = prefs$tables, strings = prefs$strings),
                                               consistency = prefs$consistency,
-                                              package_choices = .cm$pkg_choices)
+                                              package_choices = .cm$pkg_choices,
+                                              version_pkgs = unique(c(pref_packages(), loaded_packages())))
         ),
         error = function(e) list(text = "", stop_reason = "error")
       )
@@ -9965,8 +10014,8 @@ server <- function(input, output, session) {
       file_schemas        = file_schema_cache()
     )
     new_user_turn  <- list(role = "user", content = user_message)
-    history_so_far <- c(conversation_history(), list(new_user_turn))
-    windowed       <- cache_history(c(take_last_n(conversation_history(), MAX_HISTORY_TURNS - 1), list(new_user_turn)))
+    history_so_far <- c(conversation_history(), list(list(role = "user", content = current_prompt)))   # the prompt alone, as for code
+    windowed       <- cache_history(c(window_history(conversation_history()), list(new_user_turn)))
     plan_prompt    <- build_answer_system_prompt(prefs$language)
 
     r1  <- withProgress(message = "Thinking...", value = 0.3,
