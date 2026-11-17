@@ -10235,7 +10235,13 @@ server <- function(input, output, session) {
   # The first two or three sentences of the answer (of its first paragraph), for the Answer tab; the rest opens in the window
   answer_preview_text <- function(txt, n = 3L) {
     txt <- trimws(txt %||% "")
-    para <- trimws(strsplit(txt, "\n[ \t]*\n")[[1]][1] %||% "")
+    paras <- trimws(strsplit(txt, "\n[ \t]*\n")[[1]])
+    if (length(paras) == 0L) return("")
+    # A short opening paragraph (a heading such as "**What it is**") is carried on into the next one
+    k <- 1L
+    while (k < min(length(paras), 3L) && nchar(paste(paras[seq_len(k)], collapse = " ")) < 80L) k <- k + 1L
+    para <- paste(paras[seq_len(k)], collapse = "\n\n")
+    if (!nzchar(para)) para <- ""
     if (!nzchar(para) || grepl("^(```|\\s*[-*+] |\\s*[0-9]+[.)] |#|\\|)", para)) para <- substr(txt, 1, 300)
     ends <- gregexpr("(?<=[.!?])\\s+(?=[A-Z0-9*(\"'])", para, perl = TRUE)[[1]]
     if (ends[1] > 0 && length(ends) >= n) {
@@ -10561,7 +10567,16 @@ server <- function(input, output, session) {
   # written is kept (`orig_*`), and every translation starts from it, so nothing is ever translated from a translation;
   # "translating" back into the original language just puts the original back, at no cost.
   lang_start <- isolate(prefs$language)
-  item_lang  <- function(x) x$lang %||% lang_start
+  # An item with no language recorded (made before languages were recorded) is taken to be in the language the app started
+  # with, unless its text is plainly English: someone who has moved from English to another language is by far the commonest
+  # case, and after a restart the start-up language is the new one
+  looks_english <- function(txt) {
+    w <- tolower(unlist(strsplit(gsub("[^A-Za-z' ]", " ", txt %||% ""), "\\s+")))
+    w <- w[nzchar(w)]
+    length(w) >= 5L && mean(w %in% c("the", "and", "of", "to", "is", "a", "in", "that", "it", "for", "as", "with", "are", "this",
+                                     "be", "by", "on", "can", "or", "an", "from", "which", "you", "your", "how", "what")) >= 0.12
+  }
+  item_lang  <- function(x) x$lang %||% (if (looks_english(x$answer %||% x$text)) "English" else lang_start)
   answer_needs_tr <- function(e) !is.null(e) && !identical(item_lang(e), prefs$language)
   about_needs_tr  <- function(e) !is.null(e) &&
     any(c(item_lang(e), vapply(e$more %||% list(), function(m) m$lang %||% item_lang(e), character(1))) != prefs$language)
