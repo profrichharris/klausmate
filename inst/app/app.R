@@ -5961,7 +5961,7 @@ server <- function(input, output, session) {
     aid <- active_conv_id()
     k <- if (!is.null(aid)) which(vapply(old, function(e) identical(e$id, aid), logical(1))) else integer(0)
     summary <- if (length(k) > 0 && identical(length(old[[k[1]]]$prompts), length(ph))) old[[k[1]]]$summary
-               else make_conversation_summary(ph, api_key_val())
+               else make_conversation_summary(ph, klausmate:::cm_get_key())
     entry <- list(
       id          = if (length(k) > 0) aid else as.numeric(Sys.time()),
       summary     = summary,
@@ -8835,6 +8835,10 @@ server <- function(input, output, session) {
     lang_choices <- if (tolower(lang) == "english") "English" else c(lang, "English")
     showModal(modalDialog(
       title = "Preferences",
+      # A second Close at the top, so the window can be closed without scrolling down (it does the same as the one at the bottom)
+      tags$div(style = "display: flex; justify-content: flex-end; margin: -4px 0 6px 0;",
+               tags$button(type = "button", class = "btn btn-default btn-sm",
+                           onclick = "document.getElementById('pref_close').click();", "Close")),
       tags$p(style = "margin: 0;", tags$label("Claude Model:"), " ", MODEL_SONNET_LABEL),
       hr(),
       # Same width as the drop-downs below (first grid column), with the Change button beside it
@@ -9104,7 +9108,7 @@ server <- function(input, output, session) {
               "Your only task is to adjust comment lines to the requested level.",
               "Never change any executable code. Return only the raw R code."
             ),
-            api_key      = api_key_val(),
+            api_key      = klausmate:::cm_get_key(),
             cache_system = FALSE
           )
           new_code <- trimws(result$text)
@@ -10585,6 +10589,22 @@ server <- function(input, output, session) {
     list(text = if (identical(base_lang, target)) base_text else got, lang = target, orig = base_text, orig_lang = base_lang)
   }
 
+  # When the language preference changes, everything written so far that has no language recorded (made by an earlier version)
+  # is marked with the language it was written in, so that this is still known after a restart (when `lang_start` would be the
+  # new language and the Translate button would be lost)
+  lang_prev <- lang_start
+  observeEvent(prefs$language, {
+    old <- lang_prev; lang_prev <<- prefs$language
+    if (identical(old, prefs$language)) return()
+    tag <- function(x) { if (is.list(x) && is.null(x$lang)) x$lang <- old; x }
+    l <- isolate(answer_latest()); if (!is.null(l) && is.null(l$lang)) answer_latest(tag(l))
+    h <- isolate(answer_hist()); if (any(vapply(h, function(x) is.null(x$lang), logical(1)))) answer_hist(lapply(h, tag))
+    ab <- isolate(about_entries())
+    if (length(ab)) about_entries(lapply(ab, function(e) { e <- tag(e); e$more <- lapply(e$more %||% list(), tag); e }))
+    iv <- isolate(interactions())
+    if (length(iv)) interactions(lapply(iv, function(r) { if (identical(r$kind, "answer") && is.list(r$entry)) r$entry <- tag(r$entry); r }))
+  }, ignoreInit = TRUE)
+
   observeEvent(input$translate_answer, {
     req(tr_can_go())
     seq <- as.integer(input$translate_answer); target <- prefs$language
@@ -10596,7 +10616,7 @@ server <- function(input, output, session) {
     base_text <- e$orig_answer %||% e$answer; base_lang <- e$orig_lang %||% item_lang(e)
     got <- NULL
     if (!identical(base_lang, target)) {
-      r <- cm_translate(base_text, target, api_key_val())
+      r <- cm_translate(base_text, target, klausmate:::cm_get_key())
       if (is.null(r)) { tr_failed(); return() }
       record_usage(r$cost); got <- r$texts[1]
     }
@@ -10619,7 +10639,7 @@ server <- function(input, output, session) {
     base_lang <- c(e$orig_lang %||% item_lang(e), vapply(more, function(m) m$orig_lang %||% m$lang %||% item_lang(e), character(1)))
     need <- which(base_lang != target); got <- rep(NA_character_, length(base_text))
     if (length(need)) {
-      r <- cm_translate(base_text[need], target, api_key_val())
+      r <- cm_translate(base_text[need], target, klausmate:::cm_get_key())
       if (is.null(r)) { tr_failed(); return() }
       record_usage(r$cost); got[need] <- r$texts
     }
