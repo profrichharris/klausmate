@@ -61,6 +61,8 @@ klaus <- function(fresh = FALSE) {
   # --- Stopped with Esc during this R session? Go back to where it was --------
   if (isTRUE(fresh)) klausmate_forget_interrupted() else klausmate_resume_interrupted()
 
+  message("Klausmate is running")
+
   app_dir <- system.file("app", package = "klausmate")
   if (!nzchar(app_dir)) {
     stop("Could not locate the Klausmate app directory. Try reinstalling the package.")
