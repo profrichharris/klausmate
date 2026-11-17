@@ -236,9 +236,12 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.57 (2026-11-17)  
-**Current version:** 0.6.57 (no unreleased changes)
+**Last released:** 0.6.58 (2026-11-17)  
+**Current version:** 0.6.58 (no unreleased changes)
 
+Released in 0.6.58: Answer pop-up Close button in a footer (cmAnswerFloat(false)).
+Released in 0.6.58 (continued): dragging a variable name from the Look-at window into the prompt box works again: Shiny 1.14 has a page-wide dragover/drop handler that calls preventDefault, which stopped the browser inserting the dropped text; a capture-phase handler next to cmInsertVar stops text drops on #prompt reaching it (file drops are left alone).
+Released in 0.6.58 (continued): Translate buttons. Answers (`lang`, `orig_answer`, `orig_lang`) and explanations in about_entries (`lang`, `orig_text`, `orig_lang`, and the same on each `more` item) record their language when written (untagged ones count as the language the app started with, `lang_start`). When prefs$language differs, a Translate button appears under "Click to open the full answer", left of Recall in Past answers, and left of View in the Explanation tab (inputs translate_answer / about_translate). cm_translate() makes one Haiku call per click (parts joined by <<<KLAUS-SPLIT>>>); translation always starts from the stored original, and translating back to the original language restores it with no call. The explanation is also changed in the code log (held / all / pending entries). Tested with a stubbed call_claude only.
 Released in 0.6.57 (no unreleased changes): the "Recall past conversation?" window is shown only the first time in a session (recall_conv_warned); later recalls go straight through do_recall_conv(). Also: Past conversations behave like Past code: a recalled conversation stays in the list, moves to the top and is highlighted yellow (active_conv_id, kept in the pause/session state). While it is the live conversation, saving it (New conversation, or recalling another) updates its own entry and moves it to the top instead of adding a duplicate (save_current_conversation_if_nonempty); starting a new conversation clears active_conv_id.
 Released in 0.6.56 (no unreleased changes): the Answer window is centred horizontally; the Answer tab preview shows only the first three sentences of the answer's first paragraph (answer_preview_text) followed by the "Click to open the full answer" line.
 Released in 0.6.55 (no unreleased changes): the Answer window now has the Explanation window's size and place (760px wide, body max 300px, above the tab row or at the top); recalling a past conversation no longer discards the current one (confirm_recall_conv re-reads saved_conversations() after saving the current conversation instead of using the copy taken before it).

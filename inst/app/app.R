@@ -2685,6 +2685,34 @@ call_claude <- function(messages, model, max_tokens, system_prompt = NULL,
 }
 
 
+# --- Translating what was written before the language was changed ---------------------------------------------
+# One call to the small, cheap model: the texts are sent (and come back) separated by a marker line, with nothing else (no
+# conversation, no data). Returns list(texts = , cost = ), or NULL if it failed or the parts did not come back intact.
+TR_SPLIT <- "<<<KLAUS-SPLIT>>>"
+cm_translate <- function(texts, target, api_key) {
+  texts <- as.character(texts); n <- length(texts)
+  if (n == 0L) return(list(texts = character(0), cost = 0))
+  body <- paste(texts, collapse = paste0("\n", TR_SPLIT, "\n"))
+  prompt <- paste0(
+    "Translate the text below into ", target, ". Keep the formatting exactly as it is (paragraphs, bullet points, numbered lists, ",
+    "**bold**, headings) and leave unchanged anything that is code or a name: text in backticks, R functions, packages, ",
+    "objects and variable names, file names, numbers, formulas and symbols. Do not add, remove or comment on anything.",
+    if (n > 1L) paste0(" The text is in ", n, " parts separated by a line containing only ", TR_SPLIT,
+                       "; return the translated parts in the same order with that same line between them.") else "",
+    " Return only the translation.\n\n", body)
+  r <- tryCatch(call_claude(
+    messages = list(list(role = "user", content = prompt)), model = MODEL_HAIKU,
+    max_tokens = as.integer(max(1024L, min(8000L, ceiling(sum(nchar(texts)) / 1.2)))),
+    system_prompt = "You are a careful translator. You translate accurately and naturally, and you never change code.",
+    api_key = api_key, cache_system = FALSE), error = function(e) NULL)
+  if (is.null(r) || !nzchar(trimws(r$text %||% ""))) return(NULL)
+  txt <- trimws(r$text)
+  if (grepl("^(Could not generate|Klausmate could not|Your key was not accepted|Claude is busy|Claude did not reply)", txt)) return(NULL)
+  parts <- if (n == 1L) txt else trimws(strsplit(txt, TR_SPLIT, fixed = TRUE)[[1]])
+  if (length(parts) != n || any(!nzchar(parts))) return(NULL)
+  list(texts = parts, cost = r$cost_usd %||% 0)
+}
+
 # --- UI ----------------------------------------------------------------------
 
 # Curved back / forward arrows for the Undo / Redo buttons (which one shows is set by the is-redo class)
@@ -3237,7 +3265,9 @@ ui <- fluidPage(
              tags$span(class = "cm-float-title", "Answer"),
              tags$button(type = "button", class = "cm-float-x", title = "Close (click outside the window to close it too)",
                          onclick = "window.cmAnswerFloat(false);", HTML("&times;"))),
-    tags$div(class = "cm-float-body", uiOutput("answer_float_ui"))),
+    tags$div(class = "cm-float-body", uiOutput("answer_float_ui")),
+    tags$div(class = "cm-float-foot",
+             tags$button(type = "button", class = "btn btn-default", onclick = "window.cmAnswerFloat(false);", "Close"))),
   # The answer pops up in a scrollable window when it is generated or when the Answer tab is opened or clicked, and folds
   # back into the Answer tab when the student clicks anywhere outside it (a drag that starts inside it to select text does not).
   tags$script(HTML("
@@ -3476,6 +3506,15 @@ ui <- fluidPage(
       document.addEventListener('focusout', function(e) {
         if (e.target && e.target.id === 'prompt') caret = {a: e.target.selectionStart, b: e.target.selectionEnd};
       });
+      // Shiny 1.14 added a page-wide drag handler that cancels every drop (it is meant for file inputs), so the browser no longer
+      // dropped a dragged variable name into the prompt box. Text dropped on the prompt box is kept from reaching that handler,
+      // so the browser inserts it at the drop point as it should; files are still left to Shiny.
+      ['dragenter', 'dragover', 'drop'].forEach(function(t) {
+        document.addEventListener(t, function(e) {
+          var el = e.target && e.target.closest ? e.target.closest('#prompt') : null, dt = e.dataTransfer;
+          if (el && dt && Array.prototype.indexOf.call(dt.types || [], 'Files') < 0) e.stopPropagation();
+        }, true);
+      });
       window.cmInsertVar = function(name) {
         var p = document.getElementById('prompt');
         if (!p || p.readOnly || p.disabled || !name) return;
@@ -3654,6 +3693,8 @@ ui <- fluidPage(
     .cm-answer-preview { cursor: pointer; position: relative; max-height: 180px; overflow: hidden; }
     .cm-answer-preview::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 40px;
       background: linear-gradient(rgba(255,255,255,0), #fff); pointer-events: none; }
+    .cm-tr-btn { padding: 2px 10px; font-size: 0.85em; background: #fff; border: 1px solid #bbb; border-radius: 3px; cursor: pointer; color: #333; }
+    .cm-tr-btn:disabled { opacity: 0.6; cursor: default; }
     .cm-answer-open-note { margin: 6px 0 0 0; font-size: 0.85em; color: #2c5f8a; cursor: pointer; }
     #answer_float .cm-float-body { max-height: none; overflow: auto; }
     #answer_float.cm-open:has(.cm-answer-card) { display: block; }
@@ -9973,7 +10014,7 @@ server <- function(input, output, session) {
       sq  <- next_seq()
       ent <- list(seq = sq, question = current_prompt,
                   answer = restore_placeholders(answer_tokens, placeholder_map()),
-                  code = code, results = results_text)
+                  code = code, results = results_text, lang = prefs$language)
       answer_latest(ent)
       add_interaction(list(seq = sq, kind = "answer", prompt = current_prompt, entry = ent))
       # History (which is sent to Claude on later turns) keeps placeholders, not real values
@@ -10224,7 +10265,8 @@ server <- function(input, output, session) {
       return(tags$p(em("Your answer will appear here."), style = "color: #999; margin: 4px 0;"))
     tagList(
       div(class = "cm-answer-preview", answer_card(a, working = FALSE, preview = TRUE)),
-      tags$p(class = "cm-answer-open-note", "Click to open the full answer"))
+      tags$p(class = "cm-answer-open-note", "Click to open the full answer"),
+      if (answer_needs_tr(a)) tags$p(style = "margin: 6px 0 0 0;", tr_button(paste0("Translate into ", prefs$language), "translate_answer", a$seq %||% 0L)))
   })
   output$answer_float_ui <- renderUI({
     a <- answer_latest()
@@ -10241,6 +10283,8 @@ server <- function(input, output, session) {
         tags$p(e$question %||% "", style = paste0(
           "margin: 0; flex: 1; font-size: 0.85em; color: #444;",
           "white-space: pre-wrap; word-break: break-word;")),
+        if (answer_needs_tr(e)) tr_button("Translate", "translate_answer", e$seq %||% 0L,
+          style = "flex-shrink: 0; margin-left: 6px; padding: 1px 6px; font-size: 0.75em; background: white; border: 1px solid #bbb; border-radius: 3px; cursor: pointer; color: #555;"),
         tags$button("Recall", id = paste0("recall_answer_", e$seq %||% 0L),
           style = paste0(
             "flex-shrink: 0; margin-left: 6px; padding: 1px 6px;",
@@ -10426,7 +10470,7 @@ server <- function(input, output, session) {
     id <- max(c(0L, vapply(ents, function(e) as.integer(e$id), integer(1)))) + 1L
     ents <- c(ents, list(list(id = id, group = g, ctx = ctx$id, code = code, subject = subject, row = ctx$row %||% 0L,
                               kind = ctx$kind, level = if (identical(ctx$kind, "changes")) "" else level, lines = ctx$lines %||% integer(0),
-                              text = trimws(text), more = list(), ts = Sys.time())))
+                              text = trimws(text), more = list(), ts = Sys.time(), lang = prefs$language)))
     about_entries(utils::tail(ents, 60L))
     about_group(g)
   }
@@ -10437,7 +10481,7 @@ server <- function(input, output, session) {
     hit <- which(vapply(ents, function(e) identical(e$ctx, ctx$id) && identical(e$level, level), logical(1)))
     if (length(hit) == 0) return(invisible(NULL))
     i <- hit[length(hit)]
-    ents[[i]]$more <- c(ents[[i]]$more %||% list(), list(list(passage = passage, text = trimws(text))))
+    ents[[i]]$more <- c(ents[[i]]$more %||% list(), list(list(passage = passage, text = trimws(text), lang = prefs$language)))
     about_entries(ents)
   }
   # The tab is there while there are explanations for the code in the editor (and the code side of the app is showing)
@@ -10468,6 +10512,7 @@ server <- function(input, output, session) {
                             format(e$ts, if (as.Date(e$ts) == Sys.Date()) "%H:%M" else "%d %b %H:%M"),
                             if (length(e$more)) paste0("+", length(e$more), " more")), collapse = " · "),
                     if (changed) tags$span(style = "color: #b36b00;", " · code changed since")),
+          if (about_needs_tr(e)) tr_button("Translate", "about_translate", e$id, style = btn_style),
           tags$button("View", id = paste0("about_view_", e$id), style = btn_style,
                       onclick = paste0("Shiny.setInputValue('about_open', ", as.integer(e$id), ", {priority: 'event'});")))
       }))
@@ -10506,6 +10551,100 @@ server <- function(input, output, session) {
             HTML(explanation_to_html(m$text)))))
   })
   outputOptions(output, "about_float_ui", suspendWhenHidden = FALSE)
+  # --- Translate (answers and explanations written in an earlier language) ----------------------------------------
+  # Each answer / explanation records the language it is in (`lang`; older ones are taken to be in the language the app started
+  # with). If the language preference has been changed, a Translate button appears on the ones that are not in it. The text first
+  # written is kept (`orig_*`), and every translation starts from it, so nothing is ever translated from a translation;
+  # "translating" back into the original language just puts the original back, at no cost.
+  lang_start <- isolate(prefs$language)
+  item_lang  <- function(x) x$lang %||% lang_start
+  answer_needs_tr <- function(e) !is.null(e) && !identical(item_lang(e), prefs$language)
+  about_needs_tr  <- function(e) !is.null(e) &&
+    any(c(item_lang(e), vapply(e$more %||% list(), function(m) m$lang %||% item_lang(e), character(1))) != prefs$language)
+  tr_button <- function(label, input_id, value, style = "")
+    tags$button(type = "button", class = "cm-tr-btn", `data-label` = label, style = style,
+                title = "Translate this into the language chosen in Preferences",
+                onclick = sprintf("this.disabled = true; this.textContent = 'Translating...'; Shiny.setInputValue('%s', %s, {priority: 'event'});",
+                                  input_id, as.integer(value)), label)
+  tr_reset_buttons <- function()
+    shinyjs::runjs("Array.prototype.forEach.call(document.querySelectorAll('.cm-tr-btn'), function(b) { b.disabled = false; b.textContent = b.getAttribute('data-label'); });")
+  tr_can_go <- function() {
+    if (isTRUE(isolate(quota_exceeded()))) {
+      showNotification("Your usage limit has been reached, so nothing can be translated now.", type = "warning", duration = 6)
+      tr_reset_buttons(); return(FALSE)
+    }
+    TRUE
+  }
+  tr_failed <- function() {
+    showNotification("The translation did not work this time (it may be a connection problem). Nothing has been changed; please try again.",
+                     type = "warning", duration = 8)
+    tr_reset_buttons()
+  }
+  # Text, language and original of one piece, moved to `target` (translated, or the original put back)
+  tr_apply <- function(base_text, base_lang, target, got) {
+    list(text = if (identical(base_lang, target)) base_text else got, lang = target, orig = base_text, orig_lang = base_lang)
+  }
+
+  observeEvent(input$translate_answer, {
+    req(tr_can_go())
+    seq <- as.integer(input$translate_answer); target <- prefs$language
+    l <- isolate(answer_latest()); h <- isolate(answer_hist())
+    e <- NULL; pos <- NA_integer_
+    if (!is.null(l) && identical(as.integer(l$seq %||% -1L), seq)) { e <- l; pos <- 0L }
+    else { i <- which(vapply(h, function(x) identical(as.integer(x$seq %||% -1L), seq), logical(1))); if (length(i)) { e <- h[[i[1]]]; pos <- i[1] } }
+    if (is.null(e)) { tr_reset_buttons(); return() }
+    base_text <- e$orig_answer %||% e$answer; base_lang <- e$orig_lang %||% item_lang(e)
+    got <- NULL
+    if (!identical(base_lang, target)) {
+      r <- cm_translate(base_text, target, api_key_val())
+      if (is.null(r)) { tr_failed(); return() }
+      record_usage(r$cost); got <- r$texts[1]
+    }
+    a <- tr_apply(base_text, base_lang, target, got)
+    e$answer <- a$text; e$lang <- target; e$orig_answer <- a$orig; e$orig_lang <- a$orig_lang
+    if (pos == 0L) answer_latest(e) else { h[[pos]] <- e; answer_hist(h) }
+    recs <- isolate(interactions())     # Undo / Redo bring answers back from here
+    for (k in seq_along(recs)) if (identical(recs[[k]]$kind, "answer") && identical(as.integer(recs[[k]]$seq %||% -1L), seq)) recs[[k]]$entry <- e
+    interactions(recs)
+    tr_reset_buttons()
+  })
+
+  observeEvent(input$about_translate, {
+    req(tr_can_go())
+    id <- as.integer(input$about_translate); target <- prefs$language
+    ents <- isolate(about_entries()); i <- which(vapply(ents, function(x) identical(as.integer(x$id), id), logical(1)))
+    if (length(i) == 0) { tr_reset_buttons(); return() }
+    e <- ents[[i[1]]]; more <- e$more %||% list()
+    base_text <- c(e$orig_text %||% e$text, vapply(more, function(m) m$orig_text %||% m$text, character(1)))
+    base_lang <- c(e$orig_lang %||% item_lang(e), vapply(more, function(m) m$orig_lang %||% m$lang %||% item_lang(e), character(1)))
+    need <- which(base_lang != target); got <- rep(NA_character_, length(base_text))
+    if (length(need)) {
+      r <- cm_translate(base_text[need], target, api_key_val())
+      if (is.null(r)) { tr_failed(); return() }
+      record_usage(r$cost); got[need] <- r$texts
+    }
+    new_text <- ifelse(base_lang == target, base_text, got)
+    e$text <- new_text[1]; e$lang <- target; e$orig_text <- base_text[1]; e$orig_lang <- base_lang[1]
+    for (k in seq_along(more)) {
+      more[[k]]$text <- new_text[k + 1L]; more[[k]]$lang <- target
+      more[[k]]$orig_text <- base_text[k + 1L]; more[[k]]$orig_lang <- base_lang[k + 1L]
+    }
+    e$more <- more
+    ents[[i[1]]] <- e; about_entries(ents)
+    # The same explanation in the code log (not yet written, or already held back) is changed too
+    fix <- function(entries) lapply(entries, function(le) {
+      if (identical(le$source, "explanation") && identical(le$explain_id, e$ctx) && identical(le$level %||% "", e$level %||% "")) {
+        le$text <- e$text
+        if (length(le$more %||% list()) == length(more))
+          for (k in seq_along(more)) le$more[[k]]$text <- more[[k]]$text
+      }
+      le
+    })
+    h <- isolate(held_explain()); if (!is.null(h)) { h$entries <- fix(h$entries); held_explain(h) }
+    all_log_entries(fix(isolate(all_log_entries()))); pending_log_entries(fix(isolate(pending_log_entries())))
+    tr_reset_buttons()
+  })
+
   last_explain_level         <- reactiveVal("Intermediate")  # persists across modal opens
   tell_more_result           <- reactiveVal(NULL)
 
