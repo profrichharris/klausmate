@@ -1,3 +1,6 @@
+# The shortest code-length limit a key can set (also the default): shorter limits proved too tight for ordinary tasks such as a map
+MIN_CODE_LINES <- 100L
+
 #' Create a Klausmate key file for distribution to students
 #'
 #' Bundles an Anthropic API key together with per-student usage-limit settings
@@ -47,9 +50,10 @@
 #'   change the default. Passing \code{NULL} (or typing \code{none} at the
 #'   prompt) removes the limit; you are asked to confirm this with Y/N.
 #' @param max_lines Maximum length, in lines, of code the app will accept or
-#'   generate. Default \code{100}. If omitted, you are prompted to confirm or
+#'   generate. Default \code{100}, which is also the lowest value allowed (a
+#'   smaller limit is refused). If omitted, you are prompted to confirm or
 #'   change the default (suggested choices are 100, 250, 500 or \code{none}; any
-#'   whole number of lines can be typed). Passing \code{NULL} (or typing \code{none} at the
+#'   whole number of lines from 100 upwards can be typed). Passing \code{NULL} (or typing \code{none} at the
 #'   prompt) removes the limit; you are asked to confirm this with Y/N.
 #' @param pin A 6-digit PIN (a string such as \code{"482915"}). The key file is encrypted with
 #'   it, so it is of no use without the PIN; students enter the PIN once, when they first load
@@ -120,11 +124,11 @@ klausmate_make_key <- function(api_key           = NULL,
   if (is.null(cost_limit)) confirm_unlimited("spending limit")
 
   if (missing(max_lines)) {
-    message("Maximum code length: other choices are 250, 500, 'none' for no limit,\nor any whole number of lines.")
+    message("Maximum code length: other choices are 250, 500, 'none' for no limit,\nor any whole number of lines from 100 upwards.")
     max_lines <- ask("Maximum code length in lines [press Enter to accept the default: 100]: ", 100L, function(ans) {
       if (is_none(ans)) return(list(ok = TRUE, value = NULL))
       v <- suppressWarnings(as.integer(ans))
-      if (is.na(v) || v < 1L) list(ok = FALSE, msg = paste0("'", ans, "' is not a valid code length. Enter a whole number of lines (1 or more), or 'none'."))
+      if (is.na(v) || v < MIN_CODE_LINES) list(ok = FALSE, msg = paste0("'", ans, "' is not a valid code length. Enter a whole number of lines (", MIN_CODE_LINES, " or more), or 'none'."))
       else list(ok = TRUE, value = v)
     })
   }
@@ -133,8 +137,8 @@ klausmate_make_key <- function(api_key           = NULL,
     max_lines <- Inf
   } else {
     max_lines <- as.integer(max_lines)
-    if (is.na(max_lines) || max_lines < 1L)
-      stop("max_lines must be a positive whole number, or NULL for no limit.",
+    if (is.na(max_lines) || max_lines < MIN_CODE_LINES)
+      stop("max_lines must be a whole number of at least ", MIN_CODE_LINES, " lines, or NULL for no limit.",
            call. = FALSE)
   }
 

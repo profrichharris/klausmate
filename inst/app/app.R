@@ -1516,10 +1516,10 @@ count_code_lines <- function(code) {
   sum(nzchar(trimws(grep("^\\s*#", lines, invert = TRUE, value = TRUE))))
 }
 
-# Return TRUE if code exceeds max_lines by more than 20% (Inf = unlimited)
+# Return TRUE if code exceeds max_lines by more than 50% (Inf = unlimited)
 code_too_long <- function(code, max_lines) {
   if (is.infinite(max_lines)) return(FALSE)
-  count_code_lines(code) > floor(max_lines * 1.2)
+  count_code_lines(code) > floor(max_lines * 1.5)
 }
 
 # LCS-based diff: matches new lines forward through old lines, extracts just the
@@ -9696,7 +9696,15 @@ server <- function(input, output, session) {
   # --- Ask for Code ----------------------------------------------------------
   autorun_once <- reactiveVal(FALSE)       # set by Cmd+Control+Enter / Ctrl+Alt+Enter: autorun this request only
   observeEvent(input$autorun_once, autorun_once(TRUE))
+  # Code that came back longer than the limit: kept (as a function that puts it in the editor) while the student decides
+  long_code_pending <- reactiveVal(NULL)
+  observeEvent(input$long_code_show, {
+    f <- isolate(long_code_pending()); long_code_pending(NULL)
+    removeModal()
+    if (is.function(f)) f()
+  })
   do_ask_code <- function(current_prompt, pref_change = NULL, autorun = FALSE) {
+    long_code_pending(NULL)
     # What is shown in Past prompts / the log: for a preference-change rewrite this is a short label,
     # while the full instruction is what Claude is sent
     shown_prompt <- if (!is.null(pref_change)) pref_change$label else current_prompt
@@ -9725,7 +9733,7 @@ server <- function(input, output, session) {
         call_claude(
           messages      = windowed_prompt,
           model         = prefs$model,
-          max_tokens    = 1100,
+          max_tokens    = 2500,      # a map or model script can run to a hundred lines; this is only paid for when it is used
           system_prompt = build_system_prompt(prefs$coding, prefs$plotting, prefs$mapping,
                                               prefs$img_format, prefs$img_quality, prefs$img_size,
                                               prefs$max_lines, prefs$comment_density,
@@ -9817,54 +9825,60 @@ server <- function(input, output, session) {
         return(invisible(NULL))
       }
 
+      commit_reply <- function(allow_autorun = TRUE) {
+        # Only now that new code is replacing the old: clear what belonged to the old code
+        pending_export(NULL)
+        hide_changes_tab()
+        console_output_rv(character(0)); warnings_rv(character(0)); plot_files_rv(character(0)); widget_files_rv(character(0)); diff_rv(NULL)
+        last_prompt_for_code(shown_prompt)
+        if (!is.null(pref_change)) prompt_history(c(shown_prompt, prompt_history()))
+        old_editor_code <- isolate(input$code_editor) %||% ""
+        last_extracted_code(parts$code)
+        last_code_description(parts$description %||% "")
+        loaded_script_name(NULL)
+        last_run_failed(FALSE)
+        code_before_fix(NULL)
+        updateAceEditor(session, "code_editor", value = parts$code)
+        output$run_status <- renderUI(NULL)
+        d <- if (nzchar(trimws(old_editor_code)))
+          compute_diff(old_editor_code, parts$code) else NULL
+        diff_rv(d)
+        if (!is.null(d)) show_changes_tab() else {
+          hide_changes_tab()
+          goto_tab("Code")
+        }
+        sq <- add_interaction(list(kind = "code", prompt = shown_prompt, code = parts$code,
+                                   pref_old = pref_change$old, pref_new = pref_change$new,
+                                   description = parts$description %||% "", editor_code = parts$code,
+                                   console = character(0), warnings = character(0), plots = character(0),
+                                   last_run_code = NULL, failed = FALSE, error = "", diff = d,
+                                   tab = if (!is.null(d)) "Changes" else "Code"))
+        active_code_id(sq)
+        unconf_add(parts$code, shown_prompt, parts$description, "ask", sq)
+        # A rewrite triggered by changing Preferences is never auto-run, so a settings change cannot run code by accident
+        if (allow_autorun && (isTRUE(input$autorun_code) || isTRUE(autorun)) && is.null(pref_change) && nzchar(trimws(parts$code))) parts$code else NULL
+      }
+
       if (nzchar(trimws(parts$code)) && code_too_long(parts$code, prefs$max_lines)) {
+        # Longer than the usual limit: the student can still have it (but it is never auto-run, so it is read first)
+        long_code_pending(function() commit_reply(allow_autorun = FALSE))
         showModal(modalDialog(
           title = "Response too complex",
           tags$p(
-            "The code Claude generated exceeds the current code-length limit (",
-            prefs$max_lines, " lines). This usually means the prompt covered too much at once."
+            "The code Claude generated is ", count_code_lines(parts$code), " lines long, which is over the usual limit of ",
+            prefs$max_lines, " lines. This usually means the prompt covered a lot at once."
           ),
-          tags$p("Try breaking it into smaller steps — for example, load the data first, ",
+          tags$p("You can show it anyway, or try breaking the task into smaller steps — for example, load the data first, ",
                  "then build the analysis, then visualise the results, one prompt at a time. ",
-                 "The code has not been added to the editor."),
-          footer    = modalButton("OK"),
+                 "Unless you show it, the code is not added to the editor."),
+          footer    = tagList(actionButton("long_code_show", "Show it anyway", class = "btn-primary"), modalButton("OK")),
           easyClose = FALSE
         ))
         enable("ask_code"); enable("ask_plain")
         return(invisible(NULL))
       }
 
-      # Only now that new code is replacing the old: clear what belonged to the old code
-      pending_export(NULL)
-      hide_changes_tab()
-      console_output_rv(character(0)); warnings_rv(character(0)); plot_files_rv(character(0)); widget_files_rv(character(0)); diff_rv(NULL)
-      last_prompt_for_code(shown_prompt)
-      if (!is.null(pref_change)) prompt_history(c(shown_prompt, prompt_history()))
-      old_editor_code <- isolate(input$code_editor) %||% ""
-      last_extracted_code(parts$code)
-      last_code_description(parts$description %||% "")
-      loaded_script_name(NULL)
-      last_run_failed(FALSE)
-      code_before_fix(NULL)
-      updateAceEditor(session, "code_editor", value = parts$code)
-      output$run_status <- renderUI(NULL)
-      d <- if (nzchar(trimws(old_editor_code)))
-        compute_diff(old_editor_code, parts$code) else NULL
-      diff_rv(d)
-      if (!is.null(d)) show_changes_tab() else {
-        hide_changes_tab()
-        goto_tab("Code")
-      }
-      sq <- add_interaction(list(kind = "code", prompt = shown_prompt, code = parts$code,
-                                 pref_old = pref_change$old, pref_new = pref_change$new,
-                                 description = parts$description %||% "", editor_code = parts$code,
-                                 console = character(0), warnings = character(0), plots = character(0),
-                                 last_run_code = NULL, failed = FALSE, error = "", diff = d,
-                                 tab = if (!is.null(d)) "Changes" else "Code"))
-      active_code_id(sq)
-      unconf_add(parts$code, shown_prompt, parts$description, "ask", sq)
-      # A rewrite triggered by changing Preferences is never auto-run, so a settings change cannot run code by accident
-      if ((isTRUE(input$autorun_code) || isTRUE(autorun)) && is.null(pref_change) && nzchar(trimws(parts$code))) autorun_text <- parts$code
+      autorun_text <- commit_reply()
     }, finally = { enable("ask_code"); enable("ask_plain") })
     # AutoRun Code: run what was just generated (passed directly, as the editor's own value has not
     # reached the server yet)
@@ -11300,7 +11314,7 @@ server <- function(input, output, session) {
             "It produced this error:\n", current_error
           ))),
           model         = prefs$model,
-          max_tokens    = 1100,
+          max_tokens    = 2500,
           system_prompt = build_fix_system_prompt(prefs$language),
           cache_system  = FALSE
         ),
