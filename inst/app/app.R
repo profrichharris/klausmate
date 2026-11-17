@@ -4049,6 +4049,8 @@ ui <- fluidPage(
         background: rgba(0,0,0,0.6); color: #fff; border-radius: 3px; pointer-events: none; }
       /* The data-protection notice in the prompt box is dark red until the prompt box is cleared */
       #prompt_wrap .form-group { margin-bottom: 0; }
+      /* The tick boxes beside the buttons (AutoRun Code, Check prompt) take only the room they need: Shiny gives an input 300px */
+      .autorun-box .shiny-input-container { width: auto; min-width: 0; margin-bottom: 0; }
       /* The prompt box is mid grey (and read-only) while Ask for Code, Answer or Run is working */
       #prompt.cm-busy { background-color: #bdbdbd; }
       .cm-prompt-notice { position: absolute; top: 1px; left: 1px; right: 1px; bottom: 1px; padding: 6px 12px;
