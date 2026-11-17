@@ -3250,8 +3250,9 @@ ui <- fluidPage(
           // Same size and place as the Explanation window: above the row of tabs when there is room, else at the top of the page
           var t = document.getElementById('main_tabs'), r = t ? t.getBoundingClientRect() : null;
           var body = p.querySelector('.cm-float-body'), room = r ? r.top - 16 : 0;
-          p.style.left = (r ? Math.max(8, r.left) : 20) + 'px'; p.style.right = 'auto';
-          p.style.width = Math.min(760, window.innerWidth * 0.94) + 'px';
+          var w = Math.min(760, window.innerWidth * 0.94);
+          p.style.width = w + 'px'; p.style.right = 'auto';
+          p.style.left = Math.max(8, (window.innerWidth - w) / 2) + 'px';      // centred across the screen
           if (room >= 200) { p.style.top = 'auto'; p.style.bottom = (window.innerHeight - r.top + 8) + 'px'; body.style.maxHeight = Math.max(110, Math.min(300, room - 95)) + 'px'; }
           else { p.style.bottom = 'auto'; p.style.top = '8px'; body.style.maxHeight = Math.min(300, window.innerHeight - 110) + 'px'; }
         }
@@ -10168,7 +10169,20 @@ server <- function(input, output, session) {
   }, ignoreInit = FALSE)
 
   # --- Answer tab ------------------------------------------------------------------
-  answer_card <- function(entry, working = TRUE) {
+  # The first two or three sentences of the answer (of its first paragraph), for the Answer tab; the rest opens in the window
+  answer_preview_text <- function(txt, n = 3L) {
+    txt <- trimws(txt %||% "")
+    para <- trimws(strsplit(txt, "\n[ \t]*\n")[[1]][1] %||% "")
+    if (!nzchar(para) || grepl("^(```|\\s*[-*+] |\\s*[0-9]+[.)] |#|\\|)", para)) para <- substr(txt, 1, 300)
+    ends <- gregexpr("(?<=[.!?])\\s+(?=[A-Z0-9*(\"'])", para, perl = TRUE)[[1]]
+    if (ends[1] > 0 && length(ends) >= n) {
+      cut <- ends[n] - 1L
+      return(paste0(substr(para, 1, cut), " ..."))
+    }
+    if (nchar(para) < nchar(txt)) paste0(para, " ...") else para
+  }
+  answer_card <- function(entry, working = TRUE, preview = FALSE) {
+    if (preview) entry$answer <- answer_preview_text(entry$answer)
     div(
       class = "cm-answer-card",
       tags$p(style = "color: #888; font-size: 0.85em; margin: 4px 0 8px 0;",
@@ -10191,7 +10205,7 @@ server <- function(input, output, session) {
     if (is.null(a))
       return(tags$p(em("Your answer will appear here."), style = "color: #999; margin: 4px 0;"))
     tagList(
-      div(class = "cm-answer-preview", answer_card(a, working = FALSE)),
+      div(class = "cm-answer-preview", answer_card(a, working = FALSE, preview = TRUE)),
       tags$p(class = "cm-answer-open-note", "Click to open the full answer"))
   })
   output$answer_float_ui <- renderUI({
