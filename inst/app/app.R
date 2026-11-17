@@ -2753,6 +2753,50 @@ cm_translate <- function(texts, target, api_key) {
   list(texts = parts, cost = r$cost_usd %||% 0)
 }
 
+# --- Check prompt (before Ask for Code) -----------------------------------------------------------------------
+# A free local gate first: only a prompt of PROMPT_CHECK_MIN_WORDS words or more is worth checking. Then one call to the small
+# model, which either says CLEAR or lists what is left open and offers a rewrite that states the assumptions.
+PROMPT_CHECK_MIN_WORDS <- 20L
+prompt_check_gate <- function(prompt) {
+  w <- strsplit(trimws(prompt %||% ""), "\\s+")[[1]]
+  length(w[nzchar(w)]) >= PROMPT_CHECK_MIN_WORDS
+}
+prompt_check_system <- function(language) paste(
+  "You read a student's request for R code before it is passed to the assistant that writes the code. The student is learning R,",
+  "statistics and GIS. Decide whether the request leaves something open that would change the code a lot, or is ambiguous: for",
+  "example which data or objects, how many classes, what a term such as 'pooled' or 'split' means, what a colour or palette should",
+  "convey, the layout, the legend (place, order, labels), titles, units, or how the result should look. Do NOT raise matters where a",
+  "sensible default is obvious or that make little difference, and do not criticise the student's wording or style.",
+  "If the request is clear enough, reply with exactly the one word: CLEAR",
+  "Otherwise reply in exactly this format and nothing else:",
+  "QUESTIONS:",
+  "- <a short question> (default: <what will be assumed if the student does not say>)",
+  "(at most three questions, only the ones that matter most)",
+  "REWRITE: <the request rewritten as one paragraph in the student's own voice, keeping every requirement they gave and, as far as",
+  "possible, their wording, and adding the missing choices using the defaults you named. Use only object, file and variable names",
+  "given in the context; never invent any. Do not write code and do not add requirements the student did not imply.>",
+  build_language_clause(language)
+)
+# Returns list(clear = TRUE) or list(clear = FALSE, questions = chr, rewrite = chr, cost = num); NULL if the check could not be
+# made (the request then goes ahead unchecked)
+cm_check_prompt <- function(prompt, context_names, language, api_key) {
+  user <- paste0(if (length(context_names)) paste0("Objects and files the student has added: ", paste(context_names, collapse = ", "), ".\n\n") else "",
+                 "The student's request:\n", prompt)
+  r <- tryCatch(call_claude(messages = list(list(role = "user", content = user)), model = MODEL_HAIKU, max_tokens = 700,
+                            system_prompt = prompt_check_system(language), api_key = api_key, cache_system = FALSE),
+                error = function(e) NULL)
+  if (is.null(r) || !nzchar(trimws(r$text %||% ""))) return(NULL)
+  txt <- trimws(r$text)
+  if (grepl("^CLEAR\\b", txt, ignore.case = TRUE)) return(list(clear = TRUE, cost = r$cost_usd %||% 0))
+  m <- regmatches(txt, regexec("(?s)REWRITE:\\s*(.*)$", txt, perl = TRUE))[[1]]
+  rewrite <- if (length(m) == 2L) trimws(m[2]) else ""
+  qpart <- sub("(?s)REWRITE:.*$", "", txt, perl = TRUE)
+  qs <- trimws(sub("^[-*]\\s*", "", grep("^\\s*[-*]\\s+", strsplit(qpart, "\n")[[1]], value = TRUE)))
+  qs <- utils::head(qs[nzchar(qs)], 3L)
+  if (!nzchar(rewrite) || length(qs) == 0L) return(list(clear = TRUE, cost = r$cost_usd %||% 0))   # not in the expected form: go ahead
+  list(clear = FALSE, questions = qs, rewrite = rewrite, cost = r$cost_usd %||% 0)
+}
+
 # --- UI ----------------------------------------------------------------------
 
 # Curved back / forward arrows for the Undo / Redo buttons (which one shows is set by the is-redo class)
@@ -3361,6 +3405,41 @@ ui <- fluidPage(
       })();
     })();
   ")),
+  tags$div(id = "check_float", class = "cm-float",
+    tags$div(class = "cm-float-head",
+             tags$span(class = "cm-float-title", "Before asking for code"),
+             tags$button(type = "button", class = "cm-float-x", title = "Close",
+                         onclick = "Shiny.setInputValue('check_close', Math.random(), {priority: 'event'});", HTML("&times;"))),
+    tags$div(class = "cm-float-body", uiOutput("check_float_ui")),
+    tags$div(class = "cm-float-foot", style = "display: flex; justify-content: space-between; align-items: center;",
+             tags$span(),
+             tags$span(
+               actionButton("check_asis", "Ask as I wrote it"), " ",
+               actionButton("check_use", "Use this version", class = "btn-primary"), " ",
+               actionButton("check_close_btn", "Close")))),
+  tags$script(HTML("
+    (function() {
+      window.cmCheckFloat = function(show) {
+        var p = document.getElementById('check_float'); if (!p) return;
+        if (!show) { p.style.display = 'none'; return; }
+        p.style.display = 'block';
+        if (p.getAttribute('data-moved') !== '1') {
+          var t = document.getElementById('main_tabs'), r = t ? t.getBoundingClientRect() : null;
+          var body = p.querySelector('.cm-float-body'), room = r ? r.top - 16 : 0;
+          var w = Math.min(760, window.innerWidth * 0.94);
+          p.style.width = w + 'px'; p.style.right = 'auto';
+          p.style.left = Math.max(8, (window.innerWidth - w) / 2) + 'px';
+          if (room >= 200) { p.style.top = 'auto'; p.style.bottom = (window.innerHeight - r.top + 8) + 'px'; body.style.maxHeight = Math.max(110, Math.min(360, room - 95)) + 'px'; }
+          else { p.style.bottom = 'auto'; p.style.top = '8px'; body.style.maxHeight = Math.min(360, window.innerHeight - 140) + 'px'; }
+        }
+      };
+      (function reg() {
+        if (window.Shiny && Shiny.addCustomMessageHandler)
+          Shiny.addCustomMessageHandler('cm_check_float', function(msg) { window.cmCheckFloat(!!(msg && msg.show)); });
+        else setTimeout(reg, 100);
+      })();
+    })();
+  ")),
   tags$div(id = "about_float", class = "cm-float",
     tags$div(class = "cm-float-head",
              tags$span(class = "cm-float-title", "Explanation of this code"),
@@ -3920,7 +3999,10 @@ ui <- fluidPage(
         actionButton("clear_prompt", "Clear"),
         tags$span(style = "display: inline-block; margin-left: 14px; vertical-align: middle;",
           tags$div(class = "autorun-box", style = "margin: 0;",
-            checkboxInput("autorun_code", "AutoRun Code", value = FALSE)))
+            checkboxInput("autorun_code", "AutoRun Code", value = FALSE))),
+        tags$span(style = "display: inline-block; margin-left: 10px; vertical-align: middle;",
+          tags$div(class = "autorun-box", style = "margin: 0;",
+            checkboxInput("check_prompt", "Check prompt", value = TRUE)))
       ),
       column(4, div(style = "text-align: right;",
         actionButton("preferences", "Preferences")
@@ -4874,6 +4956,15 @@ HELP_TEXTS <- list(
     "read and check the code first. It applies to Ask for Code only (not Fix), and the result",
     "appears on the R output tab as usual."
   ),
+  check_prompt = paste(
+    "Check prompt — When ticked (the default), a detailed request sent with Ask for Code is first read by a small, cheap model",
+    "that looks for anything left open that would change the code a lot (which data, how many classes, the colours, the layout...).",
+    "If it finds something, a window lists its questions, with the choice it would otherwise assume, and offers a clearer version of",
+    "your prompt: Use this version puts it in the prompt box for you to edit, Ask as I wrote it goes ahead with your own words,",
+    "and Close lets you carry on editing. A short or simple prompt, or one that is clear already, goes straight through, and a",
+    "prompt is never checked twice. It applies to Ask for Code only (not Answer), costs a fraction of a cent, and is switched off by",
+    "unticking the box."
+  ),
   undo_prompt = paste(
     "Undo (curved back arrow) — Steps back to the previous prompt, code or answer, bringing back what it produced in",
     "the same way as its Recall button (including, for a Preference entry, the preferences it set). Your prompt box is left",
@@ -4912,6 +5003,17 @@ HELP_TEXTS <- list(
     "Tell Me More — Highlight a passage of the explanation, then press this to have the AI go a little deeper into just",
     "that passage, at the same level as the explanation (the level cannot be changed here). The extra explanation is",
     "added under the explanation, kept in the Explanation tab and recorded in your code log."
+  ),
+  check_use = paste(
+    "Use this version — Puts the clearer version of your prompt, suggested by Check prompt, into the prompt box and closes this",
+    "window. Nothing is sent yet: read it, change it if you like, then press Ask for Code."
+  ),
+  check_asis = paste(
+    "Ask as I wrote it — Ignores the suggestion and asks for code now, with your prompt exactly as you wrote it."
+  ),
+  check_close_btn = paste(
+    "Close — Closes this window and leaves your prompt as it is, so that you can carry on editing it. Pressing Ask for Code again",
+    "will not check the same prompt a second time."
   ),
   about_close_btn = paste(
     "Close — Closes the explanation window and takes you back to the Explanation tab. The code can be changed again once it",
@@ -9938,10 +10040,7 @@ server <- function(input, output, session) {
   # has not already chosen (or named a package in the prompt), ask which they prefer. The choice is remembered until the
   # app is closed; a package named in a later prompt replaces it.
   pkg_pending <- reactiveVal(NULL)
-  observeEvent(input$ask_code, {
-    once <- isolate(autorun_once()); autorun_once(FALSE)       # a one-off AutoRun applies to this request only
-    req(input$prompt)
-    pr <- input$prompt
+  go_ask_code <- function(pr, once) {
     m  <- pkg_task_match(pr)
     if (is.null(m)) return(do_ask_code(pr, autorun = once))
     if (length(m$named) == 1L) { .cm$pkg_choices[[m$id]] <- m$named; return(do_ask_code(pr, autorun = once)) }   # the prompt names one
@@ -9964,7 +10063,57 @@ server <- function(input, output, session) {
       footer = tagList(actionButton("pkg_choice_ok", "Use this package", class = "btn-primary"),
                        actionButton("pkg_choice_cancel", "Cancel")),
       easyClose = FALSE))
+  }
+
+  # Check prompt: a detailed request is read first (see cm_check_prompt); the window offers a clearer version when something that
+  # matters is left open. A prompt that has been checked once, or that is a rewrite offered, is not checked again.
+  check_pending <- reactiveVal(NULL)
+  checked_prompt <- reactiveVal("")
+  close_check_float <- function() session$sendCustomMessage("cm_check_float", list(show = FALSE))
+  observeEvent(input$ask_code, {
+    once <- isolate(autorun_once()); autorun_once(FALSE)       # a one-off AutoRun applies to this request only
+    req(input$prompt)
+    pr <- input$prompt
+    close_check_float(); check_pending(NULL)
+    if (isTRUE(input$check_prompt) && prompt_check_gate(pr) && !identical(trimws(pr), isolate(checked_prompt())) &&
+        !isTRUE(isolate(quota_exceeded()))) {
+      ctx_names <- unique(c(basename(context_files()), context_objects()))
+      chk <- withProgress(message = "Checking your prompt...", value = 0.5,
+                          cm_check_prompt(pr, ctx_names, prefs$language, klausmate:::cm_get_key()))
+      checked_prompt(trimws(pr))
+      if (!is.null(chk)) record_usage(chk$cost)
+      if (!is.null(chk) && !isTRUE(chk$clear)) {
+        check_pending(list(prompt = pr, once = once, questions = chk$questions, rewrite = chk$rewrite))
+        session$sendCustomMessage("cm_check_float", list(show = TRUE))
+        return(invisible(NULL))
+      }
+    }
+    go_ask_code(pr, once)
   })
+  output$check_float_ui <- renderUI({
+    cp <- check_pending(); req(!is.null(cp))
+    tagList(
+      tags$p(style = "margin: 0 0 6px 0; font-size: 0.85em; color: #666;",
+             "Your request leaves a few things open. Klausmate will otherwise have to guess:"),
+      tags$ul(style = "margin: 0 0 10px 0; padding-left: 20px;", lapply(cp$questions, function(q) tags$li(q))),
+      tags$p(style = "margin: 0 0 4px 0; font-size: 0.85em; color: #666;", "A clearer version of your prompt:"),
+      tags$div(style = "background: #f7f7f7; border: 1px solid #ddd; border-radius: 4px; padding: 6px 10px; white-space: pre-wrap;", cp$rewrite))
+  })
+  outputOptions(output, "check_float_ui", suspendWhenHidden = FALSE)
+  observeEvent(input$check_use, {
+    cp <- check_pending(); req(cp)
+    updateTextAreaInput(session, "prompt", value = cp$rewrite)
+    checked_prompt(trimws(cp$rewrite))
+    check_pending(NULL); close_check_float()
+  })
+  observeEvent(input$check_asis, {
+    cp <- check_pending(); req(cp)
+    check_pending(NULL); close_check_float()
+    go_ask_code(cp$prompt, cp$once)
+  })
+  observeEvent(input$check_close,     { check_pending(NULL); close_check_float() })
+  observeEvent(input$check_close_btn, { check_pending(NULL); close_check_float() })
+
   observeEvent(input$pkg_choice_ok, {
     p <- pkg_pending(); req(p)
     removeModal()
