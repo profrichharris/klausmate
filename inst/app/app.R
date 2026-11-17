@@ -3247,12 +3247,13 @@ ui <- fluidPage(
         if (!show) { p.classList.remove('cm-open'); return; }
         p.classList.add('cm-open');
         if (p.getAttribute('data-moved') !== '1') {
+          // Same size and place as the Explanation window: above the row of tabs when there is room, else at the top of the page
           var t = document.getElementById('main_tabs'), r = t ? t.getBoundingClientRect() : null;
-          var top = r ? r.top + 42 : 80;
-          p.style.left = (r ? Math.max(8, r.left) : 20) + 'px'; p.style.right = 'auto'; p.style.bottom = 'auto';
-          p.style.top = top + 'px';
-          p.style.width = (r ? Math.max(320, Math.min(r.width, window.innerWidth - r.left - 8)) : 760) + 'px';
-          p.querySelector('.cm-float-body').style.maxHeight = Math.max(160, window.innerHeight - top - 70) + 'px';
+          var body = p.querySelector('.cm-float-body'), room = r ? r.top - 16 : 0;
+          p.style.left = (r ? Math.max(8, r.left) : 20) + 'px'; p.style.right = 'auto';
+          p.style.width = Math.min(760, window.innerWidth * 0.94) + 'px';
+          if (room >= 200) { p.style.top = 'auto'; p.style.bottom = (window.innerHeight - r.top + 8) + 'px'; body.style.maxHeight = Math.max(110, Math.min(300, room - 95)) + 'px'; }
+          else { p.style.bottom = 'auto'; p.style.top = '8px'; body.style.maxHeight = Math.min(300, window.innerHeight - 110) + 'px'; }
         }
       };
       function answerShowing() {
@@ -7012,8 +7013,11 @@ server <- function(input, output, session) {
     save_current_conversation_if_nonempty()
     # Restore recalled conversation
     recalled <- convs[[idx]]
-    # Remove from list (it's now the active conversation; will be re-saved on next New Conversation)
-    saved_conversations(convs[-idx])
+    # Remove it from the list (it's now the active conversation; will be re-saved on next New Conversation). The list is
+    # read again here because saving the current conversation above has just added it at the top: working from the copy
+    # taken before the save would silently throw the current conversation away.
+    now_saved <- saved_conversations()
+    saved_conversations(now_saved[!vapply(now_saved, function(e) identical(e$id, recalled$id), logical(1))])
     # Reset Claude conversation history
     conversation_history(list())
     # Restore prompts, code history, and file/object context
