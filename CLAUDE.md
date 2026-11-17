@@ -236,9 +236,10 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.56 (2026-11-17)  
-**Current version:** 0.6.56 (no unreleased changes)
+**Last released:** 0.6.57 (2026-11-17)  
+**Current version:** 0.6.57 (no unreleased changes)
 
+Released in 0.6.57 (no unreleased changes): the "Recall past conversation?" window is shown only the first time in a session (recall_conv_warned); later recalls go straight through do_recall_conv(). Also: Past conversations behave like Past code: a recalled conversation stays in the list, moves to the top and is highlighted yellow (active_conv_id, kept in the pause/session state). While it is the live conversation, saving it (New conversation, or recalling another) updates its own entry and moves it to the top instead of adding a duplicate (save_current_conversation_if_nonempty); starting a new conversation clears active_conv_id.
 Released in 0.6.56 (no unreleased changes): the Answer window is centred horizontally; the Answer tab preview shows only the first three sentences of the answer's first paragraph (answer_preview_text) followed by the "Click to open the full answer" line.
 Released in 0.6.55 (no unreleased changes): the Answer window now has the Explanation window's size and place (760px wide, body max 300px, above the tab row or at the top); recalling a past conversation no longer discards the current one (confirm_recall_conv re-reads saved_conversations() after saving the current conversation instead of using the copy taken before it).
 Released in 0.6.54 (no unreleased changes): Text size slider (li #cm_fs_li moved into #prompt_tabs by JS, right-aligned; five steps 85-150%, html.cm-scaled + --cm-s CSS var scales body, Bootstrap px sizes, ace editors and the fixed 220px/108px boxes; saved as text_size.rds in the config dir and restored by cm_text_size at session start; help id text_size). Also: the Answer from a prompt opens in a scrollable floating window (#answer_float, filled by answer_float_ui) on generation, on Recall and when the Answer tab is shown; a mousedown outside folds it back into the Answer tab, which shows a clipped preview (click it to reopen); dragging to select text inside does not close it. JS cmAnswerFloat, message cm_answer_float. Also: End Session (do_quit) sets window.cmEnded so that the ended tab never polls/reconnects (R reuses the same port within a session, so old tabs used to wake up when klaus() was run again; Pause and Esc still reconnect).

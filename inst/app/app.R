@@ -5914,9 +5914,15 @@ server <- function(input, output, session) {
     ph <- prompt_history()
     rh <- run_history()
     if (length(ph) == 0 && length(rh) == 0 && length(unconf_code()) == 0) return(invisible(NULL))
-    summary <- make_conversation_summary(ph, api_key_val())
+    # A conversation that was recalled from the list (and is still the live one) is updated in its own entry, which moves to the
+    # top, instead of being added a second time
+    old <- saved_conversations()
+    aid <- active_conv_id()
+    k <- if (!is.null(aid)) which(vapply(old, function(e) identical(e$id, aid), logical(1))) else integer(0)
+    summary <- if (length(k) > 0 && identical(length(old[[k[1]]]$prompts), length(ph))) old[[k[1]]]$summary
+               else make_conversation_summary(ph, api_key_val())
     entry <- list(
-      id          = as.numeric(Sys.time()),
+      id          = if (length(k) > 0) aid else as.numeric(Sys.time()),
       summary     = summary,
       prompts     = ph,
       codes       = rh,
@@ -5930,7 +5936,7 @@ server <- function(input, output, session) {
       active_code_id = active_code_id(),
       pkg_choices   = .cm$pkg_choices        # the packages chosen in this conversation
     )
-    saved_conversations(c(list(entry), saved_conversations()))
+    saved_conversations(c(list(entry), if (length(k) > 0) old[-k[1]] else old))
     show_past_convs_tab()
   }
 
@@ -6965,7 +6971,8 @@ server <- function(input, output, session) {
     items <- lapply(seq_along(convs), function(i) {
       conv   <- convs[[i]]
       btn_id <- paste0("recall_conv_", i)
-      div(style = "display: flex; align-items: flex-start; border-bottom: 1px solid #eee; padding: 4px 0;",
+      div(style = paste0("display: flex; align-items: flex-start; border-bottom: 1px solid #eee; padding: 4px 0;",
+                         if (identical(conv$id, active_conv_id())) " background-color: #fff3b0;" else ""),
         tags$p(conv$summary,
           style = "margin: 0; flex: 1; font-size: 0.85em; color: #444; white-space: pre-wrap; word-break: break-word;"),
         actionButton(btn_id, "Recall",
@@ -6982,6 +6989,7 @@ server <- function(input, output, session) {
   })
 
   recall_conv_index <- reactiveVal(NULL)
+  recall_conv_warned <- new.env(); recall_conv_warned$shown <- FALSE
 
   observe({
     convs <- saved_conversations()
@@ -6989,6 +6997,9 @@ server <- function(input, output, session) {
       btn_id <- paste0("recall_conv_", i)
       observeEvent(input[[btn_id]], {
         recall_conv_index(i)
+        # The explanation is shown only the first time in a session; after that the conversation is recalled straight away
+        if (isTRUE(recall_conv_warned$shown)) { do_recall_conv(); return(invisible(NULL)) }
+        recall_conv_warned$shown <- TRUE
         showModal(modalDialog(
           title = "Recall past conversation?",
           tags$p("Your current conversation will be saved to Past conversations, then the selected conversation will be restored."),
@@ -7002,7 +7013,8 @@ server <- function(input, output, session) {
     })
   })
 
-  observeEvent(input$confirm_recall_conv, {
+  observeEvent(input$confirm_recall_conv, do_recall_conv())
+  do_recall_conv <- function() {
     removeModal()
     idx <- recall_conv_index()
     if (is.null(idx)) return()
@@ -7013,12 +7025,16 @@ server <- function(input, output, session) {
     # Save current conversation before recalling (no-op if blank)
     save_current_conversation_if_nonempty()
     # Restore recalled conversation
-    recalled <- convs[[idx]]
-    # Remove it from the list (it's now the active conversation; will be re-saved on next New Conversation). The list is
-    # read again here because saving the current conversation above has just added it at the top: working from the copy
-    # taken before the save would silently throw the current conversation away.
+    rid <- convs[[idx]]$id
+    # The recalled conversation stays in the list, as recalled code does in Past code: it moves to the top and is marked in
+    # yellow. The list is read again after saving the current conversation, which has just been added (or, if it was itself
+    # recalled earlier, updated), so that neither is lost and the copy recalled is the up-to-date one.
     now_saved <- saved_conversations()
-    saved_conversations(now_saved[!vapply(now_saved, function(e) identical(e$id, recalled$id), logical(1))])
+    j <- which(vapply(now_saved, function(e) identical(e$id, rid), logical(1)))
+    if (length(j) == 0) return()
+    recalled <- now_saved[[j[1]]]
+    saved_conversations(c(list(recalled), now_saved[-j[1]]))
+    active_conv_id(rid)
     # Reset Claude conversation history
     conversation_history(list())
     # Restore prompts, code history, and file/object context
@@ -7063,7 +7079,7 @@ server <- function(input, output, session) {
     goto_tab("Code")
     if (length(recalled$codes) == 0 && !is.null(recalled$answer_latest)) set_ask_mode("answer")
     if (current_is_blank) conv_count_rv(max(conv_count_rv() - 1L, 1L))
-  })
+  }
 
   # --- File browser and workspace object picker -----------------------------
   volumes <- build_volumes()
@@ -8186,6 +8202,7 @@ server <- function(input, output, session) {
   # --- Conversation + run-history state --------------------------------------
   conversation_history  <- reactiveVal(if (!is.null(ps)) ps$conversation_history  else list())
   saved_conversations   <- reactiveVal(if (!is.null(ps)) ps$saved_conversations   else list())
+  active_conv_id        <- reactiveVal(if (!is.null(ps)) ps$active_conv_id else NULL)   # the list entry the live conversation was recalled from
   last_extracted_code   <- reactiveVal(if (!is.null(ps)) ps$last_extracted_code   else "")
   last_prompt_for_code <- reactiveVal(if (!is.null(ps)) ps$last_prompt_for_code else "")
   last_code_description <- reactiveVal("")
@@ -9104,6 +9121,7 @@ server <- function(input, output, session) {
     # Auto-save code log for this conversation before clearing
     if (length(full_log()) > 0) do_save_log()
     conv_count_rv(conv_count_rv() + 1L)
+    active_conv_id(NULL)                     # the live conversation is now a new one, not a recalled one
     .cm$pkg_choices <- list()                # a new conversation asks about packages afresh
     hide_changes_tab()
     conversation_history(list())
@@ -11355,6 +11373,7 @@ server <- function(input, output, session) {
       ),
       conversation_history = conversation_history(),
       saved_conversations  = saved_conversations(),
+      active_conv_id       = active_conv_id(),
       run_history          = run_history(),
       unconf_code          = unconf_code(),
       pending_log_entries  = pending_log_entries(),
