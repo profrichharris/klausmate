@@ -804,18 +804,17 @@ amend_rule <- paste(
   "the existing code (an error, or a result that would mislead), correct it and say so in a short code comment.")
 
 # The versions of R and of the packages the request is likely to use, so that Claude writes for the interface that is installed
-# (ggplot2, tmap, dplyr and others have changed a great deal between major versions). A loaded package reports the version that is
-# loaded, otherwise the installed one. Only names and version numbers are sent, and only for the packages that matter here: the
+# (ggplot2, tmap, dplyr and others have changed a great deal between major versions). Only names and version numbers are sent, and only for the packages that matter here: the
 # ones behind the student's preferences, the ones loaded in this session and a short list of packages whose interfaces keep
 # changing. Sorted, so the text is the same from one request to the next and the prompt cache keeps matching.
 API_WATCH_PKGS <- c("ggplot2", "dplyr", "tidyr", "purrr", "stringr", "patchwork", "tmap", "sf", "terra", "lme4", "brms",
                     "data.table", "gt")
 installed_versions_clause <- function(pkgs = character(0)) {
   pkgs <- unique(c(as.character(pkgs), API_WATCH_PKGS))
+  # Always written the same way (packageVersion), loaded or not: a loaded package's own version string is spelt differently
+  # ("1.0-21" against "1.0.21"), which would change the system prompt, and so drop the cache, the moment a package was loaded
   ver <- vapply(pkgs, function(p) tryCatch({
-    if (isNamespaceLoaded(p)) as.character(getNamespaceVersion(p)[["version"]])
-    else if (nzchar(system.file(package = p))) as.character(utils::packageVersion(p))
-    else NA_character_
+    if (nzchar(system.file(package = p))) as.character(utils::packageVersion(p)) else NA_character_
   }, error = function(e) NA_character_), character(1))
   ver <- ver[!is.na(ver)]
   ver <- utils::head(ver[order(names(ver))], 40L)
@@ -823,6 +822,17 @@ installed_versions_clause <- function(pkgs = character(0)) {
          if (length(ver)) paste0("; ", paste0(names(ver), " ", ver, collapse = "; ")), ". Write code for exactly these versions: ",
          "use only functions and arguments that exist in them, and where a package changed its interface between versions, ",
          "follow the installed one.")
+}
+
+# The packages already loaded in this session, with their versions, for the newest message (see build_system_prompt)
+loaded_packages_note <- function(pkgs) {
+  pkgs <- unique(as.character(pkgs))
+  if (length(pkgs) == 0L) return("")
+  ver <- vapply(pkgs, function(p) tryCatch(
+    if (nzchar(system.file(package = p))) as.character(utils::packageVersion(p)) else "", error = function(e) ""), character(1))
+  paste0("PACKAGES ALREADY LOADED: the following packages have already been loaded with library() earlier in this session",
+         " — do NOT include library() for them again: ",
+         paste0(pkgs, ifelse(nzchar(ver), paste0(" (", ver, ")"), ""), collapse = ", "), ".")
 }
 
 build_system_prompt <- function(coding, plotting, mapping, img_format, img_quality, img_size,
@@ -852,22 +862,25 @@ build_system_prompt <- function(coding, plotting, mapping, img_format, img_quali
     research_integrity_rule,
     disclosure_risk_rule
   ), collapse = "\n\n")
-  # Three blocks, each cached on its own: what never changes, what changes only when preferences or packages do, and what changes
-  # during a session (the packages loaded so far) last, so that a library() call does not break the cache of the rest
-  varying <- paste(c(
-    installed_versions_clause(version_pkgs),
+  # Three blocks, each cached on its own, and ordered so that as much as possible is the same for every student: a cache entry is
+  # read by any request that starts with identical text, so students sharing one API key share the first blocks. (1) What never
+  # changes. (2) What is the same for students who keep the default preferences: the tmap rules, the preferences, the image
+  # settings and the language. (3) What belongs to one student's machine or session: the folder for saved files, the installed
+  # versions and any package choices made. The packages loaded so far are not here but in the newest message, so that loading a
+  # package does not change the system prompt (any change to it would also drop the cached conversation after it).
+  common <- paste(c(
     if (tolower(mapping) == "tmap") tmap_v4_instruction,
-    filename_timestamp_instruction(),
     format_preferences_clause(coding, plotting, mapping, max_lines, comment_density, approaches),
-    package_choice_clause(package_choices),
     format_image_preferences_clause(img_format, img_quality, img_size),
     build_language_clause(language)
   ), collapse = "\n\n")
-  volatile <- if (length(loaded_pkgs) > 0)
-    paste0("PACKAGES ALREADY LOADED: the following packages have already been loaded with library() earlier ",
-           "in this session — do NOT include library() for them again: ",
-           paste(loaded_pkgs, collapse = ", "), ".") else ""
-  c(shared, varying, volatile)
+  student <- paste(c(
+    filename_timestamp_instruction(),
+    installed_versions_clause(version_pkgs),
+    package_choice_clause(package_choices),
+    if (length(loaded_pkgs) > 0) loaded_packages_note(loaded_pkgs)
+  ), collapse = "\n\n")
+  c(shared, common, student)
 }
 
 # Mark the last earlier message of a conversation for caching, so the next request reads the history from the
@@ -2557,20 +2570,26 @@ about_still_there <- function(e, editor_code) {
 
 # USD per million tokens (platform pricing page): input, 5-minute cache write, cache read, output
 MODEL_PRICES <- list(
-  "claude-sonnet-5-5" = c(input = 2.00, cache_write = 2.50,  cache_read = 0.10, output = 10.00),
-  "claude-haiku-5-5"  = c(input = 0.10, cache_write = 0.125, cache_read = 0.01, output = 0.50)
+  "claude-sonnet-5-5" = c(input = 2.00, cache_write = 2.50,  cache_write_1h = 4.00, cache_read = 0.10, output = 10.00),
+  "claude-haiku-5-5"  = c(input = 0.10, cache_write = 0.125, cache_write_1h = 0.20, cache_read = 0.01, output = 0.50)
 )
 
 calc_cost <- function(usage, model = MODEL_SONNET) {
   pr <- MODEL_PRICES[[model]] %||% MODEL_PRICES[["claude-sonnet-5-5"]]   # unknown model: use the Sonnet prices
   PRICE_INPUT <- pr[["input"]]; PRICE_CACHE_WRITE <- pr[["cache_write"]]
   PRICE_CACHE_READ <- pr[["cache_read"]]; PRICE_OUTPUT <- pr[["output"]]
-  cache_write <- usage$cache_creation_input_tokens %||% 0L
+  # Cache writes with the one-hour lifetime cost more than the five-minute ones (the API lists them separately)
+  cache_write_all <- usage$cache_creation_input_tokens %||% 0L
+  cc_break    <- usage[["cache_creation"]]                      # exact name: usage$cache_creation would also match ..._input_tokens
+  write_1h    <- min(if (is.list(cc_break)) (cc_break[["ephemeral_1h_input_tokens"]] %||% 0L) else 0L, cache_write_all)
+  cache_write <- cache_write_all - write_1h
+  PRICE_CACHE_WRITE_1H <- pr[["cache_write_1h"]] %||% (2 * PRICE_INPUT)
   cache_read  <- usage$cache_read_input_tokens     %||% 0L
   # The API reports input_tokens EXCLUDING cached tokens (which are listed separately).
   regular_in  <- usage$input_tokens %||% 0L
   out         <- usage$output_tokens  %||% 0L
   (cache_write * PRICE_CACHE_WRITE +
+   write_1h    * PRICE_CACHE_WRITE_1H +
    cache_read  * PRICE_CACHE_READ  +
    regular_in  * PRICE_INPUT       +
    out         * PRICE_OUTPUT) / 1e6
@@ -2684,12 +2703,14 @@ next_reset_time <- function(log, reset_period) {
 
 call_claude <- function(messages, model, max_tokens, system_prompt = NULL,
                          api_key = klausmate:::cm_get_key(),
-                         cache_system = TRUE, max_tries = 4L) {
+                         cache_system = TRUE, max_tries = 4L, system_ttl = NULL) {
   # system_prompt may be one string or several blocks (a shared part first, then a varying part); each block
   # is marked for caching, so a prefix that is identical across requests is read from the cache
   system_prompt <- system_prompt[!is.na(system_prompt) & nzchar(system_prompt)]
   system_block <- if (length(system_prompt) > 0) {
-    cc <- if (cache_system) list(type = "ephemeral") else NULL
+    # system_ttl = "1h" keeps the system blocks in the cache for an hour instead of five minutes (a write costs more, but a student
+    # who pauses between requests, or a class sharing a key, then reads the prompt instead of writing it again)
+    cc <- if (cache_system) c(list(type = "ephemeral"), if (!is.null(system_ttl)) list(ttl = system_ttl)) else NULL
     lapply(system_prompt, function(txt)
       Filter(Negate(is.null), list(type = "text", text = txt, cache_control = cc)))
   } else NULL
@@ -2698,18 +2719,25 @@ call_claude <- function(messages, model, max_tokens, system_prompt = NULL,
   if (!is.null(system_block)) body$system <- system_block
 
   .cm$last_api_error <- NULL
-  resp <- tryCatch(request("https://api.anthropic.com/v1/messages") |>
+  send <- function(b) request("https://api.anthropic.com/v1/messages") |>
     req_headers(
       "x-api-key"         = api_key,
       "anthropic-version" = "2023-06-01",
       "content-type"      = "application/json"
     ) |>
-    req_body_json(body) |>
+    req_body_json(b) |>
     req_timeout(120) |>
     req_options(connecttimeout = 15) |>      # a dead connection fails in seconds, not minutes
     klausmate:::km_req_retry(max_tries = max_tries) |>     # a busy Claude (429 / 529 / 5xx) is tried again after a short wait
-    req_perform(),
-    error = function(e) { .cm$last_api_error <- net_error_kind(e); stop(e) })
+    req_perform()
+  resp <- tryCatch(send(body), error = function(e) {
+    # A cache lifetime the API does not accept (HTTP 400) must never stop a request: try once more with the usual five minutes
+    if (!is.null(system_ttl) && !is.null(body$system) && inherits(e, "httr2_http_400")) {
+      body$system <- lapply(body$system, function(blk) { blk$cache_control <- list(type = "ephemeral"); blk })
+      return(tryCatch(send(body), error = function(e2) { .cm$last_api_error <- net_error_kind(e2); stop(e2) }))
+    }
+    .cm$last_api_error <- net_error_kind(e); stop(e)
+  })
 
   result <- resp_body_json(resp)
   u <- result$usage %||% list()
@@ -3405,6 +3433,82 @@ ui <- fluidPage(
       })();
     })();
   ")),
+  # Expanded code window: the same editor (#code_editor, so Run, Explain, selections and everything else keep working unchanged)
+  # re-styled as a large floating window, with its own bar of buttons that press the real ones. It closes with Close or Run.
+  tags$style(HTML("
+    .cm-expand-ico { display: inline-block; margin-left: 7px; vertical-align: middle; cursor: pointer; color: #888; line-height: 1; }
+    .cm-expand-ico:hover { color: #000; }
+    .cm-expand-ico svg { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; display: block; }
+    #code_big_backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.28); z-index: 1015; }
+    #code_big_bar { display: none; position: fixed; left: 5vw; right: 5vw; top: calc(24vh - 42px); height: 42px; z-index: 1020;
+      align-items: center; justify-content: space-between; padding: 0 10px; background: #eee; border: 1px solid #999;
+      border-radius: 6px 6px 0 0; }
+    #code_big_bar .cm-big-title { font-weight: bold; }
+    #code_big_bar button { margin-left: 4px; }
+    body.cm-code-big #code_big_backdrop { display: block; }
+    body.cm-code-big #code_big_bar { display: flex; }
+    body.cm-code-big #code_editor, html.cm-scaled body.cm-code-big #code_editor {
+      position: fixed !important; left: 5vw; right: 5vw; top: 24vh; bottom: 4vh; width: auto !important; height: auto !important;
+      z-index: 1020; border: 1px solid #999; border-top: none; border-radius: 0 0 6px 6px; box-shadow: 0 8px 28px rgba(0,0,0,0.35); }
+  ")),
+  # The expand icon is made here and moved into the Code tab's heading by the script below
+  tags$div(style = "display: none;",
+    tags$span(id = "code_expand_btn", class = "cm-expand-ico", `data-help-id` = "expand_code", title = "Expand the code window",
+      HTML('<svg viewBox="0 0 24 24" width="12" height="12"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>'))),
+  tags$div(id = "code_big_backdrop"),
+  tags$div(id = "code_big_bar",
+    tags$span(class = "cm-big-title", "Code"),
+    tags$span(
+      tags$button(type = "button", class = "btn btn-success btn-sm cm-big-btn", `data-act` = "run_code", "Run"), " ",
+      tags$button(type = "button", class = "btn btn-default btn-sm cm-big-btn", `data-act` = "explain_code", "Explain"), " ",
+      tags$button(type = "button", class = "btn btn-default btn-sm cm-big-btn", `data-act` = "fix_code", "Fix"), " ",
+      tags$button(type = "button", class = "btn btn-default btn-sm cm-big-btn", `data-act` = "close", "Close"))),
+  tags$script(HTML("
+    (function() {
+      var open = false, iv = null;
+      function ed() { try { return ace.edit('code_editor'); } catch (e) { return null; } }
+      function real(id) { return document.getElementById(id); }
+      function sync() {         // the bar's buttons are greyed out when the real ones are
+        Array.prototype.forEach.call(document.querySelectorAll('#code_big_bar .cm-big-btn'), function(p) {
+          var r = real(p.getAttribute('data-act'));
+          if (r) p.disabled = !!(r.disabled || r.classList.contains('disabled'));
+        });
+      }
+      (function place() {        // the expand icon goes into the Code tab's heading
+        var a = document.querySelector('#main_tabs a[data-value=\"Code\"]'), i = real('code_expand_btn');
+        if (a && i) { if (i.parentNode !== a) a.appendChild(i); } else setTimeout(place, 300);
+      })();
+      window.cmCodeBig = function(show) {
+        show = !!show;
+        var slot = real('code_slot'), e = real('code_editor');
+        if (!slot || !e || show === open) return;
+        if (show) { slot.style.height = e.offsetHeight + 'px'; document.body.classList.add('cm-code-big'); sync(); iv = setInterval(sync, 300); }
+        else { document.body.classList.remove('cm-code-big'); slot.style.height = ''; if (iv) clearInterval(iv); iv = null; }
+        open = show;
+        setTimeout(function() { var x = ed(); if (x) { x.resize(true); if (show) x.focus(); } }, 60);
+      };
+      document.addEventListener('click', function(e) {
+        var t = e.target; if (!t || !t.closest) return;
+        if (t.closest('#code_expand_btn')) { e.preventDefault(); window.cmCodeBig(true); return; }
+        var bb = t.closest('#code_big_bar .cm-big-btn');
+        if (bb) {
+          var act = bb.getAttribute('data-act');
+          if (act === 'close') window.cmCodeBig(false);
+          else if (!bb.disabled && real(act)) real(act).click();      // Run: the click on #run_code then closes the window
+          return;
+        }
+        if (open && t.closest('#run_code')) setTimeout(function() { window.cmCodeBig(false); }, 150);   // Run, by button or shortcut
+      }, true);
+      window.addEventListener('resize', function() { if (open) { var x = ed(); if (x) x.resize(true); } });
+      if (window.jQuery) {
+        jQuery(document).on('shown.bs.tab', function(e) {        // another tab (or the Changes tab) takes over: close it
+          var v = e.target && e.target.getAttribute && e.target.getAttribute('data-value');
+          if (e.target && e.target.closest && e.target.closest('#main_tabs') && v !== 'Code') window.cmCodeBig(false);
+        });
+        jQuery(document).on('shiny:disconnected', function() { window.cmCodeBig(false); });
+      }
+    })();
+  ")),
   tags$div(id = "check_float", class = "cm-float",
     tags$div(class = "cm-float-head",
              tags$span(class = "cm-float-title", "Before asking for code"),
@@ -4082,7 +4186,7 @@ ui <- fluidPage(
     tags$div(class = "cm-prompt-echo", uiOutput("prompt_echo")),
     tabsetPanel(id = "main_tabs", type = "tabs",
       tabPanel("Code",
-        tags$div(style = "margin-top: 8px;",
+        tags$div(id = "code_slot", style = "margin-top: 8px;",
           aceEditor("code_editor", value = "", mode = "r", theme = "textmate",
             height = "220px", fontSize = 13, showLineNumbers = TRUE,
             highlightActiveLine = TRUE, wordWrap = FALSE,
@@ -5005,6 +5109,11 @@ HELP_TEXTS <- list(
     "Tell Me More — Highlight a passage of the explanation, then press this to have the AI go a little deeper into just",
     "that passage, at the same level as the explanation (the level cannot be changed here). The extra explanation is",
     "added under the explanation, kept in the Explanation tab and recorded in your code log."
+  ),
+  expand_code = paste(
+    "Expand (the small arrows beside Code) — Opens the code in a large window with the same editor: line numbers, editing and selecting",
+    "all work as usual. It has its own Run, Explain, Fix and Close buttons, which do what the ones on the page do. The window stays open",
+    "until you press Close or Run (Run closes it); the code you edit there is the same code as in the small window."
   ),
   check_use = paste(
     "Use this version — Puts the clearer version of your prompt, suggested by Check prompt, into the prompt box and closes this",
@@ -9875,6 +9984,9 @@ server <- function(input, output, session) {
         last_console_output = character(0),    # R output is not sent when asking for code (it was cleared before this point until 0.5.115)
         file_schemas        = file_schema_cache()
       )
+      # The packages loaded so far go with the newest message, not in the system prompt (see build_system_prompt)
+      lp_note <- loaded_packages_note(loaded_packages())
+      if (nzchar(lp_note)) user_message <- paste(lp_note, user_message, sep = "\n\n")
       new_user_turn   <- list(role = "user", content = user_message)
       # What is kept in the conversation is the prompt alone: the data summaries, the code already run and the current code that go
       # with every request are sent afresh with the newest one, so they are not carried in (and paid for again with) every later turn
@@ -9889,13 +10001,14 @@ server <- function(input, output, session) {
           system_prompt = build_system_prompt(prefs$coding, prefs$plotting, prefs$mapping,
                                               prefs$img_format, prefs$img_quality, prefs$img_size,
                                               prefs$max_lines, prefs$comment_density,
-                                              loaded_packages(), prefs$language,
+                                              character(0), prefs$language,
                                               approaches = list(spatial = prefs$spatial, stats = prefs$stats,
                                                                 modelling = prefs$modelling, pipeline = prefs$pipeline,
                                                                 tables = prefs$tables, strings = prefs$strings),
                                               consistency = prefs$consistency,
                                               package_choices = .cm$pkg_choices,
-                                              version_pkgs = unique(c(pref_packages(), loaded_packages())))
+                                              version_pkgs = pref_packages()),
+          system_ttl    = "1h"       # the system blocks stay cached for an hour: pauses, and other students on the same key, then read them
         ),
         error = function(e) list(text = "", stop_reason = "error")
       )
