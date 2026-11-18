@@ -919,6 +919,15 @@ parse_disclosure_risk <- function(text) {
   list(reason = reason)
 }
 
+# What is kept in the conversation of one of Claude's code replies: its description line and the text around the code, but not the
+# code, which goes with every request as the editor's code instead (build_user_message(always_code = TRUE)). Replies kept whole
+# were repeated, with all their code, in every later request.
+compact_reply <- function(raw) {
+  txt <- gsub("(?s)```[A-Za-z]*[ \t]*\n.*?```", "[the code is not repeated here: the current code is sent with each request]", raw, perl = TRUE)
+  txt <- gsub("(\\[the code is not repeated here[^\\]]*\\])(\\s*\\1)+", "\\1", txt)
+  trimws(txt)
+}
+
 # The earlier messages sent with a new request: the recent turns, dropped four messages (two exchanges) at a time, so that where the
 # conversation sent begins stays the same from one request to the next and Claude's prompt cache keeps matching
 window_history <- function(h, max_msgs = MAX_HISTORY_TURNS - 1L) {
@@ -935,15 +944,44 @@ take_last_n <- function(lst, n) {
   lst[(length(lst) - n + 1):length(lst)]
 }
 
-format_already_run_block <- function(run_history) {
+# The names assigned at the top level of some code (x <- ..., x = ..., assign("x", ...)): the objects it created
+assigned_names <- function(code) {
+  ex <- tryCatch(parse(text = code, keep.source = FALSE), error = function(e) NULL)
+  if (is.null(ex)) return(NULL)
+  out <- character(0)
+  for (e in ex) {
+    if (!is.call(e)) next
+    f <- as.character(e[[1]])[1]
+    if (f %in% c("<-", "=", "<<-") && length(e) == 3L && is.name(e[[2]])) out <- c(out, as.character(e[[2]]))
+    else if (identical(f, "assign") && length(e) >= 2L && is.character(e[[2]])) out <- c(out, e[[2]][1])
+  }
+  unique(out)
+}
+# One short line about an object: name, class and size
+describe_object <- function(nm, envir = .GlobalEnv) {
+  o <- tryCatch(get(nm, envir = envir, inherits = FALSE), error = function(e) NULL)
+  if (is.null(o)) return(NULL)
+  d <- dim(o)
+  paste0(nm, " (", class(o)[1],
+         if (is.function(o)) "" else if (length(d) == 2L) paste0(", ", format(d[1], big.mark = ","), " x ", d[2]) else paste0(", length ", format(length(o), big.mark = ",")), ")")
+}
+# A digest of what has already been run, not the code itself: which objects the earlier code created and that still exist, so that
+# Claude does not reload or recreate them. The code run so far was once sent in full with every request (a growing cost); with
+# last_script = TRUE the most recent script is added in full, for requests that are not sent the editor's code anyway.
+format_already_run_block <- function(run_history, envir = .GlobalEnv, last_script = TRUE) {
   if (length(run_history) == 0) return("")
-  code_concat <- paste(vapply(run_history, function(e) e$code, character(1)), collapse = "\n\n")
+  codes <- vapply(run_history, function(e) e$code, character(1))
+  nms <- character(0)
+  for (cd in codes) { a <- assigned_names(cd); if (is.null(a)) return(paste0(                    # code that cannot be read: send it all
+      "The following code has ALREADY been run successfully in this R session. Do not repeat, reload, or recreate anything it ",
+      "already did - any files it loaded or objects it created already exist. Only provide the NEW code needed for the next step:\n```r\n",
+      paste(codes, collapse = "\n\n"), "\n```")); nms <- c(nms, a) }
+  desc <- Filter(Negate(is.null), lapply(unique(nms), describe_object, envir = envir))
   paste0(
-    "The following code has ALREADY been run successfully in this R session. ",
-    "Do not repeat, reload, or recreate anything it already did - any files it ",
-    "loaded or objects it created already exist. Only provide the NEW code ",
-    "needed for the next step:\n```r\n", code_concat, "\n```"
-  )
+    "Code has ALREADY been run successfully in this R session. Do not repeat, reload or recreate anything it already did - any files it ",
+    "loaded or objects it created already exist, and packages it loaded are loaded. Only provide the NEW code needed for the next step.",
+    if (length(desc)) paste0(" Objects created by that code that now exist in R: ", paste(unlist(desc), collapse = "; "), ".") else "",
+    if (last_script) paste0(" The most recent code run:\n```r\n", codes[length(codes)], "\n```") else "")
 }
 
 # ---------------------------------------------------------------------------
@@ -1381,11 +1419,13 @@ build_user_message <- function(file_paths, object_names = character(0), current_
                                 last_known_code, run_history, user_prompt,
                                 last_console_output = character(0),
                                 object_envir = .GlobalEnv,
-                                file_schemas = list()) {
+                                file_schemas = list(), always_code = FALSE) {
   if (is.null(current_code))    current_code    <- ""
   if (is.null(last_known_code)) last_known_code <- ""
   pieces <- character(0)
-  already_run_block <- format_already_run_block(run_history)
+  # With always_code the editor's code goes with every request (and the digest leaves out the last script): the conversation keeps no
+  # code (see compact_reply), so this is how Claude sees the code it is to amend
+  already_run_block <- format_already_run_block(run_history, object_envir, last_script = !always_code)
   if (nzchar(already_run_block)) pieces <- c(pieces, already_run_block)
   if (length(file_paths) > 0) {
     schema_lines <- vapply(file_paths, function(p) {
@@ -1404,9 +1444,10 @@ build_user_message <- function(file_paths, object_names = character(0), current_
       paste(summaries, collapse = "\n\n")
     ))
   }
-  if (nzchar(trimws(current_code)) && !identical(trimws(current_code), trimws(last_known_code))) {
+  if (nzchar(trimws(current_code)) && (always_code || !identical(trimws(current_code), trimws(last_known_code)))) {
     pieces <- c(pieces, paste0(
-      "Here is the current code in my editor (I may have edited it since your last reply):\n```r\n",
+      if (always_code) "Here is the current code in my editor:\n```r\n"
+      else "Here is the current code in my editor (I may have edited it since your last reply):\n```r\n",
       current_code, "\n```"
     ))
   }
@@ -9982,7 +10023,8 @@ server <- function(input, output, session) {
         run_history         = run_history(),
         user_prompt         = current_prompt,
         last_console_output = character(0),    # R output is not sent when asking for code (it was cleared before this point until 0.5.115)
-        file_schemas        = file_schema_cache()
+        file_schemas        = file_schema_cache(),
+        always_code         = TRUE
       )
       # The packages loaded so far go with the newest message, not in the system prompt (see build_system_prompt)
       lp_note <- loaded_packages_note(loaded_packages())
@@ -10075,7 +10117,7 @@ server <- function(input, output, session) {
       }
 
       record_usage(api_result$cost_usd)
-      conversation_history(c(history_so_far, list(list(role = "assistant", content = raw_response))))
+      conversation_history(c(history_so_far, list(list(role = "assistant", content = compact_reply(raw_response)))))
       if (is.null(pref_change)) prompt_history(c(current_prompt, prompt_history()))
       parts <- split_response_into_text_and_code(raw_response)
 
