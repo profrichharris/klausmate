@@ -4007,10 +4007,48 @@ ui <- fluidPage(
         t.style.left = x + 'px'; t.style.top = y + 'px'; t.style.visibility = 'visible';
       }
       // Ask the server for the help on the highlighted entry (replaces shinyAce's own tooltip, which can fall off the screen)
+      // Match on the start of the name only (Ace's own matching finds the typed letters anywhere in a name, so "ls" also matched
+      // "labels" and "levels" and Enter could take one of them); an exact match first, then the server's (alphabetical) order
+      var filterDone = false;
+      function strictFilter() {
+        if (filterDone || !window.ace || !ace.require) return;
+        try {
+          var FL = ace.require('ace/autocomplete').FilteredList; if (!FL) return;
+          FL.prototype.filterCompletions = function(items, needle) {
+            var res = [], n = (needle || '').toLowerCase();
+            items.forEach(function(item) {
+              var cap = (item.caption || item.value || '').toLowerCase();
+              var tail = cap.replace(/^.*[$@]/, '');       // data$column and object@slot: the typed part follows the $ or @
+              if (cap.indexOf(n) !== 0 && tail.indexOf(n) !== 0) return;
+              item.matchMask = 0; item.exactMatch = (cap === n || cap === n + '()' || cap === n + ' = ') ? 1 : 0; item.$score = item.score || 0;
+              res.push(item);
+            });
+            return res;
+          };
+          filterDone = true;
+        } catch (e) {}
+      }
       function patch() {
+        strictFilter();
         editors().forEach(function(ed) {
           if (ed.__cmHelp || !ed.completers || !ed.completers.length) return;
           ed.__cmHelp = true;
+          // a list that arrives after the text has moved on (typed further, or a bracket or space) is dropped, and the list is
+          // closed as soon as a character that cannot be part of a name is typed, so that Enter never takes an out-of-date entry
+          ed.completers.forEach(function(c) {
+            var orig = c.getCompletions;
+            if (typeof orig === 'function') c.getCompletions = function(editor, session, pos, prefix, callback) {
+              var line = session.getLine(pos.row).slice(0, pos.column);
+              return orig.call(this, editor, session, pos, prefix, function(err, items) {
+                var cp = editor.getCursorPosition();
+                if (editor.session.getLine(cp.row).slice(0, cp.column) !== line) return;
+                callback(err, items);
+              });
+            };
+          });
+          ed.on('change', function(d) {
+            if (d && d.action === 'insert' && ed.completer && ed.completer.activated && /[^A-Za-z0-9._:$@]/.test((d.lines || []).join('\n'))) ed.completer.detach();
+          });
           ed.completers.forEach(function(c) {
           c.getDocTooltip = function(item) {
             if (!item || !window.Shiny) return;
@@ -10029,6 +10067,7 @@ server <- function(input, output, session) {
           exec: function(ed) {
             var code = ed.getValue();
             if (isCompleteR(code.trim())) {
+              Shiny.setInputValue("qc_input", code, {priority: "event"});
               Shiny.setInputValue("qc_run", Math.random(), {priority: "event"});
             } else {
               ed.insert("\\n");
