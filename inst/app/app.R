@@ -841,7 +841,7 @@ build_system_prompt <- function(coding, plotting, mapping, img_format, img_quali
                                 max_lines = 50, comment_density = "Minimal",
                                 loaded_pkgs = character(0),
                                 language = "English", approaches = list(), consistency = 1L,
-                                package_choices = list(), version_pkgs = character(0)) {
+                                package_choices = list(), version_pkgs = character(0), data_context = "") {
   library_rule <- paste0(
     "PACKAGE LOADING RULE: Always include an explicit library() call for every ",
     "package your code uses. ",
@@ -882,7 +882,11 @@ build_system_prompt <- function(coding, plotting, mapping, img_format, img_quali
     package_choice_clause(package_choices),
     if (length(loaded_pkgs) > 0) loaded_packages_note(loaded_pkgs)
   ), collapse = "\n\n")
-  c(shared, common, student)
+  # The student's files and objects (with the dataset's variable descriptions) come between the common block and the student block:
+  # the same text from one request to the next, so it is read from the cache; and for students using the same online datasets it is
+  # the same across the class
+  data_block <- if (nzchar(data_context)) paste0("THE STUDENT'S DATA AND FILES:\n\n", data_context) else NULL
+  c(shared, common, data_block, student)
 }
 
 # Mark the last earlier message of a conversation for caching, so the next request reads the history from the
@@ -1417,11 +1421,42 @@ detect_suspicious_headers <- function(cols) {
   (n_numeric / length(cols) > 0.5) || (n_date > 0L) || (n_long > 1L)
 }
 
+# The files and objects the student has added, as text for Claude: file schemas and a summary of each object (with the dataset's
+# own description of each variable, where it has one). A description that is word for word the same as one already given for an
+# earlier object (the two Birmingham files share their variables) is not repeated: those variables are listed once as "the same".
+data_context_text <- function(file_paths = character(0), object_names = character(0), object_envir = .GlobalEnv, file_schemas = list()) {
+  pieces <- character(0)
+  if (length(file_paths) > 0) {
+    schema_lines <- vapply(file_paths, function(p) format_schema_line(p, file_schemas[[p]]), character(1))
+    pieces <- c(pieces, paste0("The following files are available on disk and may be relevant:\n", paste(schema_lines, collapse = "\n")))
+  }
+  if (length(object_names) > 0) {
+    summaries <- vapply(object_names, summarise_workspace_object, character(1), envir = object_envir)
+    seen <- character(0); first_in <- character(0)                       # description lines already given, and for which object
+    for (i in seq_along(summaries)) {
+      ln <- strsplit(summaries[i], "\n", fixed = TRUE)[[1]]
+      is_desc <- grepl("^    [^ ][^:]*: ", ln)
+      same <- is_desc & ln %in% seen
+      new_desc <- ln[is_desc & !same]                                    # worked out before ln changes below
+      if (any(same)) {
+        nm_same <- sub(":.*$", "", trimws(ln[same]))
+        src <- unique(first_in[match(ln[same], seen)])
+        ln <- c(ln[!same], paste0("    (the descriptions of these other variables are the same as in ", paste0("`", src, "`", collapse = " and "), ": ",
+                                  paste(nm_same, collapse = ", "), ")"))
+      }
+      seen <- c(seen, new_desc); first_in <- c(first_in, rep(object_names[i], length(new_desc)))
+      summaries[i] <- paste(ln, collapse = "\n")
+    }
+    pieces <- c(pieces, paste0("The following R objects from the current workspace may be relevant:\n\n", paste(summaries, collapse = "\n\n")))
+  }
+  paste(pieces, collapse = "\n\n")
+}
+
 build_user_message <- function(file_paths, object_names = character(0), current_code,
                                 last_known_code, run_history, user_prompt,
                                 last_console_output = character(0),
                                 object_envir = .GlobalEnv,
-                                file_schemas = list(), always_code = FALSE) {
+                                file_schemas = list(), always_code = FALSE, include_context = TRUE) {
   if (is.null(current_code))    current_code    <- ""
   if (is.null(last_known_code)) last_known_code <- ""
   pieces <- character(0)
@@ -1429,22 +1464,11 @@ build_user_message <- function(file_paths, object_names = character(0), current_
   # code (see compact_reply), so this is how Claude sees the code it is to amend
   already_run_block <- format_already_run_block(run_history, object_envir, last_script = !always_code)
   if (nzchar(already_run_block)) pieces <- c(pieces, already_run_block)
-  if (length(file_paths) > 0) {
-    schema_lines <- vapply(file_paths, function(p) {
-      format_schema_line(p, file_schemas[[p]])
-    }, character(1))
-    pieces <- c(pieces, paste0(
-      "The following files are available on disk and may be relevant:\n",
-      paste(schema_lines, collapse = "\n")
-    ))
-  }
-  if (length(object_names) > 0) {
-    summaries <- vapply(object_names, summarise_workspace_object, character(1),
-                        envir = object_envir)
-    pieces <- c(pieces, paste0(
-      "The following R objects from the current workspace may be relevant:\n\n",
-      paste(summaries, collapse = "\n\n")
-    ))
+  # The files and objects go here unless include_context = FALSE: Ask for Code and Answer put them in the system prompt instead (where
+  # they are cached, being the same from one request to the next), see build_system_prompt() and build_answer_system_prompt()
+  if (include_context) {
+    ctx <- data_context_text(file_paths, object_names, object_envir, file_schemas)
+    if (nzchar(ctx)) pieces <- c(pieces, ctx)
   }
   if (nzchar(trimws(current_code)) && (always_code || !identical(trimws(current_code), trimws(last_known_code)))) {
     pieces <- c(pieces, paste0(
@@ -4658,22 +4682,25 @@ answer_clarity_rule <- paste(
   "Otherwise do not ask for clarification — choose the most sensible interpretation."
 )
 
-build_answer_system_prompt <- function(language = "English") {
-  paste(c(
-    "You are a friendly teaching assistant helping a student who is learning R, statistics and GIS.",
-    answer_mode_rule,
-    answer_compute_rules,
-    answer_column_rule,
-    build_language_clause(language),
-    answer_clarity_rule,
-    scope_rule,
-    research_integrity_rule,
-    disclosure_risk_rule
-  ), collapse = "\n\n")
+# Two blocks, each cached on its own: everything that is the same for every student, then the language clause last, so that students
+# sharing one API key share the first block whatever their language (a cache entry is read by any request that starts the same way)
+build_answer_system_prompt <- function(language = "English", data_context = "") {
+  c(paste(c(
+      "You are a friendly teaching assistant helping a student who is learning R, statistics and GIS.",
+      answer_mode_rule,
+      answer_compute_rules,
+      answer_column_rule,
+      answer_clarity_rule,
+      scope_rule,
+      research_integrity_rule,
+      disclosure_risk_rule
+    ), collapse = "\n\n"),
+    if (nzchar(data_context)) paste0("THE STUDENT'S DATA AND FILES:\n\n", data_context),
+    build_language_clause(language))
 }
 
 build_answer_write_system_prompt <- function(language = "English") {
-  paste(c(
+  c(paste(c(
     "You are a friendly teaching assistant helping a student who is learning R, statistics and GIS.",
     paste(
       "You ran a calculation on the student's data to answer their question, and its summary",
@@ -4690,9 +4717,9 @@ build_answer_write_system_prompt <- function(language = "English") {
       "context (for example 'the tract [[NAME_1]]'); it is filled in on the student's screen.",
       "Do not invite follow-up replies; this is a one-shot answer."
     ),
-    build_language_clause(language),
     research_integrity_rule
-  ), collapse = "\n\n")
+  ), collapse = "\n\n"),
+  build_language_clause(language))     # last, so that the rest is shared by students of every language
 }
 
 # Splits a stage-1 reply into list(type = "answer"/"compute", text, code)
@@ -8247,8 +8274,10 @@ server <- function(input, output, session) {
   # removes the crossed ones for good; "Remove all" clears the list.
   ctx_crossed <- reactiveVal(character(0))     # list values ("file::..." / "obj::...") marked with a cross
   # What is passed to the prompt: everything added for context except what is crossed out
-  context_files   <- function() { x <- selected_files();   x[!(paste0("file::", x) %in% ctx_crossed())] }
-  context_objects <- function() { x <- selected_objects(); x[!(paste0("obj::",  x) %in% ctx_crossed())] }
+  # (an empty list must stay empty: paste0("obj::", character(0)) is "obj::", and character(0)[TRUE] is NA, which used to reach the
+  # prompt as a file and an object called "NA" that "no longer exists" whenever nothing had been added)
+  context_files   <- function() { x <- selected_files();   if (length(x) == 0L) return(character(0)); x[!(paste0("file::", x) %in% ctx_crossed())] }
+  context_objects <- function() { x <- selected_objects(); if (length(x) == 0L) return(character(0)); x[!(paste0("obj::",  x) %in% ctx_crossed())] }
   context_choices <- function() {
     files <- selected_files();  files <- files[nzchar(files)]
     objs  <- selected_objects(); objs  <- objs[nzchar(objs)]
@@ -10026,8 +10055,10 @@ server <- function(input, output, session) {
         user_prompt         = current_prompt,
         last_console_output = character(0),    # R output is not sent when asking for code (it was cleared before this point until 0.5.115)
         file_schemas        = file_schema_cache(),
-        always_code         = TRUE
+        always_code         = TRUE,
+        include_context     = FALSE        # the files and objects are in the system prompt (cached): see data_ctx below
       )
+      data_ctx <- data_context_text(context_files(), context_objects(), file_schemas = file_schema_cache())
       # The packages loaded so far go with the newest message, not in the system prompt (see build_system_prompt)
       lp_note <- loaded_packages_note(loaded_packages())
       if (nzchar(lp_note)) user_message <- paste(lp_note, user_message, sep = "\n\n")
@@ -10035,14 +10066,7 @@ server <- function(input, output, session) {
       # What is kept in the conversation is the prompt alone: the data summaries, the code already run and the current code that go
       # with every request are sent afresh with the newest one, so they are not carried in (and paid for again with) every later turn
       history_so_far  <- c(conversation_history(), list(list(role = "user", content = current_prompt)))
-      windowed_prompt <- cache_history(c(window_history(conversation_history()), list(new_user_turn)))
-
-      api_result <- tryCatch(
-        call_claude(
-          messages      = windowed_prompt,
-          model         = prefs$model,
-          max_tokens    = 2500,      # a map or model script can run to a hundred lines; this is only paid for when it is used
-          system_prompt = build_system_prompt(prefs$coding, prefs$plotting, prefs$mapping,
+      code_system <- build_system_prompt(prefs$coding, prefs$plotting, prefs$mapping,
                                               prefs$img_format, prefs$img_quality, prefs$img_size,
                                               prefs$max_lines, prefs$comment_density,
                                               character(0), prefs$language,
@@ -10051,7 +10075,17 @@ server <- function(input, output, session) {
                                                                 tables = prefs$tables, strings = prefs$strings),
                                               consistency = prefs$consistency,
                                               package_choices = .cm$pkg_choices,
-                                              version_pkgs = pref_packages()),
+                                              version_pkgs = pref_packages(), data_context = data_ctx)
+      # A request may carry four cache markers at most: one for each system block, and one on the earlier conversation if a marker is
+      # left over (the conversation is short now, so the data description, which is large, is the one that matters)
+      earlier <- window_history(conversation_history())
+      windowed_prompt <- if (sum(nzchar(code_system)) >= 4L) c(earlier, list(new_user_turn)) else cache_history(c(earlier, list(new_user_turn)))
+      api_result <- tryCatch(
+        call_claude(
+          messages      = windowed_prompt,
+          model         = prefs$model,
+          max_tokens    = 2500,      # a map or model script can run to a hundred lines; this is only paid for when it is used
+          system_prompt = code_system,
           system_ttl    = "1h"       # the system blocks stay cached for an hour: pauses, and other students on the same key, then read them
         ),
         error = function(e) list(text = "", stop_reason = "error")
@@ -10304,10 +10338,11 @@ server <- function(input, output, session) {
       output$run_status <- renderUI(tags$span(msg, style = "color: #b22222;"))
       invisible(NULL)
     }
+    # system_ttl = "1h": the instructions stay cached for an hour, so in a class one student's request keeps them warm for the rest
     call_ai <- function(messages, system_prompt, max_tokens)
       tryCatch(
         call_claude(messages = messages, model = prefs$model,
-                    max_tokens = max_tokens, system_prompt = system_prompt),
+                    max_tokens = max_tokens, system_prompt = system_prompt, system_ttl = "1h"),
         error = function(e) list(text = "", stop_reason = "error", cost_usd = 0)
       )
 
@@ -10319,12 +10354,14 @@ server <- function(input, output, session) {
       run_history         = run_history(),
       user_prompt         = current_prompt,
       last_console_output = console_output_rv(),
-      file_schemas        = file_schema_cache()
+      file_schemas        = file_schema_cache(),
+      include_context     = FALSE        # the files and objects are in the system prompt (cached)
     )
     new_user_turn  <- list(role = "user", content = user_message)
     history_so_far <- c(conversation_history(), list(list(role = "user", content = current_prompt)))   # the prompt alone, as for code
     windowed       <- cache_history(c(window_history(conversation_history()), list(new_user_turn)))
-    plan_prompt    <- build_answer_system_prompt(prefs$language)
+    plan_prompt    <- build_answer_system_prompt(prefs$language,
+                                                 data_context = data_context_text(context_files(), context_objects(), file_schemas = file_schema_cache()))
 
     r1  <- withProgress(message = "Thinking...", value = 0.3,
                         call_ai(windowed, plan_prompt, 2000))
