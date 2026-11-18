@@ -2113,7 +2113,7 @@ inspect_unavailable <- function(e)
 # A variable name that can be dragged into the prompt box (the browser drops it in as plain text, at the drop point).
 # A name that R would not accept as it stands is put in backticks.
 drag_name <- function(nm) if (identical(make.names(nm), nm)) nm else paste0("`", nm, "`")
-drag_attrs <- function(nm) list(draggable = "true", `data-var` = drag_name(nm), title = "Drag into the prompt box, or double-click",
+drag_attrs <- function(nm) list(draggable = "true", `data-var` = drag_name(nm), title = "Drag into the prompt box or Code window, or double-click",
   ondragstart = "event.dataTransfer.setData('text/plain', this.getAttribute('data-var')); event.dataTransfer.effectAllowed = 'copy';",
   ondblclick = "cmInsertVar(this.getAttribute('data-var'));")
 
@@ -2203,7 +2203,7 @@ inspect_description_tab <- function(descr, cols) {
   tabPanel("Variable description", tags$div(style = "padding-top: 8px;",
     tags$p(style = "font-size: 0.85em; color: #555; margin: 0 0 6px 0;",
            "Klausmate knows where this dataset came from, so here is what each variable means. ",
-           "Variables you have added or renamed are not described. Drag a variable name into the prompt box, or double-click it, to use it in the prompt."),
+           "Variables you have added or renamed are not described. Drag a variable name into the prompt box or the Code window, or double-click it to put it in whichever you last clicked in."),
     tags$div(style = "max-height: 380px; overflow: auto; border: 1px solid #ddd; font-size: 0.88em;",
              tags$table(style = "border-collapse: collapse; width: 100%;", tags$tbody(rows))),
     if (length(extra) > 0)
@@ -2247,7 +2247,7 @@ inspect_panels <- function(obj, descr = NULL) {
   if (!is.null(df)) {
     add("Table",     function() inspect_html_table(df, partial = isTRUE(attr(obj, "cm_partial")), drag_header = TRUE))
     add("Variables", function() tagList(
-      tags$p(style = "font-size: 0.8em; color: #777; margin: 0 0 4px 0;", "Drag a variable name into the prompt box, or double-click it, to use it in the prompt."),
+      tags$p(style = "font-size: 0.8em; color: #777; margin: 0 0 4px 0;", "Drag a variable name into the prompt box or the Code window, or double-click it to put it in whichever you last clicked in."),
       inspect_html_table(inspect_variables(df), drag_first_col = TRUE)))
     if (!is.null(descr)) {
       tp <- tryCatch(inspect_description_tab(descr, c(names(df), if (inherits(obj, "sf")) attr(obj, "sf_column"))),
@@ -3241,6 +3241,80 @@ ui <- fluidPage(
     }).observe(document.documentElement, { childList: true, subtree: true });
   ")),
 
+  # Quick Console: the Output / History switch, and the History list (select commands, drag them into the Code window)
+  tags$style(HTML("
+    .cm-qc-switch { display: inline-flex; margin: 0 0 8px 0; border: 1px solid #337ab7; border-radius: 4px; overflow: hidden; }
+    .cm-qc-tab { background: #fff; color: #337ab7; border: 0; padding: 3px 14px; font-size: 0.9em; cursor: pointer; }
+    .cm-qc-tab + .cm-qc-tab { border-left: 1px solid #337ab7; }
+    .cm-qc-tab.active { background: #337ab7; color: #fff; }
+    #qc_history_box .cm-qh { font-family: monospace; font-size: 0.85em; white-space: pre-wrap; padding: 4px 6px; margin: 0;
+      border-bottom: 1px solid #ececec; cursor: grab; user-select: none; -webkit-user-select: none; color: #2c5f8a; }
+    #qc_history_box .cm-qh:hover { background: #eef3f8; }
+    #qc_history_box .cm-qh.sel { background: #cfe3f7; }
+    #qc_history_box .cm-qh-hint { position: sticky; top: 0; background: #fafafa; color: #888; font-size: 0.78em; padding: 2px 6px 4px 6px; z-index: 1; }
+    /* while a command is dragged, the window turns invisible so that the Code window behind it can take the drop */
+    body.cm-qc-dragging .modal, body.cm-qc-dragging .modal-backdrop { opacity: 0 !important; pointer-events: none !important; }
+  ")),
+  tags$script(HTML(r"---(
+    (function() {
+      var anchor = null;
+      function items() { return Array.prototype.slice.call(document.querySelectorAll('#qc_history_box .cm-qh')); }
+      function selected() { return items().filter(function(x) { return x.classList.contains('sel'); }); }
+      function setView(v) {
+        var out = document.getElementById('qc_output_box'), his = document.getElementById('qc_history_box');
+        if (!out || !his) return;
+        out.style.display = v === 'history' ? 'none' : ''; his.style.display = v === 'history' ? 'block' : 'none';
+        Array.prototype.forEach.call(document.querySelectorAll('#qc_view_switch .cm-qc-tab'), function(b) {
+          b.classList.toggle('active', b.getAttribute('data-view') === v); });
+        if (v === 'history') down();
+        else { var o = document.getElementById('qc_output_box'); if (o) o.scrollTop = o.scrollHeight; }
+      }
+      function down() {      // newest command (and those above it) in view
+        var f = function() { var b = document.getElementById('qc_history_box'); if (b) b.scrollTop = b.scrollHeight; };
+        f(); setTimeout(f, 0); setTimeout(f, 150);
+      }
+      document.addEventListener('click', function(e) {
+        var t = e.target && e.target.closest ? e.target.closest('.cm-qc-tab') : null;
+        if (t) { setView(t.getAttribute('data-view')); return; }
+        var it = e.target && e.target.closest ? e.target.closest('#qc_history_box .cm-qh') : null;
+        if (!it) return;
+        var all = items(), i = all.indexOf(it);
+        if (e.shiftKey && anchor !== null && anchor < all.length) {
+          var a = Math.min(anchor, i), b = Math.max(anchor, i);
+          all.forEach(function(x, k) { x.classList.toggle('sel', k >= a && k <= b); });
+        } else if (e.metaKey || e.ctrlKey) { it.classList.toggle('sel'); anchor = i; }
+        else { all.forEach(function(x) { x.classList.remove('sel'); }); it.classList.add('sel'); anchor = i; }
+      });
+      document.addEventListener('dragstart', function(e) {
+        var it = e.target && e.target.closest ? e.target.closest('#qc_history_box .cm-qh') : null;
+        if (!it) return;
+        if (!it.classList.contains('sel')) { items().forEach(function(x) { x.classList.remove('sel'); }); it.classList.add('sel'); anchor = items().indexOf(it); }
+        var txt = selected().map(function(x) { return x.textContent; }).join('\n');
+        e.dataTransfer.setData('text/plain', txt); e.dataTransfer.effectAllowed = 'copy';
+        setTimeout(function() { document.body.classList.add('cm-qc-dragging'); }, 0);
+      });
+      document.addEventListener('dragend', function() { document.body.classList.remove('cm-qc-dragging'); });
+      document.addEventListener('drop', function() { setTimeout(function() { document.body.classList.remove('cm-qc-dragging'); }, 0); }, true);
+      // double-click: the command (or the selected ones) goes into the box below, at the cursor
+      document.addEventListener('dblclick', function(e) {
+        var it = e.target && e.target.closest ? e.target.closest('#qc_history_box .cm-qh') : null;
+        if (!it || !window.ace) return;
+        if (!it.classList.contains('sel')) { items().forEach(function(x) { x.classList.remove('sel'); }); it.classList.add('sel'); }
+        var ed = ace.edit('qc_input'); if (!ed) return;
+        ed.insert(selected().map(function(x) { return x.textContent; }).join('\n')); ed.focus();
+      });
+      if (window.jQuery) jQuery(document).on('shiny:value', function(e) {
+        if (e.name !== 'qc_hist_ui') return;
+        anchor = null;
+        var his = document.getElementById('qc_history_box');
+        if (his && his.style.display !== 'none') down();
+      });
+      (function reg() {
+        if (window.Shiny && Shiny.addCustomMessageHandler) Shiny.addCustomMessageHandler('cm_qc_view', function(m) { setView(m.view); });
+        else setTimeout(reg, 200);
+      })();
+    })();
+  )---")),
   # Quick Console: after each Run the output box scrolls to the very bottom, so the newest output is in view
   tags$script(HTML("
     $(document).on('shiny:value', function(e) {
@@ -3507,15 +3581,24 @@ ui <- fluidPage(
     .cm-expand-ico:hover { color: #000; }
     .cm-expand-ico svg { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; display: block; }
     #code_big_backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.28); z-index: 1015; }
-    #code_big_bar { display: none; position: fixed; left: 5vw; right: 5vw; top: calc(24vh - 42px); height: 42px; z-index: 1020;
+    /* The window's place and size are --cb-left / --cb-top / --cb-w / --cb-h (pixels, set by the script): the bar is dragged to move it
+       and the grip at the bottom right is dragged to resize it */
+    #code_big_bar { display: none; position: fixed; left: var(--cb-left, 5vw); width: var(--cb-w, 90vw); top: calc(var(--cb-top, 24vh) - 42px);
+      height: 42px; z-index: 1020; box-sizing: border-box; cursor: move; user-select: none;
       align-items: center; justify-content: space-between; padding: 0 10px; background: #eee; border: 1px solid #999;
       border-radius: 6px 6px 0 0; }
+    #code_big_grip { display: none; position: fixed; z-index: 1021; width: 20px; height: 20px; cursor: nwse-resize;
+      left: calc(var(--cb-left, 5vw) + var(--cb-w, 90vw) - 20px); top: calc(var(--cb-top, 24vh) + var(--cb-h, 70vh) - 20px);
+      background: linear-gradient(135deg, transparent 52%, #999 52%, #999 60%, transparent 60%, transparent 72%, #999 72%, #999 80%, transparent 80%); }
+    #code_big_bar button { cursor: pointer; }
     #code_big_bar .cm-big-title { font-weight: bold; }
     #code_big_bar button { margin-left: 4px; }
     body.cm-code-big #code_big_backdrop { display: block; }
     body.cm-code-big #code_big_bar { display: flex; }
+    body.cm-code-big #code_big_grip { display: block; }
     body.cm-code-big #code_editor, html.cm-scaled body.cm-code-big #code_editor {
-      position: fixed !important; left: 5vw; right: 5vw; top: 24vh; bottom: 4vh; width: auto !important; height: auto !important;
+      position: fixed !important; left: var(--cb-left, 5vw); top: var(--cb-top, 24vh); width: var(--cb-w, 90vw) !important; height: var(--cb-h, 70vh) !important;
+      box-sizing: border-box;
       z-index: 1020; border: 1px solid #999; border-top: none; border-radius: 0 0 6px 6px; box-shadow: 0 8px 28px rgba(0,0,0,0.35); }
   ")),
   # The expand icon is made here and moved into the Code tab's heading by the script below
@@ -3523,6 +3606,7 @@ ui <- fluidPage(
     tags$span(id = "code_expand_btn", class = "cm-expand-ico", `data-help-id` = "expand_code", title = "Expand the code window",
       HTML('<svg viewBox="0 0 24 24" width="12" height="12"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>'))),
   tags$div(id = "code_big_backdrop"),
+  tags$div(id = "code_big_grip", title = "Drag to resize"),
   tags$div(id = "code_big_bar",
     tags$span(class = "cm-big-title", "Code"),
     tags$span(
@@ -3545,11 +3629,47 @@ ui <- fluidPage(
         var a = document.querySelector('#main_tabs a[data-value=\"Code\"]'), i = real('code_expand_btn');
         if (a && i) { if (i.parentNode !== a) a.appendChild(i); } else setTimeout(place, 300);
       })();
+      // Place and size of the large window: kept for the rest of the session, and always kept inside the screen
+      var geom = null, BAR = 42, MINW = 380, MINH = 180;
+      function viewW() { return document.documentElement.clientWidth || window.innerWidth; }       // without the page's scroll bar
+      function viewH() { return document.documentElement.clientHeight || window.innerHeight; }
+      function clampGeom() {
+        var vw = viewW(), vh = viewH();
+        geom.w = Math.max(MINW, Math.min(geom.w, vw - 8)); geom.h = Math.max(MINH, Math.min(geom.h, vh - BAR - 8));
+        geom.left = Math.max(0, Math.min(geom.left, vw - geom.w)); geom.top = Math.max(BAR, Math.min(geom.top, vh - geom.h));
+      }
+      function applyGeom() {
+        var b = document.body.style;
+        b.setProperty('--cb-left', geom.left + 'px'); b.setProperty('--cb-top', geom.top + 'px');
+        b.setProperty('--cb-w', geom.w + 'px'); b.setProperty('--cb-h', geom.h + 'px');
+      }
+      function startGeom() {
+        var vw = viewW(), vh = viewH();
+        if (!geom) { var top = Math.round(vh * 0.24); geom = { left: Math.round(vw * 0.05), top: top, w: Math.round(vw * 0.9), h: vh - top - Math.round(vh * 0.04) }; }
+        clampGeom(); applyGeom();
+      }
+      var dragging = null, raf = null;
+      function resizeEditor() { if (raf) return; raf = requestAnimationFrame(function() { raf = null; var x = ed(); if (x) x.resize(true); }); }
+      document.addEventListener('mousedown', function(e) {
+        if (!open || !e.target || !e.target.closest) return;
+        if (e.target.closest('#code_big_grip')) {
+          dragging = { kind: 'size', x: e.clientX, y: e.clientY, w: geom.w, h: geom.h }; e.preventDefault();
+        } else if (e.target.closest('#code_big_bar') && !e.target.closest('button')) {
+          dragging = { kind: 'move', dx: e.clientX - geom.left, dy: e.clientY - geom.top }; e.preventDefault();
+        }
+      }, true);
+      document.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        if (dragging.kind === 'move') { geom.left = e.clientX - dragging.dx; geom.top = e.clientY - dragging.dy; }
+        else { geom.w = dragging.w + (e.clientX - dragging.x); geom.h = dragging.h + (e.clientY - dragging.y); }
+        clampGeom(); applyGeom(); resizeEditor();
+      });
+      document.addEventListener('mouseup', function() { if (dragging) { dragging = null; resizeEditor(); } });
       window.cmCodeBig = function(show) {
         show = !!show;
         var slot = real('code_slot'), e = real('code_editor');
         if (!slot || !e || show === open) return;
-        if (show) { slot.style.height = e.offsetHeight + 'px'; document.body.classList.add('cm-code-big'); sync(); iv = setInterval(sync, 300); }
+        if (show) { slot.style.height = e.offsetHeight + 'px'; startGeom(); document.body.classList.add('cm-code-big'); sync(); iv = setInterval(sync, 300); }
         else { document.body.classList.remove('cm-code-big'); slot.style.height = ''; if (iv) clearInterval(iv); iv = null; }
         open = show;
         setTimeout(function() { var x = ed(); if (x) { x.resize(true); if (show) x.focus(); } }, 60);
@@ -3566,7 +3686,7 @@ ui <- fluidPage(
         }
         if (open && t.closest('#run_code')) setTimeout(function() { window.cmCodeBig(false); }, 150);   // Run, by button or shortcut
       }, true);
-      window.addEventListener('resize', function() { if (open) { var x = ed(); if (x) x.resize(true); } });
+      window.addEventListener('resize', function() { if (open) { clampGeom(); applyGeom(); var x = ed(); if (x) x.resize(true); } });
       if (window.jQuery) {
         jQuery(document).on('shown.bs.tab', function(e) {        // another tab (or the Changes tab) takes over: close it
           var v = e.target && e.target.getAttribute && e.target.getAttribute('data-value');
@@ -3689,6 +3809,7 @@ ui <- fluidPage(
         if (!w || getComputedStyle(w).display === 'none') return;
         var t = e.target; if (!t || !t.closest) return;
         if (t.closest('#inspect_float, #prompt, #clear_prompt, .cm-inspect')) return;
+        if (t.closest('#code_editor') && !document.body.classList.contains('cm-code-big')) return;   // the ordinary Code window can take variables too
         w.classList.add('cm-closing');      // hidden at once; the server then empties it, and a new output clears the class
         if (window.Shiny) Shiny.setInputValue('inspect_close', Math.random(), {priority: 'event'});
       }, true);
@@ -3798,9 +3919,14 @@ ui <- fluidPage(
       });
       // Double-clicking a variable name puts it into the prompt box, at the cursor (where it was when the student last
       // left the box, or the end), with a space before it if needed. Dragging it there does the same.
-      var caret = null;
+      var caret = null, lastBox = 'prompt';      // lastBox: which of the prompt box and the Code window was last clicked in
       document.addEventListener('focusout', function(e) {
         if (e.target && e.target.id === 'prompt') caret = {a: e.target.selectionStart, b: e.target.selectionEnd};
+      });
+      document.addEventListener('focusin', function(e) {
+        if (!e.target || !e.target.closest) return;
+        if (e.target.id === 'prompt') lastBox = 'prompt';
+        else if (e.target.closest('#code_editor')) lastBox = 'code';
       });
       // Shiny 1.14 added a page-wide drag handler that cancels every drop (it is meant for file inputs), so the browser no longer
       // dropped a dragged variable name into the prompt box. Text dropped on the prompt box is kept from reaching that handler,
@@ -3812,6 +3938,10 @@ ui <- fluidPage(
         }, true);
       });
       window.cmInsertVar = function(name) {
+        if (lastBox === 'code' && window.ace && document.getElementById('code_editor')) {
+          var ed = ace.edit('code_editor');
+          if (ed && !ed.getReadOnly()) { ed.insert(name); ed.focus(); return; }
+        }
         var p = document.getElementById('prompt');
         if (!p || p.readOnly || p.disabled || !name) return;
         var v = p.value, a = caret ? Math.min(caret.a, v.length) : v.length, b = caret ? Math.min(caret.b, v.length) : v.length;
@@ -3825,6 +3955,86 @@ ui <- fluidPage(
       };
     })();
   ")),
+
+  # Help beside the code completions of the Code window (like RStudio's): a small scrollable panel with the help page of the highlighted
+  # entry, placed next to the list so that it always stays on screen. The completions themselves come from shinyAce's rlang completer;
+  # the help is built by the server (cm_help_item -> cm_help message). Ace pops the list up only for typed characters, so code that
+  # Klausmate puts in the window does not trigger it.
+  tags$style(HTML("
+    #cm_help_tip { position: fixed; display: none; z-index: 200001; width: 400px; max-width: 94vw; max-height: 300px; overflow: auto;
+      box-sizing: border-box; background: #fff; color: #222; border: 1px solid #b5b5b5; border-radius: 4px; padding: 7px 10px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.25); font-size: calc(12px * var(--cm-s, 1)); line-height: 1.35; }
+    #cm_help_tip .cm-help-title { font-weight: 700; font-size: 1.1em; }
+    #cm_help_tip div.cm-help-title { margin-bottom: 4px; }
+    #cm_help_tip pre { margin: 0; padding: 0; border: 0; background: transparent; white-space: pre-wrap; word-break: normal;
+      overflow-wrap: anywhere; font-family: inherit; font-size: inherit; color: inherit; }
+    #cm_help_tip .cm-help-h { font-weight: 700; }
+  ")),
+  tags$div(id = "cm_help_tip"),
+  tags$script(HTML(r"---(
+    (function() {
+      var tip = null, cur = null, IDS = ['code_editor', 'qc_input'];
+      function el() { return tip || (tip = document.getElementById('cm_help_tip')); }
+      function hide() { var t = el(); if (t) t.style.display = 'none'; cur = null; }
+      function editors() {
+        var out = [];
+        IDS.forEach(function(id) { try { if (window.ace && document.getElementById(id)) out.push(ace.edit(id)); } catch (e) {} });
+        return out;
+      }
+      // the editor whose completion list is open (the Code window or the Quick Console's input), else the first one
+      function editor() {
+        var all = editors();
+        for (var i = 0; i < all.length; i++) if (all[i].completer && all[i].completer.activated) return all[i];
+        return all[0] || null;
+      }
+      function popupRect(ed) {
+        var c = ed && ed.completer, pop = c && c.popup;
+        if (!c || !c.activated || !pop || !pop.container) return null;
+        var r = pop.container.getBoundingClientRect();
+        return (r.width > 0 && r.height > 0 && pop.container.style.display !== 'none') ? r : null;
+      }
+      function place(ed) {
+        var t = el(), r = popupRect(ed); if (!t) return;
+        if (!r) { hide(); return; }
+        var vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
+        t.style.display = 'block'; t.style.visibility = 'hidden';
+        var w = t.offsetWidth, h = t.offsetHeight, x, y;
+        if (r.right + 6 + w <= vw) x = r.right + 6;              // beside the list on its right
+        else if (r.left - 6 - w >= 0) x = r.left - 6 - w;         // or on its left
+        else x = Math.max(4, Math.min(r.left, vw - w - 4));       // else below or above it, lined up with its left edge
+        if (x === r.right + 6 || x === r.left - 6 - w) y = Math.max(4, Math.min(r.top, vh - h - 4));
+        else y = (r.bottom + 6 + h <= vh) ? r.bottom + 6 : Math.max(4, r.top - 30 - h);      // above: clear of the line being typed
+        t.style.left = x + 'px'; t.style.top = y + 'px'; t.style.visibility = 'visible';
+      }
+      // Ask the server for the help on the highlighted entry (replaces shinyAce's own tooltip, which can fall off the screen)
+      function patch() {
+        editors().forEach(function(ed) {
+          if (ed.__cmHelp || !ed.completers || !ed.completers.length) return;
+          ed.__cmHelp = true;
+          ed.completers.forEach(function(c) {
+          c.getDocTooltip = function(item) {
+            if (!item || !window.Shiny) return;
+            cur = (item.caption || item.value || '') + '|' + (item.r_envir || '');
+            Shiny.setInputValue('cm_help_item', {key: cur, symbol: item.r_symbol || '', envir: item.r_envir || '', type: item.r_help_type || '',
+                                                 value: item.value || '', caption: item.caption || ''}, {priority: 'event'});
+          };
+          });
+        });
+      }
+      setInterval(patch, 500);          // the Quick Console's editor only exists while its window is open
+      if (window.Shiny) Shiny.addCustomMessageHandler('cm_help', function(m) {
+        var t = el(), ed = editor(); if (!t || !m || m.key !== cur) return;
+        if (!m.html) { hide(); return; }
+        t.innerHTML = m.html; t.scrollTop = 0; place(ed);
+      });
+      // follow the list: hidden as soon as it closes, kept beside it while it moves
+      setInterval(function() {
+        var t = el(); if (!t || t.style.display === 'none') return;
+        var ed = editor(); if (!popupRect(ed)) hide(); else place(ed);
+      }, 150);
+      document.addEventListener('mousedown', function(e) { if (!e.target.closest || !e.target.closest('#cm_help_tip')) { /* clicks elsewhere close the list; the timer hides the help */ } }, true);
+    })();
+  )---")),
 
   # Clean "session ended" overlay — shown by do_quit() before stopApp()
   tags$style(HTML("
@@ -4257,7 +4467,10 @@ ui <- fluidPage(
           aceEditor("code_editor", value = "", mode = "r", theme = "textmate",
             height = "220px", fontSize = 13, showLineNumbers = TRUE,
             highlightActiveLine = TRUE, wordWrap = FALSE,
-            autoScrollEditorIntoView = TRUE, debounce = 100)
+            autoScrollEditorIntoView = TRUE, debounce = 100,
+            # R's own completions (functions, objects, package::name, data$column) pop up as the student types, with the help for the
+            # highlighted entry beside the list; code placed in the window by Klausmate does not trigger them (see the server)
+            autoComplete = "live", autoCompleters = "rlang")
         )
       ),
       tabPanel("Explanation",
@@ -4296,7 +4509,7 @@ ui <- fluidPage(
         tags$label(class = "cm-switch",
           tags$input(type = "checkbox", id = "mode_switch"),
           tags$span(class = "cm-slider")),
-        tags$span(id = "mode_switch_answer_lbl", class = "cm-switch-lbl", "Answer"))
+        tags$span(id = "mode_switch_answer_lbl", class = "cm-switch-lbl", "Answers"))
     ),
     tags$script(HTML("
       (function() {
@@ -5164,7 +5377,8 @@ HELP_TEXTS <- list(
     "says in plain English what each variable means. The window can be dragged by its title bar and stays open",
     "while you work; it closes with its Close button, or when you press Answer, Ask for Code, Run, Pause or End Session.",
     "Variable names (in the Table headings, the Variables tab and the Variable description tab) can be dragged into the",
-    "prompt box, or double-clicked to put them in at the cursor.",
+    "prompt box or the Code window, or double-clicked to put them in at the cursor of whichever you last clicked in.",
+    "Clicking in the Code window does not close this window, unless the Code window is expanded.",
     "It is shown on your own",
     "screen only and nothing is sent to Claude. If an item cannot be shown you are simply told so."
   ),
@@ -5183,7 +5397,8 @@ HELP_TEXTS <- list(
   expand_code = paste(
     "Expand (the small arrows beside Code) — Opens the code in a large window with the same editor: line numbers, editing and selecting",
     "all work as usual. It has its own Run, Explain, Fix and Close buttons, which do what the ones on the page do. The window stays open",
-    "until you press Close or Run (Run closes it); the code you edit there is the same code as in the small window."
+    "until you press Close or Run (Run closes it); the code you edit there is the same code as in the small window. Drag its title bar to",
+    "move it and the corner at its bottom right to resize it; it opens where you last left it."
   ),
   check_use = paste(
     "Use this version — Puts the clearer version of your prompt, suggested by Check prompt, into the prompt box and closes this",
@@ -5284,8 +5499,8 @@ HELP_TEXTS <- list(
     "buttons together, and Klausmate remembers your choice the next time you start it."
   ),
   mode_switch = paste(
-    "Code / Answer switch — Appears at the end of the tab bar once you have both code and an",
-    "answer. The slider shows which you are looking at (Code on the left, Answer on the right):",
+    "Code / Answers switch — Appears at the end of the tab bar once you have both code and an",
+    "answer. The slider shows which you are looking at (Code on the left, Answers on the right):",
     "click it to switch between the code tabs and the Answer tabs; the Past prompts tab then opens",
     "with the prompt behind what you are now viewing highlighted (none for a loaded script). It also",
     "moves by itself when you use Ask for Code (to Code) or the Answer button (to Answer)."
@@ -5351,6 +5566,9 @@ HELP_TEXTS <- list(
     "to the app. Typing q() or quit() will just close the Quick Console, not end",
     "your R session, and Klausmate's own functions (klaus(), klaus_watch() and so on)",
     "are not available there — run those from your main R console.",
+    "The Output / History switch above the upper box shows either the results or the list of every command",
+    "entered in this session (oldest at the top, newest at the bottom). In History, click a command (Shift or",
+    "Cmd/Ctrl-click for several) and drag it into the Code window, or double-click it to put it in the box below.",
     "Along the bottom of the Quick Console, Clear output wipes the displayed history;",
     "Clear Workspace removes every object from your R workspace — the equivalent of",
     "rm(list = ls()) — and cannot be undone; and Change Working Directory lets you",
@@ -5429,6 +5647,9 @@ HELP_TAB_TEXTS <- list(
   "Code" = paste(
     "Code tab — Contains the R code editor. Code generated by Ask for Code appears here",
     "for you to review. You can also type or paste code directly. Press Run to execute it.",
+    "As you type, a list of matching functions, objects, arguments and data columns pops up (press Enter or Tab to",
+    "accept one, Esc to close it), with the help page of the highlighted entry beside it; it does not appear for code",
+    "that Klausmate puts in the window.",
     "Keyboard: Command+< and Command+> (Ctrl+< and Ctrl+> on Windows) step left and right through",
     "the tabs, wrapping round at the ends."
   ),
@@ -5539,8 +5760,70 @@ HELP_ID_PATTERNS <- list(
   )
 )
 
+# The help shown beside a completion in the Code window: for a function or dataset, the text of its help page (title, description,
+# usage, arguments...); for an argument, its entry in the function's help; for a package, its title and description; for an object in the
+# workspace, its class and structure. Plain text, made safe for HTML; an empty string means there is nothing to show.
+cm_completion_help <- function(it, max_chars = 6000L) {
+  esc <- function(x) gsub(">", "&gt;", gsub("<", "&lt;", gsub("&", "&amp;", x, fixed = TRUE), fixed = TRUE), fixed = TRUE)
+  sym <- as.character(it$symbol %||% ""); env <- as.character(it$envir %||% ""); type <- as.character(it$type %||% "")
+  if (!nzchar(sym) && !identical(type, "package")) return("")
+  pkg <- if (nzchar(env) && !env %in% c("R_GlobalEnv", "base_env")) env else NULL
+  page_text <- function(topic, package = NULL) {
+    h <- suppressWarnings(utils::help(topic, package = if (!is.null(package)) package, help_type = "text", try.all.packages = is.null(package)))
+    if (length(h) == 0L) return(NULL)
+    rd <- utils:::.getHelpFile(h[1L])
+    tf <- tempfile(fileext = ".txt"); on.exit(unlink(tf), add = TRUE)
+    tools::Rd2txt(rd, out = tf, options = list(underline_titles = FALSE))
+    gsub(".\b", "", readLines(tf, warn = FALSE), perl = TRUE)          # remove the overstrike (bold) markup: a character and a backspace
+  }
+  title <- esc(sub("\\(\\)$", "", it$caption %||% sym))
+  if (identical(type, "package")) {
+    d <- utils::packageDescription(it$value %||% sym, fields = c("Title", "Description"))
+    if (is.na(d$Title %||% NA)) return("")
+    return(paste0("<div class='cm-help-title'>", esc(it$value %||% sym), "</div><pre>", esc(gsub("\\s+", " ", d$Title)), "\n\n",
+                  esc(gsub("\\s+", " ", d$Description %||% "")), "</pre>"))
+  }
+  if (identical(type, "parameter")) {
+    arg <- sub("[ =]+$", "", it$value %||% "")
+    ln <- page_text(sym, pkg)
+    if (is.null(ln)) return("")
+    i <- grep(paste0("^\\s+", gsub("([.])", "\\\\\\1", arg), ":"), ln)
+    if (length(i) == 0L) return("")
+    j <- i[1L] + 1L
+    while (j <= length(ln) && grepl("^\\s{4,}\\S|^\\s*$", ln[j]) && !grepl("^\\s+[A-Za-z._0-9]+:", ln[j])) j <- j + 1L
+    return(paste0("<div class='cm-help-title'>", esc(arg), "</div><pre>", esc(paste(trimws(ln[i[1L]:(j - 1L)], "right"), collapse = "\n")), "</pre>"))
+  }
+  if (identical(type, "object") && (is.null(pkg) || identical(env, ""))) {
+    if (!exists(sym, envir = .GlobalEnv, inherits = FALSE)) return("")
+    out <- utils::capture.output(utils::str(get(sym, envir = .GlobalEnv, inherits = FALSE), max.level = 1L, vec.len = 4L, give.attr = FALSE))
+    return(paste0("<div class='cm-help-title'>", esc(sym), "</div><pre>", esc(paste(utils::head(out, 14L), collapse = "\n")), "</pre>"))
+  }
+  ln <- page_text(sym, pkg)
+  if (is.null(ln) || length(ln) == 0L) return("")
+  txt <- paste(ln, collapse = "\n")
+  if (nchar(txt) > max_chars) txt <- paste0(substr(txt, 1L, max_chars), "\n...")
+  # the section headings of the help page ("Description:", "Usage:" ...) in bold
+  lines <- strsplit(txt, "\n", fixed = TRUE)[[1L]]
+  lines <- vapply(lines, function(l) if (grepl("^[A-Z][A-Za-z ]+:\\s*$", l)) paste0("<span class='cm-help-h'>", esc(l), "</span>") else esc(l), "")
+  if (length(lines) > 1L && !grepl("^<span", lines[1L]) && nzchar(trimws(lines[1L]))) lines[1L] <- paste0("<span class='cm-help-title'>", lines[1L], "</span>")
+  paste0("<pre>", gsub("\n{3,}", "\n\n", paste(lines, collapse = "\n")), "</pre>")
+}
+
 server <- function(input, output, session) {
-  options(klausmate.session_connected = TRUE)   # klaus() opens a new browser tab only if no tab has connected (resuming a pause)
+  options(klausmate.session_connected = TRUE)
+  shinyAce::aceAutocomplete("code_editor")       # the completion list, from R's own completion engine
+  shinyAce::aceAutocomplete("qc_input")          # the same in the Quick Console's input
+  # ... and the help for the highlighted entry (shown by the script near #cm_help_tip)
+  help_cache <- new.env()
+  observeEvent(input$cm_help_item, {
+    it <- input$cm_help_item
+    html <- help_cache[[it$key]]
+    if (is.null(html)) {
+      html <- tryCatch(cm_completion_help(it), error = function(e) "")
+      if (nzchar(html)) help_cache[[it$key]] <- html
+    }
+    session$sendCustomMessage("cm_help", list(key = it$key, html = html))
+  })   # klaus() opens a new browser tab only if no tab has connected (resuming a pause)
 
   # Show a clean "session ended" page, then stop after 400 ms so the JS has
   # time to render before the WebSocket drops.
@@ -8412,6 +8695,8 @@ server <- function(input, output, session) {
   .resumed_interrupt <- !is.null(ps) && isTRUE(ps$interrupted)
   if (.resumed_interrupt) { ps <- cm_clean_state(ps); ps$restored <- TRUE }
   if (!is.null(ps)) .cm$pkg_choices <- ps$pkg_choices %||% list()      # package choices survive a Pause
+  if (!is.null(ps) && length(ps$known_data) > 0)                     # so do the variable descriptions of online datasets (Look at window)
+    .cm$known_data <- ps$known_data[vapply(names(ps$known_data), function(x) exists(x, envir = .GlobalEnv, inherits = FALSE), logical(1))]
   # The "Save your Code Log and open it" tick box of the Pause window: remembered for later Pauses, kept apart from
   # End Session's, ticked at every fresh start and carried across a real Pause only (not a crash restore or Recent Session)
   # The saved session (file name) this session was loaded from with Recent Session, until it is saved again
@@ -9672,6 +9957,10 @@ server <- function(input, output, session) {
     showModal(modalDialog(
       title = "Quick Console",
       size  = "l",
+      # Output / History switch for the upper box (the history is the commands entered in this session, oldest first)
+      tags$div(id = "qc_view_switch", class = "cm-qc-switch",
+        tags$button(type = "button", class = "cm-qc-tab active", `data-view` = "output", "Output"),
+        tags$button(type = "button", class = "cm-qc-tab", `data-view` = "history", "History")),
       tags$div(
         id = "qc_output_box",
         style = paste0("height: 280px; overflow-y: auto; background: #fafafa;",
@@ -9679,10 +9968,18 @@ server <- function(input, output, session) {
                        " padding: 8px; margin-bottom: 8px;"),
         uiOutput("qc_output_ui")
       ),
+      tags$div(
+        id = "qc_history_box",
+        style = paste0("display: none; height: 280px; overflow-y: auto; background: #fafafa;",
+                       " border: 1px solid #ddd; border-radius: 4px;",
+                       " padding: 4px; margin-bottom: 8px;"),
+        uiOutput("qc_hist_ui")
+      ),
       shinyAce::aceEditor(
         "qc_input", value = "", mode = "r", theme = "chrome",
         height = "90px", fontSize = 13,
         showLineNumbers = FALSE, highlightActiveLine = FALSE,
+        autoComplete = "live", autoCompleters = "rlang",
         hotkeys = list(run_key = list(win = "Ctrl-Return", mac = "Command-Return"))
       ),
       uiOutput("qc_wd_ui"),
@@ -9864,6 +10161,20 @@ server <- function(input, output, session) {
     tags$div(items)
   })
 
+  # The History view: every command entered in this session (kept when the output is cleared), oldest at the top
+  output$qc_hist_ui <- renderUI({
+    ch <- qc_cmd_hist()
+    if (length(ch) == 0)
+      return(tags$div(style = "color: #888; font-size: 0.85em; font-style: italic; padding: 4px;",
+                      "No commands have been entered yet in this session."))
+    tags$div(
+      tags$div(class = "cm-qh-hint",
+               "Click to select (Shift or Cmd/Ctrl-click for several); drag into the Code window, or double-click to put in the box below."),
+      lapply(seq_along(ch), function(i)
+        tags$div(class = "cm-qh", draggable = "true", `data-i` = i, ch[[i]])))
+  })
+  outputOptions(output, "qc_hist_ui", suspendWhenHidden = FALSE)    # it sits in a hidden box until History is chosen
+
   observeEvent(input$quick_console, {
     qc_history(list())
     show_qc_modal()
@@ -9905,6 +10216,7 @@ server <- function(input, output, session) {
       plot_path = result$plot_path
     ))))
     shinyAce::updateAceEditor(session, "qc_input", value = "")
+    session$sendCustomMessage("cm_qc_view", list(view = "output"))     # the result of the command is what they want to see
     ch <- qc_cmd_hist(); cmd <- trimws(code)
     if (nzchar(cmd) && !identical(cmd, utils::tail(ch, 1L))) qc_cmd_hist(c(ch, cmd))
     qc_send_cmd_hist()
@@ -12077,7 +12389,8 @@ server <- function(input, output, session) {
       active_code_id       = active_code_id(),
       placeholder_map      = placeholder_map(),
       ask_mode             = ask_mode(),
-      pkg_choices          = .cm$pkg_choices
+      pkg_choices          = .cm$pkg_choices,
+      known_data           = .cm$known_data       # the variable descriptions of datasets loaded from Klausmate's online datasets
     )
   }
   do_pause_app <- function() {
