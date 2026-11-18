@@ -5670,6 +5670,8 @@ server <- function(input, output, session) {
       ")
     }, once = TRUE)
   }
+  # What the key is for ("teaching" or "personal"); keys made before this was recorded count as teaching keys
+  key_use_val           <- reactiveVal(if (!is.null(.saved_cfg)) (.saved_cfg$use %||% "teaching") else "teaching")
   cost_limit_val        <- reactiveVal(if (!is.null(.saved_cfg)) .saved_cfg$cost_limit        else NULL)
   reset_period_val      <- reactiveVal(if (!is.null(.saved_cfg)) .saved_cfg$reset_period      else "weekly")
   final_expiry_val      <- reactiveVal(if (!is.null(.saved_cfg)) .saved_cfg$final_expiry      else NULL)
@@ -6075,6 +6077,7 @@ server <- function(input, output, session) {
     final_expiry_val(     payload$final_expiry)
     valid_from_val(       payload$valid_from)
     max_conversations_val(payload$max_conversations)
+    key_use_val(payload$use %||% "teaching")
     new_cap <- payload$max_lines %||% 50
     max_lines_cap_val(new_cap)
     prefs$max_lines <- new_cap
@@ -8955,6 +8958,12 @@ server <- function(input, output, session) {
     language        = {
       .lp <- file.path(klausmate:::klausmate_user_dir("config"), "language.rds")
       if (file.exists(.lp)) tryCatch(readRDS(.lp), error = function(e) "English") else "English"
+    },
+    # Prompt memory (the cache life) for a personal key: "auto", "5m" or "1h"; a teaching key is always one hour
+    cache_ttl       = {
+      .cp <- file.path(klausmate:::klausmate_user_dir("config"), "cache_ttl.rds")
+      ct <- if (file.exists(.cp)) tryCatch(readRDS(.cp), error = function(e) "auto") else "auto"
+      if (length(ct) == 1L && ct %in% c("auto", "5m", "1h")) ct else "auto"
     }
   )
 
@@ -9159,6 +9168,22 @@ server <- function(input, output, session) {
   relevant_prefs <- function()
     setNames(lapply(names(PREF_RELEVANT), function(k) isolate(prefs[[k]])), names(PREF_RELEVANT))
 
+  # The life of the prompt cache for the next request of a kind ("code" or "answer"): NULL for the usual five minutes, "1h" for an hour.
+  # A teaching key is always one hour (students sharing the key then share the cache). A personal key follows Preferences: 5 minutes,
+  # 1 hour, or Automatic: one hour only when the previous request of that kind was between 5 and 60 minutes ago, which is just
+  # the pattern a longer life pays for (a pause too long for five minutes and short enough for an hour), so that a one-off request
+  # does not pay for the larger write.
+  cm_cache_ttl <- function(kind) {
+    if (!identical(key_use_val(), "personal")) return("1h")
+    ch <- prefs$cache_ttl %||% "auto"
+    if (identical(ch, "1h")) return("1h")
+    if (identical(ch, "5m")) return(NULL)
+    last <- getOption(paste0("klausmate.last_call_", kind))
+    gap <- if (inherits(last, "POSIXct")) as.numeric(difftime(Sys.time(), last, units = "secs")) else NA_real_
+    if (!is.na(gap) && gap > 300 && gap <= 3600) "1h" else NULL
+  }
+  cm_note_call <- function(kind) { options(structure(list(Sys.time()), names = paste0("klausmate.last_call_", kind))); invisible(NULL) }
+
   show_preferences_modal <- function() {
     start_pkg_job("refresh")      # quietly adds back any package that has become available
     pref_snapshot(relevant_prefs())
@@ -9171,6 +9196,19 @@ server <- function(input, output, session) {
                tags$button(type = "button", class = "btn btn-default btn-sm",
                            onclick = "document.getElementById('pref_close').click();", "Close")),
       tags$p(style = "margin: 0;", tags$label("Claude Model:"), " ", MODEL_SONNET_LABEL),
+      # How long Klausmate's standing instructions (and the description of your data) are kept ready, so that they are not paid for in
+      # full with every request: a teaching key fixes it at an hour; a personal key can choose
+      if (identical(key_use_val(), "personal"))
+        tagList(
+          selectInput("pref_cache", "Prompt memory:", width = "100%",
+                      choices = c("Automatic" = "auto", "5 minutes" = "5m", "1 hour" = "1h"), selected = prefs$cache_ttl),
+          tags$p(style = "margin: -8px 0 0 0; font-size: 0.8em; color: #777;",
+                 "How long Klausmate's standing instructions are kept ready, so that they are not paid for in full every time.",
+                 "Automatic uses an hour when you tend to pause between requests. 5 minutes suits bursts of work; 1 hour suits a",
+                 "request every few minutes through the hour (the first request of an hour then costs a little more)."))
+      else
+        tags$p(style = "margin: 4px 0 0 0;", tags$label("Prompt memory:"), " 1 hour ",
+               tags$span(style = "color: #777; font-size: 0.85em;", "(set by your key)")),
       hr(),
       # Same width as the drop-downs below (first grid column), with the Change button beside it
       tags$div(class = "pref-grid",
@@ -9304,6 +9342,14 @@ server <- function(input, output, session) {
   })
 
   # Language dropdown in Preferences: quick switch between English and set language
+  observeEvent(input$pref_cache, {
+    ch <- input$pref_cache
+    if (!length(ch) || !ch %in% c("auto", "5m", "1h")) return()
+    prefs$cache_ttl <- ch
+    d <- klausmate:::klausmate_user_dir("config"); dir.create(d, recursive = TRUE, showWarnings = FALSE)
+    tryCatch(saveRDS(ch, file.path(d, "cache_ttl.rds")), error = function(e) invisible(NULL))
+  }, ignoreInit = TRUE)
+
   observeEvent(input$pref_language, {
     lang <- input$pref_language
     prefs$language <- lang
@@ -10086,10 +10132,11 @@ server <- function(input, output, session) {
           model         = prefs$model,
           max_tokens    = 2500,      # a map or model script can run to a hundred lines; this is only paid for when it is used
           system_prompt = code_system,
-          system_ttl    = "1h"       # the system blocks stay cached for an hour: pauses, and other students on the same key, then read them
+          system_ttl    = cm_cache_ttl("code")   # an hour for a teaching key (pauses, and other students on the same key, then read the cache); see cm_cache_ttl
         ),
         error = function(e) list(text = "", stop_reason = "error")
       )
+      cm_note_call("code")
       raw_response <- api_result$text
 
       if (!nzchar(trimws(raw_response))) {
@@ -10338,13 +10385,17 @@ server <- function(input, output, session) {
       output$run_status <- renderUI(tags$span(msg, style = "color: #b22222;"))
       invisible(NULL)
     }
-    # system_ttl = "1h": the instructions stay cached for an hour, so in a class one student's request keeps them warm for the rest
-    call_ai <- function(messages, system_prompt, max_tokens)
-      tryCatch(
+    # system_ttl: an hour for a teaching key, so that in a class one student's request keeps the instructions warm for the rest;
+    # for a personal key it follows Preferences (see cm_cache_ttl)
+    call_ai <- function(messages, system_prompt, max_tokens) {
+      r <- tryCatch(
         call_claude(messages = messages, model = prefs$model,
-                    max_tokens = max_tokens, system_prompt = system_prompt, system_ttl = "1h"),
+                    max_tokens = max_tokens, system_prompt = system_prompt, system_ttl = cm_cache_ttl("answer")),
         error = function(e) list(text = "", stop_reason = "error", cost_usd = 0)
       )
+      cm_note_call("answer")
+      r
+    }
 
     user_message <- build_user_message(
       file_paths          = context_files(),

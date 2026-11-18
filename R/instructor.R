@@ -1,6 +1,14 @@
 # The shortest code-length limit a key can set (also the default): shorter limits proved too tight for ordinary tasks such as a map
 MIN_CODE_LINES <- 100L
 
+# What a key is for: "teaching" or "personal" (from an answer typed at the prompt, or the use argument)
+km_parse_use <- function(ans) {
+  a <- tolower(trimws(ans))
+  if (a %in% c("t", "teach", "teaching", "class", "1")) list(ok = TRUE, value = "teaching")
+  else if (a %in% c("p", "personal", "me", "own", "2")) list(ok = TRUE, value = "personal")
+  else list(ok = FALSE, msg = paste0("'", ans, "' is not an answer I know. Type teaching or personal."))
+}
+
 #' Create a Klausmate key file for distribution to students
 #'
 #' Bundles an Anthropic API key together with per-student usage-limit settings
@@ -61,6 +69,14 @@ MIN_CODE_LINES <- 100L
 #'   you are asked to choose one, or press Enter to have one generated.
 #' @param output_file Path for the key file. Default \code{"klausmate.key"} in
 #'   the current working directory.
+#' @param use What the key is for: \code{"teaching"} (shared by a class; the
+#'   default) or \code{"personal"} (your own use). If omitted, you are asked
+#'   first. A teaching key fixes Klausmate's prompt cache at one hour (so that
+#'   students sharing the key share it); a personal key lets its owner choose
+#'   the cache life in Preferences (Automatic, 5 minutes or 1 hour). For a
+#'   personal key the questions you leave unanswered are settled for you: no
+#'   spending limit (never reset), starting immediately; the final expiry is
+#'   still asked. Keys made before this option existed count as teaching keys.
 #'
 #' @return The normalised path to the key file, invisibly.
 #' @export
@@ -72,7 +88,8 @@ klausmate_make_key <- function(api_key           = NULL,
                                 max_conversations,
                                 max_lines,
                                 pin               = NULL,
-                                output_file       = "klausmate.key") {
+                                output_file       = "klausmate.key",
+                                use               = NULL) {
 
   confirm_unlimited <- function(what) {
     ans <- trimws(readline(paste0(
@@ -100,8 +117,21 @@ klausmate_make_key <- function(api_key           = NULL,
     if (!nzchar(api_key)) stop("No API key provided.", call. = FALSE)
   }
 
+  if (is.null(use)) {
+    message("What is this key for?\n",
+            "  teaching: shared with a class (spending limit, prompt cache fixed at 1 hour)\n",
+            "  personal: your own use (no spending limit, starts at once; you choose the prompt cache life)")
+    use <- ask("Key for teaching or personal use [press Enter for teaching]: ", "teaching", km_parse_use)
+  } else {
+    r <- km_parse_use(use)
+    if (!isTRUE(r$ok)) stop("use must be \"teaching\" or \"personal\".", call. = FALSE)
+    use <- r$value
+  }
+  personal <- identical(use, "personal")
+
   if (is.null(pin)) {
-    message("Students will need a 6-digit PIN to use this key;\nit is not stored in the key file.")
+    message(if (personal) "You will need a 6-digit PIN to load this key;\nit is not stored in the key file."
+            else "Students will need a 6-digit PIN to use this key;\nit is not stored in the key file.")
     repeat {
       ans <- trimws(readline("Choose a 6-digit PIN [press Enter to generate one]: "))
       if (!nzchar(ans)) { pin <- sprintf("%06d", sample(0L:999999L, 1L)); break }
@@ -112,7 +142,10 @@ klausmate_make_key <- function(api_key           = NULL,
   if (!klausmate_pin_ok(pin))
     stop("pin must be exactly 6 digits, for example \"482915\".", call. = FALSE)
 
-  if (missing(cost_limit)) {
+  if (missing(cost_limit) && personal) {
+    cost_limit <- NULL                       # a personal key has no spending limit (and so needs no confirmation or renewal)
+    message("Personal key: no spending limit.")
+  } else if (missing(cost_limit)) {
     message("Cost limit: the most a student can spend, in USD, per reset period.\nType 'none' for no limit.")
     cost_limit <- ask("Cost limit in USD [press Enter to accept the default: 0.30]: ", 0.30, function(ans) {
       if (is_none(ans)) return(list(ok = TRUE, value = NULL))
@@ -121,7 +154,7 @@ klausmate_make_key <- function(api_key           = NULL,
       else list(ok = TRUE, value = v)
     })
   }
-  if (is.null(cost_limit)) confirm_unlimited("spending limit")
+  if (is.null(cost_limit) && !personal) confirm_unlimited("spending limit")
 
   if (missing(max_lines)) {
     message("Maximum code length: other choices are 250, 500, 'none' for no limit,\nor any whole number of lines from 100 upwards.")
@@ -142,7 +175,9 @@ klausmate_make_key <- function(api_key           = NULL,
            call. = FALSE)
   }
 
-  if (is.null(reset_period)) {
+  if (is.null(reset_period) && personal) {
+    reset_period <- "none"                   # nothing to reset when there is no limit
+  } else if (is.null(reset_period)) {
     message("Reset period options: weekly, daily, hourly, rolling_24h,\n",
             "  rolling_Nh (e.g. rolling_6h), rolling_Nm (e.g. rolling_90m),\n",
             "  or none (never resets: the cost limit is a total).")
@@ -160,7 +195,9 @@ klausmate_make_key <- function(api_key           = NULL,
   message("Dates are entered as ", pattern, " (taken from your system settings);\n",
           "other forms such as 2026-12-31 or 31 Dec 2026 are also understood.")
 
-  if (is.null(valid_from)) {
+  if (is.null(valid_from) && personal) {
+    valid_from <- Sys.time()                 # a personal key starts at once
+  } else if (is.null(valid_from)) {
     now <- Sys.time()
     message("Start date, with an optional time HH:MM, as ", pattern, ".")
     valid_from <- ask(paste0("Start date [press Enter to accept the default: now (",
@@ -186,7 +223,7 @@ klausmate_make_key <- function(api_key           = NULL,
   if (is.null(final_expiry)) {
     # A key with a once-only allowance (reset period "none") is meant to be short-lived: 24 hours after it starts.
     # Otherwise the default is 15 weeks after today.
-    once_only      <- identical(tolower(trimws(reset_period)), "none")
+    once_only      <- identical(tolower(trimws(reset_period)), "none") && !personal   # (a personal key never resets because it has no limit)
     default_expiry <- if (once_only) as.POSIXct(valid_from) + 24 * 60 * 60 else Sys.Date() + 7L * 15L
     default_str    <- klausmate_format_date(default_expiry, date_order)
     message("Final expiry: a date, with an optional time HH:MM, as ", pattern, ",")
@@ -272,14 +309,17 @@ klausmate_make_key <- function(api_key           = NULL,
     valid_from        = valid_from,
     max_conversations = max_conversations,
     max_lines         = max_lines,
+    use               = use,
     created           = Sys.time()
   )
   saveRDS(klausmate_seal_key(payload, pin), output_file)
 
   out <- normalizePath(output_file)
   message("Key file created: ", out)
+  message("  Use:          ", if (personal) "personal (prompt cache life chosen in Preferences, Automatic by default)"
+                                  else "teaching (prompt cache fixed at 1 hour)")
   message("  PIN:          ", pin)
-  message("                (give this to students separately; it is not stored in the file)")
+  message("                (", if (personal) "keep this safe" else "give this to students separately", "; it is not stored in the file)")
   if (!is.null(cost_limit))
     message("  Cost limit:   $", cost_limit,
             if (identical(reset_period, "none")) " in total (never resets)" else paste0(" per ", reset_period))
@@ -293,7 +333,7 @@ klausmate_make_key <- function(api_key           = NULL,
     message("  Max conversations per start: unlimited")
   message("  Max code length: ",
           if (is.infinite(max_lines)) "unlimited" else paste(max_lines, "lines"))
-  message("Email this file to students: they load it via the\n",
+  message(if (personal) "Load this file via the" else "Email this file to students: they load it via the", "\n",
           "'Load key file' button in the app.")
   invisible(out)
 }
@@ -320,6 +360,7 @@ klausmate_config_show <- function() {
       cat("  Code length: ", if (is.null(cfg$max_lines)) "50 lines (key predates this setting)"
                              else if (is.infinite(cfg$max_lines)) "unlimited"
                              else paste(cfg$max_lines, "lines"), "\n")
+      cat("  Key for:     ", if (is.null(cfg$use)) "teaching (key predates this setting)" else cfg$use, "\n")
       cat("  Key created: ", format(cfg$created, "%Y-%m-%d %H:%M"), "\n")
     }
   } else {

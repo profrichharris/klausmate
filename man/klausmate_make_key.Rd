@@ -13,7 +13,8 @@ klausmate_make_key(
   max_conversations,
   max_lines,
   pin = NULL,
-  output_file = "klausmate.key"
+  output_file = "klausmate.key",
+  use = NULL
 )
 }
 \arguments{
@@ -72,6 +73,15 @@ you are asked to choose one, or press Enter to have one generated.}
 
 \item{output_file}{Path for the key file. Default \code{"klausmate.key"} in
 the current working directory.}
+
+\item{use}{What the key is for: \code{"teaching"} (shared by a class; the
+default) or \code{"personal"} (your own use). If omitted, you are asked
+first. A teaching key fixes Klausmate's prompt cache at one hour (so that
+students sharing the key share it); a personal key lets its owner choose
+the cache life in Preferences (Automatic, 5 minutes or 1 hour). For a
+personal key the questions you leave unanswered are settled for you: no
+spending limit (never reset), starting immediately; the final expiry is
+still asked. Keys made before this option existed count as teaching keys.}
 }
 \value{
 The normalised path to the key file, invisibly.
