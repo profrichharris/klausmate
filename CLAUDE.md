@@ -237,8 +237,10 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.78 (2026-11-19)  
-**Current version:** 0.6.78 (no unreleased changes)
+**Last released:** 0.6.79 (2026-11-19)  
+**Current version:** 0.6.79 (no unreleased changes)
+
+Released in 0.6.79: Ask for Code builds on earlier code instead of repeating it (user report: a second prompt, 'fit a model with the predictor', rewrote the data preparation and the null model; the instructions contradicted each other: the already-run note said 'only the NEW code' while the AMEND RULE said 'always return the complete revised code'). `amend_rule` (shared, cached system block) now has three cases: (a) a further step on code the message says has ALREADY been run: only the new step, using the existing objects by name, no reloading, no refitting a model that exists (use `update()`), even when the request is worded as a complete task; (b) code not yet run, or a change to what it does: amend and return the complete code; (c) a new unrelated task: new code; when unsure and the needed objects exist, (a). `build_user_message(current_ran =)` labels the editor's code 'It has ALREADY been run successfully, so the objects it made exist' or 'It has NOT been run yet' (Ask for Code passes whether the editor equals `last_run_code()`), so unrun code is never dropped by case (a); `format_already_run_block()` says to use the listed objects by name and `update()` models. Fix, Explain and Answer are unchanged. Expected effect on cost: about 0.3-0.5 cent less per follow-up (shorter reply), plus a one-off rewrite of the shared prompt cache (about 150 tokens longer). Tested only by checking the assembled message text for current_ran TRUE / FALSE / NA; NOT tested with the real model (the user's two Birmingham lme4 prompts are the test to try). Consequence to watch: the Code window then holds just the latest step; earlier code is in Past code and the Code Log.
 
 Released in 0.6.78: the Past code TAB list scrolls (`height: 220px; overflow-y: auto`, the same as the R output and Code boxes) instead of growing with every run (the floating Past code window already scrolled, 190px). Tested: with the list longer than the box it stays 220px, scrolls, and the page height is unchanged.
 

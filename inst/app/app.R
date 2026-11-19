@@ -810,14 +810,22 @@ consistency_rule <- function(level) {
 # on it, the code is amended, not rewritten. The reply still holds the whole code, because it replaces the editor's
 # text, and the Changes tab compares it with what was there.
 amend_rule <- paste(
-  "AMEND RULE: When the message includes the student's current code from their editor and the request refers to it or",
-  "builds on it (to change, fix, extend, tidy or add to it), amend that code: keep its structure, order, object names,",
-  "packages and comments, and change only what the request needs. Always return the complete revised code, not just the",
-  "changed lines, because it replaces the code in the editor. If the request is clearly a new, unrelated task, write new",
-  "code instead. Apply the student's preferences and the other rules (tmap version, package loading, basemaps, scope,",
-  "disclosure risk) to the lines you add or change; the other rules win over keeping existing code, and the",
-  "CONSISTENCY RULE applies to code you write, not to existing lines you are keeping. If you notice a genuine problem in",
-  "the existing code (an error, or a result that would mislead), correct it and say so in a short code comment.")
+  "AMEND RULE: When the message includes the student's current code from their editor, decide what the request needs.",
+  "(a) The request adds a FURTHER STEP to code that the message says has ALREADY been run (so its data, models and other",
+  "objects exist in R and its packages are loaded): write only the new step, nothing that is already done. Use the existing",
+  "objects by name; do not reload files, rebuild data or refit a model that exists (to change a model, use update()); do not",
+  "load packages again. The student's request may be worded as a complete task (for example 'fit a model with...' when an",
+  "earlier model of the same kind exists): if what it needs already exists in R, build on it.",
+  "(b) The request changes, fixes, tidies or extends code that has NOT been run yet, or changes what the existing code does",
+  "(a different variable, colour, method or option): amend that code: keep its structure, order, object names, packages",
+  "and comments, and change only what the request needs. Always return the complete revised code, not just the changed",
+  "lines, because it replaces the code in the editor.",
+  "(c) The request is clearly a new, unrelated task: write new code.",
+  "When unsure between (a) and (b), and the objects the request needs already exist, choose (a). Apply the student's",
+  "preferences and the other rules (tmap version, package loading, basemaps, scope, disclosure risk) to the lines you add",
+  "or change; the other rules win over keeping existing code, and the CONSISTENCY RULE applies to code you write, not to",
+  "existing lines you are keeping. If you notice a genuine problem in the existing code (an error, or a result that would",
+  "mislead), correct it and say so in a short code comment.")
 
 # The versions of R and of the packages the request is likely to use, so that Claude writes for the interface that is installed
 # (ggplot2, tmap, dplyr and others have changed a great deal between major versions). Only names and version numbers are sent, and only for the packages that matter here: the
@@ -999,7 +1007,7 @@ format_already_run_block <- function(run_history, envir = .GlobalEnv, last_scrip
   desc <- Filter(Negate(is.null), lapply(unique(nms), describe_object, envir = envir))
   paste0(
     "Code has ALREADY been run successfully in this R session. Do not repeat, reload or recreate anything it already did - any files it ",
-    "loaded or objects it created already exist, and packages it loaded are loaded. Only provide the NEW code needed for the next step.",
+    "loaded or objects it created already exist, and packages it loaded are loaded. Only provide the NEW code needed for the next step, using those objects by name (do not refit a model that exists: update() it).",
     if (length(desc)) paste0(" Objects created by that code that now exist in R: ", paste(unlist(desc), collapse = "; "), ".") else "",
     if (last_script) paste0(" The most recent code run:\n```r\n", codes[length(codes)], "\n```") else "")
 }
@@ -1470,7 +1478,7 @@ build_user_message <- function(file_paths, object_names = character(0), current_
                                 last_known_code, run_history, user_prompt,
                                 last_console_output = character(0),
                                 object_envir = .GlobalEnv,
-                                file_schemas = list(), always_code = FALSE, include_context = TRUE) {
+                                file_schemas = list(), always_code = FALSE, include_context = TRUE, current_ran = NA) {
   if (is.null(current_code))    current_code    <- ""
   if (is.null(last_known_code)) last_known_code <- ""
   pieces <- character(0)
@@ -1486,7 +1494,9 @@ build_user_message <- function(file_paths, object_names = character(0), current_
   }
   if (nzchar(trimws(current_code)) && (always_code || !identical(trimws(current_code), trimws(last_known_code)))) {
     pieces <- c(pieces, paste0(
-      if (always_code) "Here is the current code in my editor:\n```r\n"
+      if (always_code && isTRUE(current_ran)) "Here is the current code in my editor. It has ALREADY been run successfully, so the objects it made exist:\n```r\n"
+      else if (always_code && identical(current_ran, FALSE)) "Here is the current code in my editor. It has NOT been run yet (so nothing it makes exists):\n```r\n"
+      else if (always_code) "Here is the current code in my editor:\n```r\n"
       else "Here is the current code in my editor (I may have edited it since your last reply):\n```r\n",
       current_code, "\n```"
     ))
@@ -10822,6 +10832,7 @@ server <- function(input, output, session) {
         last_console_output = character(0),    # R output is not sent when asking for code (it was cleared before this point until 0.5.115)
         file_schemas        = file_schema_cache(),
         always_code         = TRUE,
+        current_ran         = identical(trimws(input$code_editor %||% ""), trimws(last_run_code() %||% "\001")),
         include_context     = FALSE        # the files and objects are in the system prompt (cached): see data_ctx below
       )
       data_ctx <- data_context_text(context_files(), context_objects(), file_schemas = file_schema_cache())
