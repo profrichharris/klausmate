@@ -3241,6 +3241,73 @@ ui <- fluidPage(
     }).observe(document.documentElement, { childList: true, subtree: true });
   ")),
 
+  # R output remembers where it was scrolled to: going back to an output that was shown before (Undo / Redo, Past code, Output) puts the
+  # box back at the place it was left (ordinary view). Each output is known by its text and pictures; one not seen before starts at the top.
+  tags$script(HTML(r"---(
+    (function() {
+      var mem = {}, cur = null, box = null, obs = null;
+      function sig() {
+        var el = document.getElementById('console_output_ui'); if (!el) return '';
+        var t = (el.textContent || '').replace(/\s+/g, ' ');          // textContent reads the same whether or not the box is showing
+        var srcs = Array.prototype.map.call(el.querySelectorAll('img,iframe'), function(x) { return x.getAttribute('src') || ''; }).join('|');
+        return t.length + ':' + t.slice(0, 300) + '|' + srcs;
+      }
+      function attach() {
+        var el = document.getElementById('console_output_ui');
+        if (!el || box) return !!box;
+        box = el.parentNode;
+        cur = sig();
+        box.addEventListener('scroll', function() { if (cur !== null && box.offsetParent !== null) mem[cur] = box.scrollTop; });   // not while hidden: it then reads 0
+        function restore() {
+          var y = mem[cur];
+          if (box.offsetParent === null) return;           // hidden (another tab is showing): it is put back when the tab is shown
+          box.scrollTop = y == null ? 0 : y;
+          if (y) setTimeout(function() { box.scrollTop = y; }, 60);       // again once images have taken their size
+        }
+        obs = new MutationObserver(function() { cur = sig(); restore(); });
+        obs.observe(el, { childList: true });
+        // a hidden box forgets how far it was scrolled, so the place is put back when the R output tab is shown again
+        if (window.jQuery) jQuery(document).on('shown.bs.tab', function() { cur = sig(); setTimeout(restore, 0); });
+        return true;
+      }
+      var n = 0, t = setInterval(function() { if (attach() || ++n > 100) clearInterval(t); }, 300);
+    })();
+  )---")),
+  # The Code window does the same: each piece of code (known by its length, start and end) keeps the place it was scrolled to, so Undo / Redo,
+  # Past code and recalls put the editor back where that code was last left. Typing a change makes the edited code the one remembered.
+  tags$script(HTML(r"---(
+    (function() {
+      var mem = {}, cur = null, ed = null;
+      function sig(v) { v = v || ''; return v.length + ':' + v.slice(0, 200) + '|' + v.slice(-200); }
+      function visible() { var e = document.getElementById('code_editor'); return !!(e && e.offsetParent !== null); }
+      function restore() {
+        if (!ed || !visible()) return;
+        var y = mem[cur]; ed.session.setScrollTop(y == null ? 0 : y);
+      }
+      function attach() {
+        var el = document.getElementById('code_editor'); if (!el || !window.ace) return false;
+        try { ed = ace.edit('code_editor'); } catch (e) { return false; }
+        if (!ed || ed.__cmScroll) return !!ed;
+        ed.__cmScroll = true; cur = sig(ed.getValue());
+        var setting = false, orig = ed.setValue;
+        ed.setValue = function() {             // code put in by Klausmate (generated, recalled, undone...): its own place comes back
+          setting = true;
+          var res = orig.apply(this, arguments);
+          cur = sig(ed.getValue()); setting = false;
+          restore(); setTimeout(restore, 60);
+          return res;
+        };
+        ed.session.on('changeScrollTop', function(y) { if (cur !== null && visible() && !setting) mem[cur] = y; });
+        ed.on('change', function() {           // typed or pasted: the edited code now stands for this place
+          if (setting) return;
+          var y = ed.session.getScrollTop(); cur = sig(ed.getValue()); mem[cur] = y;
+        });
+        if (window.jQuery) jQuery(document).on('shown.bs.tab', function() { setTimeout(function() { if (ed) { ed.resize(true); restore(); } }, 0); });
+        return true;
+      }
+      var n = 0, t = setInterval(function() { if (attach() || ++n > 100) clearInterval(t); }, 300);
+    })();
+  )---")),
   # Quick Console: the Output / History switch, and the History list (select commands, drag them into the Code window)
   tags$style(HTML("
     .cm-qc-switch { display: inline-flex; margin: 0 0 8px 0; border: 1px solid #337ab7; border-radius: 4px; overflow: hidden; }
@@ -3696,6 +3763,128 @@ ui <- fluidPage(
       }
     })();
   ")),
+  # Expanded Results window: the Results sub-tab of R output (when there is one) can be opened as a large floating window, in the
+  # same way as the code window: a bar to drag it by, a grip to resize it, Explain and Close. Unlike the code window, a click anywhere
+  # outside it (the backdrop) also closes it. It is the Results pane itself re-styled, so nothing is copied.
+  tags$style(HTML("
+    #res_big_backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.28); z-index: 1015; }
+    #res_big_bar { display: none; position: fixed; left: var(--rb-left, 10vw); width: var(--rb-w, 80vw); top: calc(var(--rb-top, 20vh) - 42px);
+      height: 42px; z-index: 1020; box-sizing: border-box; cursor: move; user-select: none;
+      align-items: center; justify-content: space-between; padding: 0 10px; background: #eee; border: 1px solid #999;
+      border-radius: 6px 6px 0 0; }
+    #res_big_bar .cm-big-title { font-weight: bold; }
+    #res_big_bar button { cursor: pointer; margin-left: 4px; }
+    #res_big_grip { display: none; position: fixed; z-index: 1021; width: 20px; height: 20px; cursor: nwse-resize;
+      left: calc(var(--rb-left, 10vw) + var(--rb-w, 80vw) - 20px); top: calc(var(--rb-top, 20vh) + var(--rb-h, 70vh) - 20px);
+      background: linear-gradient(135deg, transparent 52%, #999 52%, #999 60%, transparent 60%, transparent 72%, #999 72%, #999 80%, transparent 80%); }
+    body.cm-res-big #res_big_backdrop { display: block; }
+    body.cm-res-big #res_big_bar { display: flex; }
+    body.cm-res-big #res_big_grip { display: block; }
+    .cm-res-head { font-weight: 600; font-size: 0.9em; color: #555; margin: 0 0 4px 2px; }
+    .cm-res-pane-big .cm-res-head { display: none; }
+    .cm-res-pane-big { position: fixed !important; left: var(--rb-left, 10vw); top: var(--rb-top, 20vh); width: var(--rb-w, 80vw) !important;
+      height: var(--rb-h, 70vh) !important; box-sizing: border-box; overflow: auto; background: #fff; z-index: 1020; padding: 8px !important;
+      border: 1px solid #999; border-top: none; border-radius: 0 0 6px 6px; box-shadow: 0 8px 28px rgba(0,0,0,0.35); }
+  ")),
+  tags$div(style = "display: none;",
+    tags$span(id = "results_expand_btn", class = "cm-expand-ico", `data-help-id` = "expand_results", title = "Expand the Results window",
+      HTML('<svg viewBox="0 0 24 24" width="12" height="12"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>'))),
+  tags$div(id = "res_big_backdrop"),
+  tags$div(id = "res_big_grip", title = "Drag to resize"),
+  tags$div(id = "res_big_bar",
+    tags$span(class = "cm-big-title", "Results"),
+    tags$span(
+      tags$button(type = "button", class = "btn btn-default btn-sm cm-resbig-btn", `data-act` = "explain_code", "Explain"), " ",
+      tags$button(type = "button", class = "btn btn-default btn-sm cm-resbig-btn", `data-act` = "close", "Close"))),
+  tags$script(HTML(r"---(
+    (function() {
+      var open = false, iv = null, pane = null, holder = null;
+      function real(id) { return document.getElementById(id); }
+      function resLink() { return document.querySelector('#console_output_ui a[data-value="Results"]'); }
+      function resPane() {
+        var a = resLink(); if (!a) return document.getElementById('res_single');       // text only: the pane is the wrapper
+
+        var h = a.getAttribute('href'); return h && h.charAt(0) === '#' ? document.querySelector(h) : null;
+      }
+      function sync() {
+        Array.prototype.forEach.call(document.querySelectorAll('#res_big_bar .cm-resbig-btn[data-act="explain_code"]'), function(p) {
+          var r = real('explain_code'); if (r) p.disabled = !!(r.disabled || r.classList.contains('disabled')); });
+      }
+      // the icon sits to the right of the word Results, whenever that sub-tab is drawn (it is redrawn after every run)
+      function place() {
+        var a = resLink() || document.querySelector('#res_single .cm-res-head'), i = real('results_expand_btn');
+        if (a && i && i.parentNode !== a) a.appendChild(i);
+      }
+      setInterval(place, 400);
+      var geom = null, BAR = 42, MINW = 320, MINH = 160;
+      function vw() { return document.documentElement.clientWidth || window.innerWidth; }
+      function vh() { return document.documentElement.clientHeight || window.innerHeight; }
+      function clamp() {
+        geom.w = Math.max(MINW, Math.min(geom.w, vw() - 8)); geom.h = Math.max(MINH, Math.min(geom.h, vh() - BAR - 8));
+        geom.left = Math.max(0, Math.min(geom.left, vw() - geom.w)); geom.top = Math.max(BAR, Math.min(geom.top, vh() - geom.h));
+      }
+      function apply() {
+        var b = document.body.style;
+        b.setProperty('--rb-left', geom.left + 'px'); b.setProperty('--rb-top', geom.top + 'px');
+        b.setProperty('--rb-w', geom.w + 'px'); b.setProperty('--rb-h', geom.h + 'px');
+      }
+      function start() {
+        if (!geom) { var top = Math.round(vh() * 0.2); geom = { left: Math.round(vw() * 0.1), top: top, w: Math.round(vw() * 0.8), h: Math.round(vh() * 0.7) }; }
+        clamp(); apply();
+      }
+      var dragging = null;
+      document.addEventListener('mousedown', function(e) {
+        if (!open || !e.target || !e.target.closest) return;
+        if (e.target.closest('#res_big_grip')) { dragging = { kind: 'size', x: e.clientX, y: e.clientY, w: geom.w, h: geom.h }; e.preventDefault(); }
+        else if (e.target.closest('#res_big_bar') && !e.target.closest('button')) { dragging = { kind: 'move', dx: e.clientX - geom.left, dy: e.clientY - geom.top }; e.preventDefault(); }
+      }, true);
+      document.addEventListener('mousemove', function(e) {
+        if (!dragging) return;
+        if (dragging.kind === 'move') { geom.left = e.clientX - dragging.dx; geom.top = e.clientY - dragging.dy; }
+        else { geom.w = dragging.w + (e.clientX - dragging.x); geom.h = dragging.h + (e.clientY - dragging.y); }
+        clamp(); apply();
+      });
+      document.addEventListener('mouseup', function() { dragging = null; });
+      window.cmResBig = function(show) {
+        show = !!show; if (show === open) return;
+        if (show) {
+          pane = resPane(); if (!pane) return;
+          if (resLink() && !pane.classList.contains('active') && window.jQuery) { jQuery(resLink()).tab('show'); pane = resPane(); }   // Results may be hidden behind Plots
+          holder = pane.parentNode; if (holder) holder.style.minHeight = holder.offsetHeight + 'px';   // the page keeps its height behind the window
+          start(); pane.classList.add('cm-res-pane-big'); document.body.classList.add('cm-res-big'); sync(); iv = setInterval(sync, 300);
+        } else {
+          if (pane) pane.classList.remove('cm-res-pane-big');
+          if (holder) holder.style.minHeight = '';
+          document.body.classList.remove('cm-res-big'); if (iv) clearInterval(iv); iv = null; pane = null; holder = null;
+        }
+        open = show;
+      };
+      document.addEventListener('click', function(e) {
+        var t = e.target; if (!t || !t.closest) return;
+        if (t.closest('#results_expand_btn')) { e.preventDefault(); e.stopPropagation(); window.cmResBig(true); return; }
+        var bb = t.closest('#res_big_bar .cm-resbig-btn');
+        if (bb) {
+          var act = bb.getAttribute('data-act');
+          if (act === 'close') window.cmResBig(false);
+          else if (!bb.disabled && real(act)) real(act).click();
+          return;
+        }
+        if (!open) return;
+        if (t.closest('#res_big_backdrop')) { window.cmResBig(false); return; }              // a click outside shrinks it back
+        if (t.closest('#run_code')) setTimeout(function() { window.cmResBig(false); }, 150);
+      }, true);
+      window.addEventListener('resize', function() { if (open) { clamp(); apply(); } });
+      if (window.jQuery) {
+        jQuery(document).on('shown.bs.tab', function(e) {        // any other tab, in the main bar or the output sub-tabs, closes it
+          var v = e.target && e.target.getAttribute && e.target.getAttribute('data-value');
+          if (open && v !== 'Results' ) window.cmResBig(false);
+          else if (open && e.target && e.target.closest && e.target.closest('#main_tabs') && v !== 'R output') window.cmResBig(false);
+        });
+        jQuery(document).on('shiny:value', function(e) { if (e.name === 'console_output_ui') { window.cmResBig(false); setTimeout(place, 50); } });
+        jQuery(document).on('shiny:disconnected', function() { window.cmResBig(false); });
+      }
+    })();
+  )---")),
   tags$div(id = "check_float", class = "cm-float",
     tags$div(class = "cm-float-head",
              tags$span(class = "cm-float-title", "Before asking for code"),
@@ -5438,6 +5627,12 @@ HELP_TEXTS <- list(
     "until you press Close or Run (Run closes it); the code you edit there is the same code as in the small window. Drag its title bar to",
     "move it and the corner at its bottom right to resize it; it opens where you last left it."
   ),
+  expand_results = paste(
+    "Expand (the small arrows beside Results) — Opens the Results in a large window. It has its own Explain and Close buttons, which do",
+    "what the ones on the page do (Explain explains the output). Drag its title bar to move it and the corner at its bottom right to",
+    "resize it. Unlike the code window it also closes when you click anywhere outside it, as well as with Close, Run, or choosing",
+    "another tab."
+  ),
   check_use = paste(
     "Use this version — Puts the clearer version of your prompt, suggested by Check prompt, into the prompt box and closes this",
     "window. Nothing is sent yet: read it, change it if you like, then press Ask for Code."
@@ -7033,7 +7228,9 @@ server <- function(input, output, session) {
     n_types <- sum(has_text, has_plots, has_warnings)
 
     if (n_types == 1) {
-      results_ui %||% plots_ui %||% warnings_ui
+      if (has_text)       # text only: no sub-tabs, so a small "Results" heading carries the expand icon (placed by the script)
+        tags$div(id = "res_single", tags$div(class = "cm-res-head", "Results"), results_ui)
+      else plots_ui %||% warnings_ui
     } else {
       tabs <- list()
       if (has_plots)    tabs <- c(tabs, list(tabPanel("Plots",    div(style = "padding-top: 10px;", plots_ui))))
