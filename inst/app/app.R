@@ -3638,9 +3638,6 @@ ui <- fluidPage(
        so a floating panel under it can be clicked (it is then brought in front of the plot) and dragged. */
     #shiny-modal.cm-nonmodal { pointer-events: none; }
     #shiny-modal.cm-nonmodal .modal-dialog { pointer-events: auto; }
-    #shiny-modal .modal-dialog.cm-plot-sized { width: var(--cm-pb-w, 900px); max-width: calc(100vw - 20px); }
-    .cm-plot-grip { position: absolute; right: 3px; bottom: 3px; width: 18px; height: 18px; cursor: nwse-resize; z-index: 5;
-      background: linear-gradient(135deg, transparent 50%, #999 50%, #999 58%, transparent 58%, transparent 72%, #999 72%, #999 80%, transparent 80%); }
     body.cm-nonmodal-open > .modal-backdrop { display: none; }
     body.cm-nonmodal-open { overflow: auto !important; padding-right: 0 !important; }
   ")),
@@ -4233,54 +4230,6 @@ ui <- fluidPage(
     #cm_help_tip .cm-help-h { font-weight: 700; }
   ")),
   tags$div(id = "cm_help_tip"),
-  tags$script(HTML(r"---(
-    (function() {
-      // The expanded plot window can be made larger (grip at its bottom right); the size is remembered
-      var key = 'klausmatePlotWin', geom = null;
-      try { geom = JSON.parse(localStorage.getItem(key) || 'null'); } catch (e) { geom = null; }
-      function apply(dlg, box) {
-        if (!geom) return;
-        var maxW = document.documentElement.clientWidth - 20, maxH = window.innerHeight - 230;
-        var w = Math.max(400, Math.min(geom.w, maxW)), h = Math.max(120, Math.min(geom.h, maxH));
-        document.body.style.setProperty('--cm-pb-w', w + 'px');
-        document.body.style.setProperty('--cm-pb-h', h + 'px');
-        dlg.classList.add('cm-plot-sized');
-      }
-      var drag = null, swallow = false;
-      window.addEventListener('click', function(e) {
-        if (swallow) { swallow = false; e.stopPropagation(); e.preventDefault(); }
-      }, true);
-      if (window.jQuery) jQuery(document).on('shown.bs.modal', function() {
-        var m = document.getElementById('shiny-modal');
-        var box = m && m.querySelector('.cm-plot-box');
-        if (!box) return;
-        var dlg = m.querySelector('.modal-dialog'), content = m.querySelector('.modal-content');
-        apply(dlg, box);
-        if (!content.querySelector('.cm-plot-grip')) {
-          var g = document.createElement('div'); g.className = 'cm-plot-grip'; g.title = 'Drag to resize';
-          content.appendChild(g);
-        }
-      });
-      document.addEventListener('mousedown', function(e) {
-        if (!e.target.closest || !e.target.closest('.cm-plot-grip')) return;
-        var dlg = e.target.closest('.modal-dialog'), box = dlg.querySelector('.cm-plot-box');
-        drag = { x: e.clientX, y: e.clientY, w: dlg.getBoundingClientRect().width, h: box.getBoundingClientRect().height, dlg: dlg };
-        e.preventDefault();
-      });
-      document.addEventListener('mousemove', function(e) {
-        if (!drag) return;
-        var maxW = document.documentElement.clientWidth - 20, maxH = window.innerHeight - 230;
-        geom = { w: Math.max(400, Math.min(maxW, drag.w + 2 * (e.clientX - drag.x))),
-                 h: Math.max(120, Math.min(maxH, drag.h + (e.clientY - drag.y))) };
-        apply(drag.dlg);
-      });
-      document.addEventListener('mouseup', function() {
-        if (!drag) return;
-        drag = null; swallow = true; setTimeout(function() { swallow = false; }, 50);
-        try { localStorage.setItem(key, JSON.stringify(geom)); } catch (e) {}
-      });
-    })();
-  )---")),
   tags$script(HTML(r"---(
     (function() {
       var tip = null, cur = null, IDS = ['code_editor', 'qc_input'];
@@ -7027,7 +6976,7 @@ server <- function(input, output, session) {
     showModal(modalDialog(
       title = "Plot",
       size  = "l",
-      tags$div(class = "cm-expanded cm-plot-box", style = "text-align: center; max-height: var(--cm-pb-h, 45vh); overflow: auto;",
+      tags$div(class = "cm-expanded", style = "text-align: center; max-height: 45vh; overflow: auto;",
         tags$img(src = paste0("/klausmate_plots/", basename(f)),
                  style = "max-width: 100%; height: auto; border: 1px solid #ddd;")),
       tags$hr(),
