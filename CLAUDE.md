@@ -237,8 +237,10 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.81 (2026-11-19)  
-**Current version:** 0.6.81 (no unreleased changes)
+**Last released:** 0.6.82 (2026-11-19)  
+**Current version:** 0.6.82 (no unreleased changes)
+
+Released in 0.6.82: the Cmd/Ctrl + < and > tab-stepping shortcut was REMOVED (user request: not convinced it worked, and the browser uses similar keys to move between its own tabs). Gone: `tabStep()`, `showingTabs()`, `tabTitles()` (the tooltip on every tab), the keydown branch, and the 'Keyboard: Command+< ...' lines in the Code and Answer tab help. The Code tab keeps only its drag tooltip. The notes below that describe the shortcut (0.5.111 and the 'Tab shortcuts' bullet) are history. Other shortcuts (Cmd/Ctrl+Enter, Cmd+Ctrl+Enter, Up/Down in the Quick Console) are unchanged; checked live that Cmd+Enter in the editor still runs the code and the page raises no script errors.
 
 Released in 0.6.81: the Code tab's label (`#main_tabs a[data-value='Code']`) and the title of the expanded Code window (`#code_big_bar .cm-big-title`) can be dragged out of the page (user request, as a companion to Save Code Block, for getting code into RStudio). A script before the last script block marks them `draggable` (every 500 ms; the tab tooltip also comes from `tabTitles()`, which now adds 'Drag the word Code into RStudio...') and a `dragstart` listener sets `text/plain` to the whole editor text (`ace.edit('code_editor').getValue()`; an empty editor cancels the drag). The expanded window's bar still moves the window except over its title (the mousedown handler skips `.cm-big-title`, otherwise its preventDefault would stop the drag). Clicking the label still switches tabs. Help texts for the Code tab and Save Code Block mention it. Tested in the real app with a real mouse drag onto the prompt box (the two lines arrived, tab stayed on Code) and plain clicks. NOT tested: dropping into RStudio's script or console (what the console does with a drop is unknown), the expanded window's title drag, Windows, Safari / Firefox. If the console runs or mangles dropped code, the fallback idea is a Send to RStudio button using rstudioapi.
 

@@ -3506,43 +3506,13 @@ ui <- fluidPage(
       }, true);
       document.addEventListener('DOMContentLoaded', setTitles);
       setTimeout(setTitles, 1500);
-      // Cmd/Ctrl + < and Cmd/Ctrl + > : step left / right through the tabs showing in the code (or Answer) view,
-      // wrapping round at the ends. Decided by the character typed, so it suits any keyboard layout.
-      function tabStep(e) {
-        if (!(e.metaKey || e.ctrlKey) || e.altKey) return 0;
-        if (e.key === '<' || (e.code === 'Comma' && e.shiftKey)) return -1;
-        if (e.key === '>' || (e.code === 'Period' && e.shiftKey)) return 1;
-        return 0;
-      }
-      function showingTabs() {
-        return Array.prototype.filter.call(document.querySelectorAll('#main_tabs > li:not(.cm-switch-li)'),
-          function(li) { return li.offsetParent !== null && li.querySelector('a[data-toggle=tab]'); });
-      }
-      function tabTitles() {
-        var tip = mod + '< and ' + mod + '> move left and right through the tabs';
-        Array.prototype.forEach.call(document.querySelectorAll('#main_tabs > li > a[data-toggle=tab]'),
-          function(a) { a.title = (a.getAttribute('data-value') === 'Code') ? tip + '. Drag the word Code into RStudio to take the code with you' : tip; });
-      }
       // Earlier Quick Console commands, sent by the server, for the Up / Down keys
       (function regQcHist() {
         if (window.Shiny && Shiny.addCustomMessageHandler)
           Shiny.addCustomMessageHandler('cm_qc_hist', function(m) { window.cmQcHist = m.items || []; window.cmQcPos = null; });
         else setTimeout(regQcHist, 200);
       })();
-      document.addEventListener('shown.bs.tab', tabTitles, true);
-      setTimeout(tabTitles, 1500);
       document.addEventListener('keydown', function(e) {
-        var step = tabStep(e);
-        if (step !== 0) {
-          if (document.body.classList.contains('modal-open') ||
-              (e.target && e.target.closest && e.target.closest('.modal'))) return;   // not while a pop-up is open
-          var tabs = showingTabs(); if (tabs.length < 2) return;
-          var cur = tabs.findIndex(function(li) { return li.classList.contains('active'); });
-          var next = tabs[((cur < 0 ? 0 : cur) + step + tabs.length) % tabs.length];
-          e.preventDefault(); e.stopPropagation();
-          next.querySelector('a[data-toggle=tab]').click();
-          return;
-        }
         // Cmd+Control+Enter (Mac) or Ctrl+Alt+Enter (Windows), in the prompt box: Ask for Code and run the code as soon as it
         // arrives, for this request only, without changing the AutoRun Code tick box
         if (e.key === 'Enter' && !e.shiftKey && (mac ? (e.metaKey && e.ctrlKey && !e.altKey) : (e.ctrlKey && e.altKey && !e.metaKey))) {
@@ -6009,9 +5979,7 @@ HELP_TAB_TEXTS <- list(
     "As you type, a list of matching functions, objects, arguments and data columns pops up (press Enter or Tab to",
     "accept one, Esc to close it), with the help page of the highlighted entry beside it; it does not appear for code",
     "that Klausmate puts in the window. To use the code in RStudio, drag the word Code on this tab (the whole code goes with it)",
-    "onto a script or the console there; Save Code Block saves it as a file instead.",
-    "Keyboard: Command+< and Command+> (Ctrl+< and Ctrl+> on Windows) step left and right through",
-    "the tabs, wrapping round at the ends."
+    "onto a script or the console there; Save Code Block saves it as a file instead."
   ),
   "R output" = paste(
     "R Output tab — Displays the results of running your code: printed values, tables,",
@@ -6040,8 +6008,7 @@ HELP_TAB_TEXTS <- list(
     "Answer tab — Shows the plain-English answer to your last question asked with the Answer button.",
     "The answer opens in a scrollable window; click outside the window to fold it back into this tab,",
     "and click in the tab to open it again. Open \"Show my working\" under the answer to see the code Klausmate ran and what it",
-    "produced. This tab replaces Code, R output and Past code until you use Ask for Code.",
-    "Keyboard: Command+< and Command+> (Ctrl+< and Ctrl+> on Windows) move between Answer and Past answers."
+    "produced. This tab replaces Code, R output and Past code until you use Ask for Code."
   ),
   "Past answers" = paste(
     "Past Answers tab — Appears once you have asked more than one question with the",
