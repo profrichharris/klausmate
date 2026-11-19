@@ -3521,7 +3521,7 @@ ui <- fluidPage(
       function tabTitles() {
         var tip = mod + '< and ' + mod + '> move left and right through the tabs';
         Array.prototype.forEach.call(document.querySelectorAll('#main_tabs > li > a[data-toggle=tab]'),
-          function(a) { a.title = tip; });
+          function(a) { a.title = (a.getAttribute('data-value') === 'Code') ? tip + '. Drag the word Code into RStudio to take the code with you' : tip; });
       }
       // Earlier Quick Console commands, sent by the server, for the Up / Down keys
       (function regQcHist() {
@@ -3815,7 +3815,7 @@ ui <- fluidPage(
         if (!open || !e.target || !e.target.closest) return;
         if (e.target.closest('#code_big_grip')) {
           dragging = { kind: 'size', x: e.clientX, y: e.clientY, w: geom.w, h: geom.h }; e.preventDefault();
-        } else if (e.target.closest('#code_big_bar') && !e.target.closest('button')) {
+        } else if (e.target.closest('#code_big_bar') && !e.target.closest('button') && !e.target.closest('.cm-big-title')) {
           dragging = { kind: 'move', dx: e.clientX - geom.left, dy: e.clientY - geom.top }; e.preventDefault();
         }
       }, true);
@@ -3861,6 +3861,7 @@ ui <- fluidPage(
   # same way as the code window: a bar to drag it by, a grip to resize it, Explain and Close. Unlike the code window, a click anywhere
   # outside it (the backdrop) also closes it. It is the Results pane itself re-styled, so nothing is copied.
   tags$style(HTML("
+    #code_big_bar .cm-big-title, #main_tabs a[data-value='Code'][draggable='true'] { cursor: grab; }
     #res_big_backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.28); z-index: 1015; }
     #res_big_bar { display: none; position: fixed; left: var(--rb-left, 10vw); width: var(--rb-w, 80vw); top: calc(var(--rb-top, 20vh) - 42px);
       height: 42px; z-index: 1020; box-sizing: border-box; cursor: move; user-select: none;
@@ -4261,6 +4262,29 @@ ui <- fluidPage(
     #cm_help_tip .cm-help-h { font-weight: 700; }
   ")),
   tags$div(id = "cm_help_tip"),
+  tags$script(HTML(r"---(
+    (function() {
+      // The Code tab's label (and the title of the expanded Code window) can be dragged out of the page: the whole code in the
+      // editor goes with the drag as plain text, so it can be dropped into RStudio (a script, or the console) or any editor
+      var TIP = 'Drag the code from here into RStudio (a script or the console)';
+      function code() { try { return ace.edit('code_editor').getValue(); } catch (e) { return ''; } }
+      function mark() {
+        var a = document.querySelector('#main_tabs a[data-value="Code"]');
+        if (a && a.getAttribute('draggable') !== 'true') { a.setAttribute('draggable', 'true'); a.setAttribute('title', TIP); }
+        var t = document.querySelector('#code_big_bar .cm-big-title');
+        if (t && t.getAttribute('draggable') !== 'true') { t.setAttribute('draggable', 'true'); t.setAttribute('title', TIP); }
+      }
+      setInterval(mark, 500); mark();
+      document.addEventListener('dragstart', function(e) {
+        var src = e.target && e.target.closest && e.target.closest('#main_tabs a[data-value="Code"], #code_big_bar .cm-big-title');
+        if (!src) return;
+        var txt = code();
+        if (!txt.trim()) { e.preventDefault(); return; }
+        e.dataTransfer.setData('text/plain', txt);
+        e.dataTransfer.effectAllowed = 'copy';
+      });
+    })();
+  )---")),
   tags$script(HTML(r"---(
     (function() {
       var tip = null, cur = null, IDS = ['code_editor', 'qc_input'];
@@ -5882,7 +5906,8 @@ HELP_TEXTS <- list(
   save_block = paste(
     "Save Code Block — Saves the code currently in the editor to a named .R",
     "file in your project folder (using the code description as the filename) and",
-    paste0("opens it in ", if (in_rstudio()) "RStudio" else "your editor", ". (Not available while the Answer view is showing.)")
+    paste0("opens it in ", if (in_rstudio()) "RStudio" else "your editor", ". (Not available while the Answer view is showing.)"),
+    "You can also drag the word Code on the Code tab onto a script or the console in RStudio to put the code there."
   ),
   view_log = paste(
     "View Code Log — Opens a read-only window listing the code that has been run successfully in",
@@ -5983,7 +6008,8 @@ HELP_TAB_TEXTS <- list(
     "for you to review. You can also type or paste code directly. Press Run to execute it.",
     "As you type, a list of matching functions, objects, arguments and data columns pops up (press Enter or Tab to",
     "accept one, Esc to close it), with the help page of the highlighted entry beside it; it does not appear for code",
-    "that Klausmate puts in the window.",
+    "that Klausmate puts in the window. To use the code in RStudio, drag the word Code on this tab (the whole code goes with it)",
+    "onto a script or the console there; Save Code Block saves it as a file instead.",
     "Keyboard: Command+< and Command+> (Ctrl+< and Ctrl+> on Windows) step left and right through",
     "the tabs, wrapping round at the ends."
   ),
