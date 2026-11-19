@@ -81,7 +81,21 @@ CM_NEEDS <- c(
 # session when the app closes.
 .cm <- new.env()
 .cm$pkg_choices <- list()     # packages the student has chosen for kinds of analysis (task id -> package), until the app is closed
-.cm$known_data <- list()     # objects loaded from Klausmate's online datasets: name -> title, attribution, variable descriptions
+.cm$known_data <- getOption("klausmate.known_data", list())   # objects loaded from Klausmate's online datasets: name -> title, attribution, variable descriptions
+# Also kept in an R option (the app's own environment is new every time klaus() starts, but the objects stay in the R session),
+# so the descriptions are still there after End Session / Quit and klaus() again
+cm_known_set <- function(x) { .cm$known_data <- x; options(klausmate.known_data = x); invisible(x) }
+# The description entry for an object, only if the object is there and still has the variables it describes (it may have been
+# removed and another data set given the same name)
+cm_known_get <- function(nm) {
+  k <- .cm$known_data[[nm]]
+  if (is.null(k) || !exists(nm, envir = .GlobalEnv, inherits = FALSE)) return(NULL)
+  obj <- get(nm, envir = .GlobalEnv, inherits = FALSE)
+  v <- k$variables
+  vn <- if (is.data.frame(v)) as.character(v$name) else vapply(v, function(x) as.character(x$name %||% ""), "")
+  if (length(vn) > 0L && is.data.frame(obj) && mean(vn %in% names(obj)) < 0.5) return(NULL)
+  k
+}
 .cm$root <- normalizePath(getOption(".klausmate_project_root", getwd()),
                           winslash = "/", mustWork = FALSE)
 project_root <- function() {
@@ -1330,7 +1344,7 @@ format_schema_line <- function(label, schema, max_cols = 100) {
 # Meanings of the variables of a dataset loaded from Klausmate's online datasets (our own descriptions, never data
 # values), so Claude does not have to guess what a name like pct_ba_2011 stands for. One line per variable, each cut short.
 known_variable_lines <- function(obj_name, max_each = 170L, max_total = 5000L) {
-  v <- .cm$known_data[[obj_name]]$variables
+  v <- cm_known_get(obj_name)$variables
   if (is.null(v) || length(v) == 0L) return(character(0))
   if (is.data.frame(v)) v <- lapply(seq_len(nrow(v)), function(i) as.list(v[i, , drop = FALSE]))
   out <- vapply(v, function(x) {
@@ -4781,7 +4795,7 @@ ui <- fluidPage(
         )
       ),
       tabPanel("Past code",
-        tags$div(style = "margin-top: 8px; min-height: 220px;",
+        tags$div(style = "margin-top: 8px; height: 220px; overflow-y: auto;",
           uiOutput("past_code_ui")
         )
       ),
@@ -7797,6 +7811,8 @@ server <- function(input, output, session) {
       hide_changes_tab()
       updateAceEditor(session, "code_editor", value = e$code)
       last_run_code(NULL)
+      console_output_rv(character(0)); warnings_rv(character(0)); plot_files_rv(character(0)); widget_files_rv(character(0))
+      last_run_failed(FALSE); last_error_msg(""); diff_rv(NULL); active_code_id(NULL); output$run_status <- renderUI(NULL)
       last_prompt_for_code(e$prompt %||% "")      # what this code is, if it is later run and confirmed
       last_code_description(if (identical(e$source, "script")) "" else (e$description %||% ""))
       loaded_script_name(if (identical(e$source, "script")) e$description else NULL)
@@ -7857,6 +7873,10 @@ server <- function(input, output, session) {
           } else {
             updateAceEditor(session, "code_editor", value = entry$code)
             last_run_code(NULL)
+            # This code has no saved output: show none (the output of the code that was there before must not linger)
+            console_output_rv(character(0)); warnings_rv(character(0)); plot_files_rv(character(0)); widget_files_rv(character(0))
+            last_run_failed(FALSE); last_error_msg(""); diff_rv(NULL); active_code_id(NULL)
+            output$run_status <- renderUI(NULL)
             last_prompt_for_code(entry$prompt %||% "")
             last_code_description(entry$description %||% "")
             goto_tab("Code")
@@ -8834,7 +8854,8 @@ server <- function(input, output, session) {
   commit_pkg_plan <- function(plan, reopen = FALSE) {
     for (it in plan) {
       assign(it$name, it$value, envir = .GlobalEnv)
-      .cm$known_data[[it$name]] <- if (length(it$known$variables) > 0) it$known else NULL     # its description tab
+      kd <- .cm$known_data; kd[[it$name]] <- if (length(it$known$variables) > 0) it$known else NULL     # its description tab
+      cm_known_set(kd)
     }
     ad <- pkgdata_added()                     # datasets added for context: hidden from the list while they stay in it
     for (it in plan) if (!is.null(it$key)) ad[it$key] <- it$name
@@ -9002,7 +9023,7 @@ server <- function(input, output, session) {
       else stop("It is no longer in your workspace.")),
       error = function(e) e)
     if (inherits(obj, "error")) return(cannot(conditionMessage(obj)))
-    descr <- if (kind == "obj") .cm$known_data[[nm]] else NULL          # set when loaded from Klausmate's online datasets
+    descr <- if (kind == "obj") cm_known_get(nm) else NULL          # set when loaded from Klausmate's online datasets
     panels <- tryCatch(inspect_with_limit(inspect_panels(obj, descr)), error = function(e) e)
     if (inherits(panels, "error")) return(cannot(conditionMessage(panels)))
     inspect_open(list(label = label, panels = panels))      # shown in the floating Look-at window
@@ -9078,7 +9099,8 @@ server <- function(input, output, session) {
   if (.resumed_interrupt) { ps <- cm_clean_state(ps); ps$restored <- TRUE }
   if (!is.null(ps)) .cm$pkg_choices <- ps$pkg_choices %||% list()      # package choices survive a Pause
   if (!is.null(ps) && length(ps$known_data) > 0)                     # so do the variable descriptions of online datasets (Look at window)
-    .cm$known_data <- ps$known_data[vapply(names(ps$known_data), function(x) exists(x, envir = .GlobalEnv, inherits = FALSE), logical(1))]
+    cm_known_set(c(.cm$known_data[setdiff(names(.cm$known_data), names(ps$known_data))],
+                   ps$known_data[vapply(names(ps$known_data), function(x) exists(x, envir = .GlobalEnv, inherits = FALSE), logical(1))]))
   # The "Save your Code Log and open it" tick box of the Pause window: remembered for later Pauses, kept apart from
   # End Session's, ticked at every fresh start and carried across a real Pause only (not a crash restore or Recent Session)
   # The saved session (file name) this session was loaded from with Recent Session, until it is saved again

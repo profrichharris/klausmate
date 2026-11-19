@@ -237,8 +237,13 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.77 (2026-11-19)  
-**Current version:** 0.6.77 (no unreleased changes)
+**Last released:** 0.6.78 (2026-11-19)  
+**Current version:** 0.6.78 (no unreleased changes)
+
+Released in 0.6.78: the Past code TAB list scrolls (`height: 220px; overflow-y: auto`, the same as the R output and Code boxes) instead of growing with every run (the floating Past code window already scrolled, 190px). Tested: with the list longer than the box it stays 220px, scrolls, and the page height is unchanged.
+
+Released in 0.6.78: recalling code from Past code (Code button) whose run cannot be matched to a saved interaction (`past_code_interaction` found nothing, e.g. after a session restore) left the previous code's R output, plots, warnings and status on screen. That branch of the `repeat_code_*` observer (and of `recall_unconf_code`) now also empties `console_output_rv`, `warnings_rv`, `plot_files_rv`, `widget_files_rv`, the failed flag and error, `diff_rv`, `active_code_id` and the run status line. The branch where an interaction is found already restored its own (possibly empty) output; tested live (code with no output recalled after code with a plot: R output empty). The unmatched branch was NOT triggered live (no easy way to lose the interaction), only parsed.
+Released in 0.6.78: variable descriptions of online datasets (`.cm$known_data`) no longer vanish when klaus() is started again in the same R session (user report: lost 'from time to time'). Cause found by reading: `.cm` is a new environment each time `runApp()` sources app.R, so after End Session / Quit and klaus() again the objects were still in the workspace but their descriptions were gone (Pause, crash restore and Recent Session restored them from the saved state; deselecting an object never touched them). Now `cm_known_set()` also keeps them in `options(klausmate.known_data)` (read at the top of app.R; the restore merges with them rather than replacing), and `cm_known_get(nm)` (used by `known_variable_lines()` and the Look at window) returns the entry only if the object exists and at least half of the variables described are still in it (so a different data set given the same name gets none). Remaining gaps: a new R session (objects gone; reloading the online dataset restores them), and an object made by another route (read from a file, a copy under a new name: no description is attached). Unit-tested the helper in R; not run in the app.
 
 Released in 0.6.77: the resizable expanded Plot window (0.6.76) was taken out at the user's request; the Plot window is as in 0.6.75 (fixed size, `max-height: 45vh`, scroll bars where needed). The horizontal clipping the user described was never reproduced (the image is scaled to the window width). 0.6.76's Run-after-recall fix stays.
 
