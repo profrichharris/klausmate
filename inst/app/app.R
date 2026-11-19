@@ -1579,6 +1579,9 @@ format_log_entries <- function(entries, continues = NULL) {
       paste0("*", trimws(e$prompt), "*")
     if (identical(e$source, "unrun"))
       return(paste0(prompt_text, "\n\n*This code was not run.*\n\n```{r chunk_", i, ", eval=FALSE}\n", trimws(e$code), "\n```"))
+    if (identical(e$source, "added"))       # lines added by Copy to code that has run: they are shown, but are not run until asked
+      return(paste0(prompt_text, "\n\n*Added to the code above by Copy; not run yet. Run it to save the table as a web page and open it in your browser.*",
+                    "\n\n```{r chunk_", i, ", eval=FALSE}\n", trimws(e$code), "\n```"))
     paste0(prompt_text, "\n\n```{r chunk_", i, "}\n", trimws(e$code), "\n```")
   })
   paste(c(header, chunks), collapse = "\n\n")
@@ -3261,6 +3264,53 @@ ui <- fluidPage(
     }).observe(document.documentElement, { childList: true, subtree: true });
   ")),
 
+  # Copy table: the table in the expanded window's page is selected and copied by the browser, which puts rich text (HTML) on the clipboard, so
+  # that pasting into Word gives an editable table with its formatting; the server is told whether it worked (it adds the code once).
+  tags$script(HTML(r"---(
+    // Rich text for Word: the table with the styles the page gives it written into each element (Word ignores style sheets)
+    function inlineTable(t, d) {
+      var w = d.defaultView, props = ['font-family','font-size','font-weight','font-style','color','background-color','text-align','vertical-align',
+        'padding-top','padding-right','padding-bottom','padding-left','border-top','border-right','border-bottom','border-left','border-collapse','width','text-decoration'];
+      var clone = t.cloneNode(true), src = [t].concat(Array.prototype.slice.call(t.querySelectorAll('*'))),
+          dst = [clone].concat(Array.prototype.slice.call(clone.querySelectorAll('*')));
+      src.forEach(function(el, i) {
+        var cs = w.getComputedStyle(el), st = '';
+        props.forEach(function(p) {
+          var v = cs.getPropertyValue(p);
+          if (!v || v === 'none' && p.indexOf('border') !== 0) return;
+          if (p.indexOf('border-') === 0 && p !== 'border-collapse' && /^0px|none/.test(v)) return;
+          if (p === 'width' && el.tagName !== 'TABLE') return;
+          if (p === 'background-color' && /rgba\(0, 0, 0, 0\)|transparent/.test(v)) return;
+          st += p + ':' + v + ';';
+        });
+        dst[i].setAttribute('style', st); dst[i].removeAttribute('class');
+      });
+      return clone.outerHTML;
+    }
+    window.cmCopyTable = function() {
+      var f = document.getElementById('table_frame'), d = f && f.contentDocument, t = d && d.querySelector('table');
+      var done = function(ok) { if (window.Shiny) Shiny.setInputValue('table_copied', {ok: ok, nonce: Math.random()}, {priority: 'event'}); };
+      if (!t) { done(false); return; }
+      var viaApi = function() {
+        try {
+          var html = inlineTable(t, d), text = t.innerText || t.textContent || '';
+          if (!(navigator.clipboard && window.ClipboardItem)) { done(false); return; }
+          navigator.clipboard.write([new ClipboardItem({'text/html': new Blob([html], {type: 'text/html'}),
+                                                        'text/plain': new Blob([text], {type: 'text/plain'})})])
+            .then(function() { done(true); }, function() { done(false); });
+        } catch (e) { done(false); }
+      };
+      // first the browser's own copy of the selected table; if it will not, the clipboard interface
+      var ok = false;
+      try {
+        f.contentWindow.focus();
+        var sel = d.getSelection(); sel.removeAllRanges();
+        var r = d.createRange(); r.selectNode(t); sel.addRange(r);
+        ok = d.execCommand('copy'); sel.removeAllRanges();
+      } catch (e) { ok = false; }
+      if (ok) done(true); else viaApi();
+    };
+  )---")),
   # R output remembers where it was scrolled to: going back to an output that was shown before (Undo / Redo, Past code, Output) puts the
   # box back at the place it was left (ordinary view). Each output is known by its text and pictures; one not seen before starts at the top.
   tags$script(HTML(r"---(
@@ -5952,7 +6002,9 @@ HELP_TAB_TEXTS <- list(
     "version you can zoom, move and click on, with a link to open it in a new browser tab and the option to save",
     "it as a web page (.html file), which also adds the code that saved it to the Code window; a map needs an internet",
     "connection for its background tiles.",
-    "A table made with kableExtra, gt or flextable is also shown here, marked table, and expands in the same way."
+    "A table made with kableExtra, gt or flextable is also shown here, marked table. It expands in a window with a Copy table",
+    "button: paste it into Word (or another document) and it stays an editable table with its formatting; the first time, the code that",
+    "saves it as a web page and opens it is added to the end of the Code window, so that you can do the same outside Klausmate."
   ),
   "Results" = paste(
     "Results sub-tab — The printed text output from running the code: values,",
@@ -7060,6 +7112,20 @@ server <- function(input, output, session) {
       cls <- get(rel, envir = widget_code_cache)$cls
       has_code <- any(c("kableExtra", "knitr_kable", "gt_tbl", "flextable") %in% cls)
     }
+    if (identical(kind, "table")) {          # a table: Copy (the formatting is kept and it stays editable), no saving options
+      showModal(modalDialog(
+        title = pw$title, size = "l",
+        tags$div(class = "cm-expanded", style = "font-size: 0.85em; margin-bottom: 4px;",
+          tags$a("Open in a new browser tab", href = src, target = "_blank", rel = "noopener")),
+        tags$iframe(id = "table_frame", src = src, style = "width: 100%; height: 48vh; border: 1px solid #ddd; border-radius: 4px; background: #fff;"),
+        tags$p(em("Press Copy table, then paste it into Word (or another document): the table keeps its formatting and stays editable, not a picture.",
+                  "The first time, the code that saves the table as a web page and opens it is added to the end of the Code window, so you can do this again",
+                  "outside Klausmate."), style = "font-size: 0.85em; color: #888; margin: 8px 0 0 0;"),
+        footer = tagList(tags$button(type = "button", class = "btn btn-primary", id = "table_copy_btn", onclick = "cmCopyTable();", "Copy table"),
+                         modalButton("Close")),
+        easyClose = TRUE))
+      return(invisible(NULL))
+    }
     showModal(modalDialog(
       title = pw$title, size = "l",
       tags$div(class = "cm-expanded", style = "font-size: 0.85em; margin-bottom: 4px;",
@@ -7136,8 +7202,10 @@ server <- function(input, output, session) {
       tags$p(paste0(widget_exp_file(), " already exists in your working directory and will be overwritten."),
              style = "color: #b36b00; font-size: 0.85em;")
   })
-  observeEvent(input$widget_exp_add, {
-    rel <- expanded_widget(); req(rel)
+  # Write (and by default run) the code that saves the page shown in the expanded window. `run = FALSE` only adds it to the Code
+  # window (the Copy button of a table); `open = TRUE` also opens the saved page in the browser, so that a table can be copied from it
+  # without Klausmate; `close = FALSE` leaves the window open.
+  widget_export <- function(rel, file, run = TRUE, open = FALSE, close = TRUE) {
     capture_active_code()
     info <- get(rel, envir = widget_code_cache)
     base <- sub("[[:space:]]+$", "", input$code_editor %||% "")
@@ -7156,7 +7224,6 @@ server <- function(input, output, session) {
       }
       if (!is.null(new_base)) { base <- new_base; obj <- nm; create_line <- paste0(nm, " <- ", info$code) }
     }
-    file <- widget_exp_file()
     # tmap maps are saved with tmap_save(); any other htmlwidget (leaflet, plotly...) with htmlwidgets::saveWidget(),
     # as one self-contained file when pandoc is there to build it (RStudio brings it)
     pandoc <- isTRUE(tryCatch(requireNamespace("rmarkdown", quietly = TRUE) && rmarkdown::pandoc_available(),
@@ -7168,19 +7235,22 @@ server <- function(input, output, session) {
                  else if (any(c("kableExtra", "knitr_kable") %in% info$cls)) sprintf("kableExtra::save_kable(%s, %s)", obj, deparse(file))
                  else if ("gt_tbl" %in% info$cls) sprintf("gt::gtsave(%s, %s)", obj, deparse(file))
                  else sprintf("flextable::save_as_html(%s, path = %s)", obj, deparse(file))
-    block <- paste(c(sprintf("# Save the %s as a web page (%s)", pw$noun, file), save_call,
+    block <- paste(c(if (open) sprintf("# Save the %s as a web page and open it, to copy and paste it into Word (%s)", pw$noun, file)
+                     else sprintf("# Save the %s as a web page (%s)", pw$noun, file),
+                     save_call,
+                     if (open) sprintf("utils::browseURL(%s)", deparse(file)),
                      if (identical(kind, "widget") && !pandoc && !("tmap" %in% info$cls))
                        paste0("# (pandoc was not found, so the page needs the folder ", sub("\\.html$", "", file), "_files beside it)")),
                    collapse = "\n")
     full   <- paste0(base, if (nzchar(base)) "\n\n" else "", block)
     to_run <- if (!is.null(create_line)) paste0(create_line, "\n\n", block) else block
-    removeModal()
+    if (close) removeModal()
     pending_export(list(snippet = to_run, full = full, file = file, what = pw$noun))
     old_code <- input$code_editor %||% ""
     updateAceEditor(session, "code_editor", value = full)
     d <- if (nzchar(trimws(old_code))) compute_diff(old_code, full, max_changed_frac = Inf) else NULL
     # (the student stays on the output: the Changes tab is not shown, though Recall of this entry will show it)
-    label <- paste0("Save ", pw$noun, " as ", file)
+    label <- if (open) paste0("Open ", pw$noun, " ", file, " to copy it") else paste0("Save ", pw$noun, " as ", file)
     last_extracted_code(full); last_prompt_for_code(label); last_code_description(label)
     sq <- add_interaction(list(kind = "code", export = TRUE, prompt = label, code = full,
                                description = label, editor_code = full,
@@ -7189,7 +7259,46 @@ server <- function(input, output, session) {
                                error = "", diff = d, tab = if (!is.null(d)) "Changes" else "Code"))
     active_code_id(sq)
     prompt_history(c(label, prompt_history()))
-    do_run_export(to_run, full, file, what = pw$noun)
+    if (run) do_run_export(to_run, full, file, what = pw$noun)
+    else {
+      # The code that ran is already in Past code and the Code Log; the editor now holds it with the new lines added, which have not
+      # been run. The log gets just the new lines, marked as added and not run, and the status line under the buttons says so.
+      add_log_entry(list(prompt = label, code = to_run, description = "", source = "added"))
+      run_status_is_run(FALSE)       # (so that the editor update below does not clear the line)
+      output$run_status <- renderUI(tags$span(
+        paste0("The lines that save the ", pw$noun, " have been added at the end of the Code window and have not been run. ",
+               "Press Run to run them."),
+        style = "color: #a15c00; font-weight: bold;"))
+    }
+    invisible(TRUE)
+  }
+  observeEvent(input$widget_exp_add, {
+    rel <- expanded_widget(); req(rel)
+    widget_export(rel, widget_exp_file())
+  })
+
+  # The Copy button of a table's window (the copying itself is done by the browser: cmCopyTable). The first copy of each table also adds
+  # the code that saves the table as a web page and opens it, so that the table can be copied again outside Klausmate; it is added once
+  # and not run (running it would write a file and open a browser tab that the student did not ask for): Run runs just that block.
+  table_code_added <- reactiveVal(character(0))
+  observeEvent(input$table_copied, {
+    res <- input$table_copied; rel <- expanded_widget(); req(rel)
+    if (!isTRUE(res$ok)) {
+      showNotification("Could not copy the table. Open it in a new browser tab, select it and copy it from there.",
+                       type = "warning", duration = 8)
+      return(invisible(NULL))
+    }
+    showNotification("Table copied. Paste it into Word (or another document) with Ctrl+V (Cmd+V on a Mac): it stays an editable table.",
+                     type = "message", duration = 7)
+    if (rel %in% table_code_added()) return(invisible(NULL))
+    if (!exists(rel, envir = widget_code_cache, inherits = FALSE)) return(invisible(NULL))
+    cls <- get(rel, envir = widget_code_cache)$cls
+    if (!any(c("kableExtra", "knitr_kable", "gt_tbl", "flextable") %in% cls)) return(invisible(NULL))
+    n    <- match(rel, widget_files_rv())
+    file <- paste0(page_words(page_kind(rel))$stem, "_", if (is.na(n)) 1L else n, ".html")
+    table_code_added(c(table_code_added(), rel))
+    if (grepl(sprintf("utils::browseURL(%s)", deparse(file)), input$code_editor %||% "", fixed = TRUE)) return(invisible(NULL))
+    widget_export(rel, file, run = FALSE, open = TRUE, close = FALSE)
   })
   output$console_output_ui <- renderUI({
     lines    <- console_output_rv()
@@ -10083,6 +10192,8 @@ server <- function(input, output, session) {
     session$onFlushed(function() {
       updateTextAreaInput(session, "prompt",      value = ps$prompt      %||% "")
       updateAceEditor(session, "code_editor", value =ps$code_editor %||% "")
+      if (!is.null(ps$autorun_code)) updateCheckboxInput(session, "autorun_code", value = isTRUE(ps$autorun_code))
+      if (!is.null(ps$check_prompt)) updateCheckboxInput(session, "check_prompt", value = isTRUE(ps$check_prompt))
     }, once = TRUE)
   }
 
@@ -12276,6 +12387,9 @@ server <- function(input, output, session) {
     run_status_is_run(TRUE)
     if (isTRUE(res$success)) {
       pending_export(NULL)
+      drop_added <- function(l) Filter(function(e) !(identical(e$source, "added") && identical(trimws(e$code %||% ""), trimws(block))), l)
+      pending_log_entries(drop_added(isolate(pending_log_entries())))
+      all_log_entries(drop_added(isolate(all_log_entries())))
       last_run_code(full); last_run_failed(FALSE); last_error_msg("")
       entry <- list(prompt = paste0("Save the ", what, " to a file"), code = block, description = "", source = "export")
       add_log_entry(entry)
@@ -12622,6 +12736,8 @@ server <- function(input, output, session) {
       port                 = suppressWarnings(as.integer(isolate(session$clientData$url_port))),   # klaus() reuses it when resuming
       prompt               = isolate(input$prompt),
       code_editor          = isolate(input$code_editor),
+      autorun_code         = isolate(input$autorun_code),       # the two tick boxes beside Ask for Code, as the student left them
+      check_prompt         = isolate(input$check_prompt),
       selected_files       = selected_files(),
       selected_objects     = selected_objects(),
       prefs                = list(
