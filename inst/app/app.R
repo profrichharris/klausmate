@@ -1804,6 +1804,26 @@ start_pkg_install <- function(cran_pkgs, github_refs, repos) {
 plot_code_cache <- new.env(parent = emptyenv())
 # The same for interactive output (keyed by the page's path relative to tempdir()): the statement that drew it
 widget_code_cache <- new.env(parent = emptyenv())
+# What a captured page (written to RStudio's Viewer by the code) is: an htmlwidget (map, chart: interactive), a table (kableExtra, gt,
+# flextable... which also print through the Viewer but are static) or some other page. Worked out once from the page's text.
+widget_kind_cache <- new.env(parent = emptyenv())
+page_kind <- function(rel) {
+  k <- get0(rel, envir = widget_kind_cache, inherits = FALSE)
+  if (!is.null(k)) return(k)
+  f <- file.path(tempdir(), rel)
+  k <- if (file.exists(f)) {
+    x <- tryCatch(readChar(f, 2e6, useBytes = TRUE), error = function(e) "")
+    if (grepl("html-widget", x, fixed = TRUE)) "widget" else if (grepl("<table", x, fixed = TRUE)) "table" else "page"
+  } else "widget"
+  assign(rel, k, envir = widget_kind_cache)
+  k
+}
+# The words used for each kind: window title, thumbnail badge, what to call it, and the default file name
+page_words <- function(kind)
+  switch(kind,
+    table = list(title = "Table",    badge = "table",       noun = "table",            stem = "table"),
+    page  = list(title = "Web page", badge = "web page",    noun = "web page",         stem = "page"),
+    list(title = "Interactive plot", badge = "interactive", noun = "interactive plot", stem = "interactive"))
 # For plots whose code could not be found: why ("several" = one statement drew several pages), to explain it
 plot_code_why   <- new.env(parent = emptyenv())
 
@@ -5891,7 +5911,7 @@ HELP_TAB_TEXTS <- list(
     "statistical summaries, and plots. When more than one type of output is produced,",
     "separate Plots, Results, and Warnings sub-tabs appear. Click a plot to enlarge it; in",
     "that window, tick Save this plot to a file to choose a file name, format, quality and size and press",
-    "Add to code, which appends the R code that saves the plot to the end of the Code window."
+    "Save, which saves the file in your working directory and adds the R code that saved it to the end of the Code window."
   ),
   "Past code" = paste(
     "Past Code tab — A record of the code in this conversation that has been run successfully, newest first.",
@@ -5929,8 +5949,10 @@ HELP_TAB_TEXTS <- list(
   "Plots" = paste(
     "Plots sub-tab — Picture output from your code, shown as thumbnails. Click any thumbnail to expand it.",
     "A thumbnail marked interactive (a tmap map in view mode, a leaflet map, a plotly chart...) expands into a",
-    "version you can zoom, move and click on, with a link to open it in a new browser tab and the option to add",
-    "code that saves it as a web page (.html file); a map needs an internet connection for its background tiles."
+    "version you can zoom, move and click on, with a link to open it in a new browser tab and the option to save",
+    "it as a web page (.html file), which also adds the code that saved it to the Code window; a map needs an internet",
+    "connection for its background tiles.",
+    "A table made with kableExtra, gt or flextable is also shown here, marked table, and expands in the same way."
   ),
   "Results" = paste(
     "Results sub-tab — The printed text output from running the code: values,",
@@ -6927,7 +6949,8 @@ server <- function(input, output, session) {
             ), selected = prefs$img_size))
         ),
         uiOutput("plot_exp_note"),
-        tags$p(em("Add to code appends the R code that saves the plot, in your working directory, to the end of the Code window."),
+        tags$p(em("Save writes the file in your working directory and adds the R code that saved it to the end of the Code window",
+                  "(and the Code Log), so it can be run again later."),
                style = "font-size: 0.85em; color: #888;")
         ))
       ) else tags$p(em(
@@ -6940,13 +6963,13 @@ server <- function(input, output, session) {
                 "inside a function or loop), so it cannot write the saving code for it.")),
                     style = "font-size: 0.85em; color: #888;"),
       footer = tagList(
-        if (has_code) actionButton("plot_exp_add", "Add to code", class = "btn-primary",
+        if (has_code) actionButton("plot_exp_add", "Save", class = "btn-primary",
                                   style = if (isolate(save_tick())) NULL else "display: none;"),
         modalButton("Close")),
       easyClose = TRUE
     ))
   }
-  # The Add to code buttons show only while the "Save this plot..." tick box is ticked
+  # The Save buttons show only while the "Save this plot..." tick box is ticked
   observeEvent(input$plot_exp_on,   shinyjs::toggle("plot_exp_add",   condition = isTRUE(input$plot_exp_on)),   ignoreNULL = FALSE)
   observeEvent(input$widget_exp_on, shinyjs::toggle("widget_exp_add", condition = isTRUE(input$widget_exp_on)), ignoreNULL = FALSE)
   observeEvent(input$plot_expand, {
@@ -7001,14 +7024,13 @@ server <- function(input, output, session) {
     to_run <- if (!is.null(create_line)) paste0(create_line, "\n\n", block) else block
     file   <- plot_exp_file()
     removeModal()
-    pending_export(list(snippet = to_run, full = full, file = file))
+    pending_export(list(snippet = to_run, full = full, file = file, what = "plot"))
     old_code <- input$code_editor %||% ""
     updateAceEditor(session, "code_editor", value = full)
-    # Show what was added in the Changes tab (however much of a short script it is)
+    # What was added is in the interaction's diff (however much of a short script it is)
     d <- if (nzchar(trimws(old_code))) compute_diff(old_code, full, max_changed_frac = Inf) else NULL
-    diff_rv(d)
-    if (!is.null(d)) show_changes_tab() else goto_tab("Code")
-    # Adding the export code counts as a prompt of its own (type Export): it is listed in Past prompts
+    # (the student stays on the output: the Changes tab is not shown, though Recall of this entry will show it)
+    # The saving code counts as a prompt of its own (type Export): it is listed in Past prompts
     # and Recall brings the code back, with a blank prompt box
     what  <- sub("^# Save the plot to a file \\((.*)\\)$", "\\1", strsplit(block, "\n", fixed = TRUE)[[1]][1])
     label <- paste0("Save plot as ", file, " (", what, ")")
@@ -7020,7 +7042,7 @@ server <- function(input, output, session) {
                                error = "", diff = d, tab = if (!is.null(d)) "Changes" else "Code"))
     active_code_id(sq)
     prompt_history(c(label, prompt_history()))
-    if (isTRUE(input$autorun_code)) do_run_export(to_run, full, file)
+    do_run_export(to_run, full, file, what = "plot")      # Save really saves; the code stays behind as the record
   })
 
   # Expand an interactive plot: the page itself, interactive, with the link to open it in its own tab and the
@@ -7032,27 +7054,36 @@ server <- function(input, output, session) {
     src      <- paste0("/klausmate_plots/", rel)
     has_code <- exists(rel, envir = widget_code_cache, inherits = FALSE)
     n        <- match(rel, widget_files_rv())
+    kind     <- page_kind(rel)
+    pw       <- page_words(kind)
+    if (has_code && !identical(kind, "widget")) {         # a static page can be saved only for the table packages Klausmate knows
+      cls <- get(rel, envir = widget_code_cache)$cls
+      has_code <- any(c("kableExtra", "knitr_kable", "gt_tbl", "flextable") %in% cls)
+    }
     showModal(modalDialog(
-      title = "Interactive plot", size = "l",
+      title = pw$title, size = "l",
       tags$div(class = "cm-expanded", style = "font-size: 0.85em; margin-bottom: 4px;",
         tags$a("Open in a new browser tab", href = src, target = "_blank", rel = "noopener"),
-        tags$span(style = "color: #888;", " (a map needs an internet connection for its background tiles)")),
+        if (identical(kind, "widget")) tags$span(style = "color: #888;", " (a map needs an internet connection for its background tiles)")),
       tags$iframe(src = src, style = "width: 100%; height: 48vh; border: 1px solid #ddd; border-radius: 4px; background: #fff;"),
       tags$hr(style = "margin: 10px 0;"),
       if (has_code) tagList(
         tags$div(style = "display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px;",
-          tags$span("Save this plot as a web page", style = "font-size: 1.1em;"),
+          tags$span(paste0("Save this ", pw$noun, " as a web page"), style = "font-size: 1.1em;"),
           tags$div(class = "cm-savetick", checkboxInput("widget_exp_on", NULL, value = isolate(save_tick()), width = "auto"))),
         conditionalPanel("input.widget_exp_on", tagList(
-          fluidRow(column(5, textInput("widget_exp_name", "File name:", value = paste0("interactive_", if (is.na(n)) 1L else n)))),
+          fluidRow(column(5, textInput("widget_exp_name", "File name:", value = paste0(pw$stem, "_", if (is.na(n)) 1L else n)))),
           uiOutput("widget_exp_note"),
-          tags$p(em("Add to code appends the R code that saves it, in your working directory, as a single .html file (the plot",
-                    "stays interactive in it) to the end of the Code window."),
+          tags$p(em("Save writes it in your working directory as a single .html file",
+                    if (identical(kind, "widget")) "(the plot stays interactive in it)",
+                    "and adds the R code that saved it to the end of the Code window (and the Code Log), so it can be run again later."),
                  style = "font-size: 0.85em; color: #888;")))
-      ) else tags$p(em("Klausmate could not work out which lines of code drew this, so it cannot write the saving code for it."),
+      ) else tags$p(em(if (identical(kind, "widget") || !exists(rel, envir = widget_code_cache, inherits = FALSE))
+                         "Klausmate could not work out which lines of code drew this, so it cannot write the saving code for it."
+                       else "Klausmate can write the code that saves a table made with kableExtra, gt or flextable, but not this kind of page."),
                     style = "font-size: 0.85em; color: #888;"),
       footer = tagList(
-        if (has_code) actionButton("widget_exp_add", "Add to code", class = "btn-primary",
+        if (has_code) actionButton("widget_exp_add", "Save", class = "btn-primary",
                                   style = if (isolate(save_tick())) NULL else "display: none;"),
         modalButton("Close")),
       easyClose = TRUE))
@@ -7098,7 +7129,7 @@ server <- function(input, output, session) {
   widget_exp_file <- reactive({
     nm <- trimws(basename(input$widget_exp_name %||% ""))
     nm <- sub("\\.[A-Za-z0-9]{1,4}$", "", nm)
-    paste0(if (nzchar(nm)) nm else "interactive", ".html")
+    paste0(if (nzchar(nm)) nm else page_words(page_kind(expanded_widget() %||% ""))$stem, ".html")
   })
   output$widget_exp_note <- renderUI({
     if (file.exists(file.path(project_root(), widget_exp_file())))
@@ -7130,22 +7161,26 @@ server <- function(input, output, session) {
     # as one self-contained file when pandoc is there to build it (RStudio brings it)
     pandoc <- isTRUE(tryCatch(requireNamespace("rmarkdown", quietly = TRUE) && rmarkdown::pandoc_available(),
                               error = function(e) FALSE))
+    kind <- page_kind(rel); pw <- page_words(kind)
     save_call <- if ("tmap" %in% info$cls) sprintf("tmap::tmap_save(%s, %s)", obj, deparse(file))
-                 else sprintf("htmlwidgets::saveWidget(%s, %s, selfcontained = %s)", obj, deparse(file), if (pandoc) "TRUE" else "FALSE")
-    block <- paste(c(sprintf("# Save the interactive plot as a web page (%s)", file), save_call,
-                     if (!pandoc && !("tmap" %in% info$cls))
+                 else if (identical(kind, "widget"))
+                   sprintf("htmlwidgets::saveWidget(%s, %s, selfcontained = %s)", obj, deparse(file), if (pandoc) "TRUE" else "FALSE")
+                 else if (any(c("kableExtra", "knitr_kable") %in% info$cls)) sprintf("kableExtra::save_kable(%s, %s)", obj, deparse(file))
+                 else if ("gt_tbl" %in% info$cls) sprintf("gt::gtsave(%s, %s)", obj, deparse(file))
+                 else sprintf("flextable::save_as_html(%s, path = %s)", obj, deparse(file))
+    block <- paste(c(sprintf("# Save the %s as a web page (%s)", pw$noun, file), save_call,
+                     if (identical(kind, "widget") && !pandoc && !("tmap" %in% info$cls))
                        paste0("# (pandoc was not found, so the page needs the folder ", sub("\\.html$", "", file), "_files beside it)")),
                    collapse = "\n")
     full   <- paste0(base, if (nzchar(base)) "\n\n" else "", block)
     to_run <- if (!is.null(create_line)) paste0(create_line, "\n\n", block) else block
     removeModal()
-    pending_export(list(snippet = to_run, full = full, file = file))
+    pending_export(list(snippet = to_run, full = full, file = file, what = pw$noun))
     old_code <- input$code_editor %||% ""
     updateAceEditor(session, "code_editor", value = full)
     d <- if (nzchar(trimws(old_code))) compute_diff(old_code, full, max_changed_frac = Inf) else NULL
-    diff_rv(d)
-    if (!is.null(d)) show_changes_tab() else goto_tab("Code")
-    label <- paste0("Save interactive plot as ", file)
+    # (the student stays on the output: the Changes tab is not shown, though Recall of this entry will show it)
+    label <- paste0("Save ", pw$noun, " as ", file)
     last_extracted_code(full); last_prompt_for_code(label); last_code_description(label)
     sq <- add_interaction(list(kind = "code", export = TRUE, prompt = label, code = full,
                                description = label, editor_code = full,
@@ -7154,7 +7189,7 @@ server <- function(input, output, session) {
                                error = "", diff = d, tab = if (!is.null(d)) "Changes" else "Code"))
     active_code_id(sq)
     prompt_history(c(label, prompt_history()))
-    if (isTRUE(input$autorun_code)) do_run_export(to_run, full, file)
+    do_run_export(to_run, full, file, what = pw$noun)
   })
   output$console_output_ui <- renderUI({
     lines    <- console_output_rv()
@@ -7185,11 +7220,12 @@ server <- function(input, output, session) {
       # (the page itself, scaled down and not clickable); clicking it expands it, and then it is interactive
       widget_items <- lapply(seq_along(widgets), function(i) {
         rel <- widgets[[i]]
-        tags$div(class = "cm-wthumb", title = paste("Interactive plot", i, "— click to expand"),
+        pw  <- page_words(page_kind(rel))
+        tags$div(class = "cm-wthumb", title = paste(pw$title, i, "— click to expand"),
           onclick = sprintf("Shiny.setInputValue('widget_expand', '%s', {priority: 'event'});",
                             gsub("[^A-Za-z0-9_./-]", "", rel)),
           tags$iframe(src = paste0("/klausmate_plots/", rel), tabindex = "-1", scrolling = "no"),
-          tags$span(class = "cm-wbadge", "interactive"))
+          tags$span(class = "cm-wbadge", pw$badge))
       })
       thumb_items <- lapply(seq_along(plots), function(i) {
         src <- paste0("/klausmate_plots/", basename(plots[[i]]))
@@ -12233,31 +12269,34 @@ server <- function(input, output, session) {
   }
   # Running a block of "save this plot" code appended by the expanded-plot window runs only that block:
   # everything before it has already been run and need not be repeated.
-  do_run_export <- function(block, full, file) {
+  do_run_export <- function(block, full, file, what = "plot") {
     ui_busy(TRUE); code_running(TRUE)
     on.exit({ code_running(FALSE); ui_busy(FALSE) }, add = TRUE)
-    res <- withProgress(message = "Saving the plot...", detail = run_progress_detail(), value = 0.5, run_code(block))
+    res <- withProgress(message = paste0("Saving the ", what, "..."), detail = run_progress_detail(), value = 0.5, run_code(block))
     run_status_is_run(TRUE)
     if (isTRUE(res$success)) {
       pending_export(NULL)
       last_run_code(full); last_run_failed(FALSE); last_error_msg("")
-      entry <- list(prompt = "Save the plot to a file", code = block, description = "", source = "export")
+      entry <- list(prompt = paste0("Save the ", what, " to a file"), code = block, description = "", source = "export")
       add_log_entry(entry)
       last_logged_code(full)
       output$run_status <- renderUI(tags$span(
         paste0("Saved ", file, " in ", project_root()),
         style = "color: #2e7d32; font-weight: bold;"))
+      showNotification(paste0("Saved ", file, " in ", project_root(), ". The code that saved it is at the end of the Code window."),
+                       type = "message", duration = 8)
     } else {
       err <- sub("^Error running code:\\s*\\n?\\s*", "", res$message %||% "")
-      output$run_status <- renderUI(tags$span(paste("Could not save the plot:", err),
+      output$run_status <- renderUI(tags$span(paste0("Could not save the ", what, ": ", err),
                                               style = "color: #b22222; font-weight: bold;"))
+      showNotification(paste0("Could not save the ", what, ": ", err), type = "error", duration = 10)
     }
     invisible(NULL)
   }
   observeEvent(input$run_code, {
     pe <- pending_export()
     if (!is.null(pe) && identical(trimws(input$code_editor %||% ""), trimws(pe$full)))
-      do_run_export(pe$snippet, pe$full, pe$file)
+      do_run_export(pe$snippet, pe$full, pe$file, what = pe$what %||% "plot")
     else {
       pending_export(NULL)
       do_run_code(input$code_editor)
