@@ -4098,6 +4098,13 @@ ui <- fluidPage(
       }, true);
       // The expanded plot / interactive plot: no backdrop, no focus trap, and the page behind stays usable
       if (window.jQuery) {
+        // Bootstrap hides the page's scroll bar (and pads the page) from the moment a modal starts to open, which made the page
+        // widen by the width of the bar until the window had finished appearing, and shrink back when it closed. The expanded
+        // output does not block the page, so the page keeps its scroll bar from the start.
+        jQuery(document).on('show.bs.modal', function() {
+          var m = document.getElementById('shiny-modal');
+          if (m && m.querySelector('.cm-expanded')) document.body.classList.add('cm-nonmodal-open');
+        });
         jQuery(document).on('shown.bs.modal', function() {
           var m = document.getElementById('shiny-modal');
           if (m && m.querySelector('.cm-expanded')) {
