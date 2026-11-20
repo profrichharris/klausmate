@@ -4256,6 +4256,52 @@ ui <- fluidPage(
     })();
   )---")),
   tags$script(HTML(r"---(
+    // Up / Down in the prompt box step back and forth through the earlier prompts (Ask for Code and Answer), as in a shell
+    (function() {
+      var list = [], idx = -1, lastSet = null;
+      function reg() {
+        if (!window.Shiny || !Shiny.addCustomMessageHandler) { setTimeout(reg, 200); return; }
+        Shiny.addCustomMessageHandler('cm_prompt_recall', function(m) {
+          list = (m && m.items) ? [].concat(m.items) : [];
+          idx = -1; lastSet = null;
+        });
+      }
+      reg();
+      function put(box, txt) {
+        lastSet = txt; box.value = txt;
+        var n = txt.length; box.setSelectionRange(n, n);
+        box.dispatchEvent(new Event('input', {bubbles: true}));
+      }
+      document.addEventListener('keydown', function(e) {
+        var box = e.target;
+        if (!box || box.id !== 'prompt' || box.readOnly || e.isComposing) return;
+        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+        if (e.shiftKey || e.altKey || e.ctrlKey || e.metaKey) return;
+        var v = box.value, a = box.selectionStart, b = box.selectionEnd;
+        // Only an empty box, or a prompt that is still exactly as recalled, takes part: typed text is never replaced
+        var browsing = idx >= 0 && v === lastSet;
+        if (!browsing) { idx = -1; lastSet = null; }
+        if (!browsing && v !== '') return;
+        // inside a recalled prompt of several lines the keys still move the cursor, until the first / last line is reached
+        if (browsing && a !== b) return;
+        if (e.key === 'ArrowUp') {
+          if (browsing && v.slice(0, a).indexOf('\n') >= 0) return;
+          if (!list.length) return;
+          e.preventDefault();
+          if (idx < list.length - 1) idx++;
+          put(box, list[idx]);
+        } else {
+          if (!browsing) return;
+          if (v.slice(b).indexOf('\n') >= 0) return;
+          e.preventDefault();
+          idx--;
+          if (idx < 0) { idx = -1; put(box, ''); lastSet = null; }
+          else put(box, list[idx]);
+        }
+      }, true);
+    })();
+  )---")),
+  tags$script(HTML(r"---(
     (function() {
       var tip = null, cur = null, IDS = ['code_editor', 'qc_input'];
       function el() { return tip || (tip = document.getElementById('cm_help_tip')); }
@@ -5957,7 +6003,10 @@ HELP_TAB_TEXTS <- list(
   ),
   "Your prompt" = paste(
     "Your Prompt tab — This is where you type your question or instruction for the AI.",
-    "Once submitted with Answer or Ask for Code, the prompt box clears ready for the next step."
+    "Once submitted with Answer or Ask for Code, the prompt box clears ready for the next step.",
+    "With the prompt box empty, the Up arrow key brings back your last prompt (Ask for Code or Answer), and again for the one",
+    "before; the Down arrow key steps forward, and past the newest one clears the box. It only fills the box (nothing is sent),",
+    "and text you have typed is never replaced."
   ),
   "Past prompts" = paste(
     "Past Prompts tab — Shows a history of all the prompts you have sent to the AI",
@@ -7605,6 +7654,16 @@ server <- function(input, output, session) {
     ))
   })
 
+  # A long prompt is shown in the list cut at about PROMPT_SHOW_CHARS characters: the word the limit falls in, and everything after
+  # it, becomes "..." (the full prompt is kept for Recall, Up / Down, the row's tooltip and matching)
+  PROMPT_SHOW_CHARS <- 180L
+  prompt_short <- function(p, n = PROMPT_SHOW_CHARS) {
+    if (nchar(p) <= n) return(p)
+    s <- substr(p, 1L, n)
+    if (!grepl("\\s", substr(p, n + 1L, n + 1L))) s <- sub("\\s*\\S*$", "", s)    # the limit falls inside a word: drop that word
+    paste0(trimws(s, which = "right"), "...")
+  }
+
   output$prompt_history_ui <- renderUI({
     history <- prompt_history()
     if (length(history) == 0)
@@ -7623,7 +7682,7 @@ server <- function(input, output, session) {
       p_js <- as.character(jsonlite::toJSON(p, auto_unbox = TRUE))
       div(class = "cm-prompt-row", `data-p` = p,
         style = "display: flex; align-items: flex-start; border-bottom: 1px solid #eee; padding: 2px 0;",
-        tags$p(p, style = paste0(
+        tags$p(prompt_short(p), title = if (nchar(p) > PROMPT_SHOW_CHARS) p else NULL, style = paste0(
           "margin: 0; flex: 1;",
           "font-size: 0.85em; color: #444;",
           "white-space: pre-wrap; word-break: break-word;"
@@ -9061,6 +9120,7 @@ server <- function(input, output, session) {
   for (b in c("ask_plain", "ask_code", "run_code", "pause_app", "quit"))
     local({ bid <- b; observeEvent(input[[bid]], inspect_open(NULL), ignoreInit = TRUE) })
   observeEvent(input$context_list_checked, ignoreNULL = FALSE, {
+    if (ctx_skip_first) { ctx_skip_first <<- FALSE; return(invisible(NULL)) }
     all_vals <- unname(isolate(context_choices()))
     ctx_crossed(if (length(all_vals) > 0) intersect(all_vals, input$context_list_checked %||% character(0)) else character(0))
   })
@@ -10214,9 +10274,12 @@ server <- function(input, output, session) {
     save_prefs(reactiveValuesToList(prefs))
   })
 
+  ctx_skip_first <- !is.null(ps) && length(ps$ctx_crossed) > 0     # the list is not drawn yet: its empty first value must not wipe the restored crosses
   if (!is.null(ps)) {
     if (length(ps$selected_files)   > 0) selected_files(ps$selected_files)
     if (length(ps$selected_objects) > 0) selected_objects(ps$selected_objects)
+    if (length(ps$ctx_crossed) > 0)
+      ctx_crossed(intersect(ps$ctx_crossed, c(paste0("file::", ps$selected_files), paste0("obj::", ps$selected_objects))))
     if (isTRUE(ps$restored))
       session$onFlushed(function() {
         showNotification(
@@ -11391,6 +11454,20 @@ server <- function(input, output, session) {
   # Whenever the Past prompts list is showing, the prompt behind what is on view in the Code and related tabs (or the Answer
   # tab) is highlighted there, whatever brought it up: Recall or Output in Past code, Past prompts or Past answers, Undo or
   # Redo, a new request. This only marks the row; it never changes which tab is showing.
+  # The earlier prompts for Up / Down in the prompt box (newest first; Ask for Code and Answer prompts, not the Export or
+  # Preference entries, which are labels and not something typed)
+  observe({
+    ph <- prompt_history()
+    keep <- character(0)
+    for (p in unique(ph)) {
+      r <- find_interaction_by_prompt(p)
+      if (!is.null(r) && (isTRUE(r$export) || !is.null(r$pref_new))) next
+      if (!nzchar(trimws(p))) next
+      keep <- c(keep, p)
+    }
+    session$sendCustomMessage("cm_prompt_recall", list(items = as.list(keep)))
+  })
+
   observeEvent(list(last_prompt_for_code(), ask_mode(), answer_latest(), prompt_history(), input$prompt_tabs), {
     req(identical(input$prompt_tabs, "Past prompts"))
     hl <- if (identical(ask_mode(), "answer")) answer_latest()$question %||% "" else last_prompt_for_code() %||% ""
@@ -12776,6 +12853,7 @@ server <- function(input, output, session) {
       check_prompt         = isolate(input$check_prompt),
       selected_files       = selected_files(),
       selected_objects     = selected_objects(),
+      ctx_crossed          = ctx_crossed(),     # the items unticked (red cross), so a restored session keeps them deselected
       prefs                = list(
         coding          = prefs$coding,
         plotting        = prefs$plotting,
