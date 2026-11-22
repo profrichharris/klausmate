@@ -954,6 +954,24 @@ compact_reply <- function(raw) {
   trimws(txt)
 }
 
+# Notes on mistakes already made and fixed in this conversation (written by Claude when it fixed the code: the LESSON line of the Fix
+# reply), given to Ask for Code with each request so that later code does not repeat them. Held in memory for the conversation only.
+LESSONS_KEEP <- 5L
+clean_lesson <- function(txt) {
+  m <- regmatches(txt, regexpr("(?m)^[ \t]*LESSON:[ \t]*(.*)$", txt, perl = TRUE))
+  if (length(m) == 0L) return("")
+  x <- trimws(sub("^[ \t]*LESSON:[ \t]*", "", m, perl = TRUE))
+  if (!nzchar(x) || grepl("^NONE\\.?$", x, ignore.case = TRUE)) return("")
+  if (nchar(x) > 300L) x <- paste0(substr(x, 1L, 297L), "...")
+  x
+}
+lessons_note <- function(lessons) {
+  lessons <- take_last_n(as.list(lessons), LESSONS_KEEP)
+  if (length(lessons) == 0L) return("")
+  paste0("Mistakes already made and fixed earlier in this conversation. Write the new code so that it does not repeat them:\n",
+         paste0("- ", unlist(lessons), collapse = "\n"))
+}
+
 # The earlier messages sent with a new request: the recent turns, dropped four messages (two exchanges) at a time, so that where the
 # conversation sent begins stays the same from one request to the next and Claude's prompt cache keeps matching
 window_history <- function(h, max_msgs = MAX_HISTORY_TURNS - 1L) {
@@ -2414,9 +2432,16 @@ build_fix_system_prompt <- function(language = "English") {
     "```r",
     "<corrected R code>",
     "```",
+    "LESSON: <one line, at most 200 characters, or NONE>",
     "",
     "Do not include any other text, commentary, or markdown outside this format.",
     "The EXPLANATION must be concise — suitable for displaying in a small pop-up window.",
+    "The LESSON line (after the code block) is a note, never shown to the student, that will be given to the assistant",
+    "that writes this student's later code so that it avoids the same mistake. State what went wrong and what to do",
+    "instead, in terms of the R function or package involved (for example: summarise() returning several rows per",
+    "group is an error in this dplyr version; use reframe()). Do not mention the student's data, file names, column",
+    "names or values. Write NONE if the error came from something specific to this one script (a typo, a missing",
+    "object, a misspelt column) and not from a way of using R that could be repeated.",
     "",
     build_language_clause(language)
   )
@@ -5946,6 +5971,8 @@ HELP_TEXTS <- list(
     "Fix — Available after a failed run. Asks the AI to diagnose the error and",
     "produce corrected code. The fix is applied to the editor and run automatically.",
     "If the fix does not work you can try again, or cancel to restore the original code.",
+    "When a fix works, Klausmate keeps a short note of the mistake for the rest of the conversation",
+    "and passes it to Ask for Code, so later code avoids it.",
     "(Not available while the Answer view is showing.)"
   ),
   load_script = paste(
@@ -9543,6 +9570,7 @@ server <- function(input, output, session) {
   })
 
   # --- Package tracking & installation state ---------------------------------
+  session_lessons   <- reactiveVal(character(0))   # notes on mistakes fixed this conversation (clean_lesson()), sent with Ask for Code
   loaded_packages   <- reactiveVal(character(0))   # pkgs library()'d this conversation
   install_proc      <- reactiveVal(NULL)            # callr background process
   install_pending   <- reactiveVal(NULL)            # closure to call after install
@@ -10330,6 +10358,7 @@ server <- function(input, output, session) {
     if (length(ps$selected_objects) > 0) selected_objects(ps$selected_objects)
     if (length(ps$ctx_crossed) > 0)
       ctx_crossed(intersect(ps$ctx_crossed, c(paste0("file::", ps$selected_files), paste0("obj::", ps$selected_objects))))
+    if (length(ps$lessons) > 0) session_lessons(as.character(unlist(ps$lessons)))
     if (isTRUE(ps$restored))
       session$onFlushed(function() {
         showNotification(
@@ -10376,6 +10405,7 @@ server <- function(input, output, session) {
     held_explain(NULL)
     about_entries(list()); about_group(NULL)
     loaded_packages(character(0))
+    session_lessons(character(0))
     last_extracted_code(""); script_origin(NULL)
     last_prompt_for_code("")
     last_code_description("")
@@ -10952,6 +10982,8 @@ server <- function(input, output, session) {
       # The packages loaded so far go with the newest message, not in the system prompt (see build_system_prompt)
       lp_note <- loaded_packages_note(loaded_packages())
       if (nzchar(lp_note)) user_message <- paste(lp_note, user_message, sep = "\n\n")
+      ls_note <- lessons_note(session_lessons())
+      if (nzchar(ls_note)) user_message <- paste(ls_note, user_message, sep = "\n\n")
       new_user_turn   <- list(role = "user", content = user_message)
       # What is kept in the conversation is the prompt alone: the data summaries, the code already run and the current code that go
       # with every request are sent afresh with the newest one, so they are not carried in (and paid for again with) every later turn
@@ -12670,6 +12702,7 @@ server <- function(input, output, session) {
     diff_rv(local_d)
     captured_expl       <- expl
     captured_fixed_code <- fixed_code
+    captured_lesson     <- clean_lesson(raw)
 
     check_and_install_if_needed(fixed_code, function() {
       run_result <- withProgress(message = "Re-running fixed code...", detail = run_progress_detail(), value = 0.5,
@@ -12681,6 +12714,9 @@ server <- function(input, output, session) {
       if (run_result$success) {
         last_run_failed(FALSE)
         code_before_fix(NULL)
+        # The fix worked: keep its note so that later code does not repeat the mistake
+        if (nzchar(captured_lesson) && !(captured_lesson %in% session_lessons()))
+          session_lessons(take_last_n(c(session_lessons(), captured_lesson), LESSONS_KEEP))
         entry <- list(prompt = last_prompt_for_code(), code = captured_fixed_code,
                       description = last_code_description(), source = "ask_code", ts = Sys.time())
         unconf_remove_code(captured_fixed_code)
@@ -12903,6 +12939,7 @@ server <- function(input, output, session) {
       check_prompt         = isolate(input$check_prompt),
       selected_files       = selected_files(),
       selected_objects     = selected_objects(),
+      lessons              = session_lessons(), # notes on mistakes fixed in this conversation
       ctx_crossed          = ctx_crossed(),     # the items unticked (red cross), so a restored session keeps them deselected
       prefs                = list(
         coding          = prefs$coding,
