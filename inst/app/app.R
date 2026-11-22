@@ -954,6 +954,14 @@ compact_reply <- function(raw) {
   trimws(txt)
 }
 
+# What identifies one run's output for the explanation kept with it (output_expl): the output itself plus the code that made it, so
+# recalling an earlier run from Past code finds its explanation again and new output has none
+output_signature <- function(lines, plots, widgets, warnings, code) {
+  x <- paste(c(as.character(lines), "\001", basename(as.character(plots)), "\002", as.character(widgets), "\003",
+               as.character(unlist(warnings)), "\004", trimws(code %||% "")), collapse = "\n")
+  as.character(openssl::md5(charToRaw(enc2utf8(x))))
+}
+
 # Notes on mistakes already made and fixed in this conversation (written by Claude when it fixed the code: the LESSON line of the Fix
 # reply), given to Ask for Code with each request so that later code does not repeat them. Held in memory for the conversation only.
 LESSONS_KEEP <- 5L
@@ -4871,7 +4879,8 @@ ui <- fluidPage(
       ),
       tabPanel("R output",
         tags$div(style = "margin-top: 8px; height: 220px; overflow-y: auto;",   # same height as the code editor
-          uiOutput("console_output_ui")
+          uiOutput("console_output_ui"),
+          uiOutput("output_expl_link_ui")
         )
       ),
       tabPanel("Past code",
@@ -6109,7 +6118,10 @@ HELP_TAB_TEXTS <- list(
     "statistical summaries, and plots. When more than one type of output is produced,",
     "separate Plots, Results, and Warnings sub-tabs appear. Click a plot to enlarge it; in",
     "that window, tick Save this plot to a file to choose a file name, format, quality and size and press",
-    "Save, which saves the file in your working directory and adds the R code that saved it to the end of the Code window."
+    "Save, which saves the file in your working directory and adds the R code that saved it to the end of the Code window.",
+    "After Explain has interpreted the output, a blue Click to view explanation link appears under it: click it to read",
+    "the explanation again (the level made last; the Level box in that window goes back to any level already made without",
+    "a new request). The link comes back with the output when you recall that code from Past code."
   ),
   "Past code" = paste(
     "Past Code tab — A record of the code in this conversation that has been run successfully, newest first.",
@@ -8251,7 +8263,7 @@ server <- function(input, output, session) {
     # Restore log entries so the notebook continues from where this conversation left off
     all_log_entries(recalled$log_entries %||% list())
     held_explain(NULL)
-    about_entries(list()); about_group(NULL)
+    about_entries(list()); about_group(NULL); output_expl(list())
     # Clear transient state
     hide_changes_tab()
     pending_log_entries(list())
@@ -10403,7 +10415,7 @@ server <- function(input, output, session) {
     pending_log_entries(list())
     all_log_entries(list())
     held_explain(NULL)
-    about_entries(list()); about_group(NULL)
+    about_entries(list()); about_group(NULL); output_expl(list())
     loaded_packages(character(0))
     session_lessons(character(0))
     last_extracted_code(""); script_origin(NULL)
@@ -11698,6 +11710,94 @@ server <- function(input, output, session) {
     explain_ctx(list(id = explain_n, kind = kind, subject = subject, code = code, row = row, lines = lines,
                      held = nzchar(code) && !code_is_logged(code)))
   }
+  # --- Explanations of R output are kept with the output (the blue link under it) --------------------------------------
+  # output_expl: list keyed by output_signature(); each entry has `levels` (the explanation made at each level: Beginner,
+  # Intermediate, Advanced), `shown` (the level made or viewed last, which the link opens) and `ctx` (so that viewing it again
+  # does not add a second copy to the code log). The 30 newest outputs are kept.
+  output_expl <- reactiveVal(if (!is.null(ps)) (ps$output_expl %||% list()) else list())
+  cur_out_sig <- reactive({
+    lines <- console_output_rv(); plots <- plot_files_rv(); widgets <- widget_files_rv(); warns <- warnings_rv()
+    if (!(length(lines) > 0 || length(plots) > 0 || length(widgets) > 0 || length(warns) > 0)) return(NULL)
+    output_signature(lines, plots, widgets, warns, last_run_code())
+  })
+  store_output_expl <- function(sig, level, res, ctx) {
+    if (is.null(sig)) return(invisible(NULL))
+    st <- isolate(output_expl()); e <- st[[sig]] %||% list(levels = list())
+    e$levels[[level]] <- res; e$shown <- level; e$ctx <- ctx
+    st[[sig]] <- NULL; st[[sig]] <- e                               # newest last
+    if (length(st) > 30L) st <- st[(length(st) - 29L):length(st)]
+    output_expl(st)
+  }
+  set_output_shown <- function(sig, level) {
+    st <- isolate(output_expl()); if (is.null(sig) || is.null(st[[sig]])) return(invisible(NULL))
+    st[[sig]]$shown <- level; output_expl(st)
+  }
+  output$output_expl_link_ui <- renderUI({
+    sig <- cur_out_sig(); st <- output_expl()
+    if (is.null(sig) || is.null(st[[sig]]) || length(st[[sig]]$levels) == 0L) return(NULL)
+    tags$div(style = "margin: 6px 0 2px 2px; font-size: 0.85em;",
+      tags$a(href = "#", style = "color: #2a6ebb; text-decoration: underline;",
+             onclick = "Shiny.setInputValue('output_expl_view', Math.random(), {priority: 'event'}); return false;",
+             "Click to view explanation"))
+  })
+  outputOptions(output, "output_expl_link_ui", suspendWhenHidden = FALSE)
+  show_output_explain_modal <- function(level, tell_more = TRUE) {
+    showModal(modalDialog(
+      title     = "Output explanation",
+      size      = "l",
+      easyClose = FALSE,
+      div(style = "min-height: 180px;", uiOutput("explain_text_ui")),
+      if (tell_more) div(style = "margin-top: 14px;",
+        disabled(actionButton("tell_more", "Tell me more",
+          style = "background-color: white; border-color: #bbb; color: #333;"))),
+      hr(style = "margin-top: 18px;"),
+      fluidRow(
+        column(5,
+          selectInput("explain_level", "Level of explanation:",
+            choices  = c("Beginner", "Intermediate", "Advanced"),
+            selected = level, width = "100%")
+        ),
+        column(3, style = "padding-top: 25px;",
+          disabled(actionButton("explain_regenerate", "Regenerate",
+            style = "background-color: white; border-color: #bbb; color: #333;"))
+        )
+      ),
+      footer = actionButton("explain_close", "Close",
+        style = "background-color: white; border-color: #bbb; color: #333;")
+    ))
+    updateSelectInput(session, "explain_level", selected = level)
+  }
+  # Ask Claude to interpret the output now showing, at `level`; keeps the result with the output (called from an observer)
+  output_explain_request <- function(level, sig, msg = "Interpreting output...") {
+    text_out   <- paste(console_output_rv(), collapse = "\n")
+    plot_files <- plot_files_rv()
+    code_ctx   <- isolate(input$code_editor %||% "")
+    prompt_ctx <- isolate(last_prompt_for_code() %||% "")
+    ctx_now    <- isolate(explain_ctx())
+    shinyjs::delay(150, {
+      withProgress(message = msg, value = 0.5, {
+        api_result <- tryCatch(
+          call_claude(
+            messages      = list(list(role = "user",
+              content = build_output_explain_content(text_out, plot_files, level, code = code_ctx, prompt = prompt_ctx))),
+            model         = prefs$model,
+            max_tokens    = 900,
+            system_prompt = build_output_explain_system_prompt(prefs$language)
+          ),
+          error = function(e) list(text = "", stop_reason = "error", cost_usd = 0, error_msg = conditionMessage(e))
+        )
+      })
+      if (!nzchar(trimws(api_result$text))) {
+        explain_result(list(explanation = claude_failure_text("Could not generate an explanation.")))
+      } else {
+        last_explain_level(level)
+        record_usage(api_result$cost_usd)
+        res <- parse_explain_response(api_result$text)
+        store_output_expl(sig, level, res, ctx_now)
+        explain_result(res)
+      }
+    })
+  }
   # Is this code already in the log (because it was run)? If not, an explanation of it has to carry the code
   # with it, or the log would explain code that it never shows.
   code_is_logged <- function(code) {
@@ -11740,6 +11840,7 @@ server <- function(input, output, session) {
   observeEvent(explain_result(), {
     r <- explain_result()
     if (is.null(r) || isTRUE(r$loading) || explain_failed(r$explanation)) return()
+    if (isTRUE(r$cached)) return()          # an explanation of output shown again: already in the code log
     ctx   <- isolate(explain_ctx()); req(!is.null(ctx))
     level <- isolate(explain_level_at_last_gen()) %||% ""
     update_explanation_log(function(old)
@@ -12231,66 +12332,23 @@ server <- function(input, output, session) {
     on_output_tab  <- isTRUE(input$main_tabs == "R output")
     has_run_output <- length(console_output_rv()) > 0 || length(plot_files_rv()) > 0 || length(widget_files_rv()) > 0 || length(warnings_rv()) > 0
     if (on_output_tab && has_run_output && !last_run_failed()) {
-      level <- last_explain_level()
+      level  <- last_explain_level()
+      sig    <- cur_out_sig()
+      old    <- if (!is.null(sig)) output_expl()[[sig]] else NULL
+      cached <- old$levels[[level]]
       explain_level_at_last_gen(level)
       disable("explain_regenerate")
+      if (!is.null(cached)) {                 # this output has been explained at this level: show it again, no new request
+        if (is.null(old$ctx)) new_explain_ctx("output") else explain_ctx(old$ctx)
+        show_output_explain_modal(level, tell_more = TRUE)
+        explain_result(c(cached, list(cached = TRUE)))
+        set_output_shown(sig, level)
+        return(invisible(NULL))
+      }
       new_explain_ctx("output")
       explain_result(list(loading = TRUE))
-      showModal(modalDialog(
-        title     = "Output explanation",
-        size      = "l",
-        easyClose = FALSE,
-        div(style = "min-height: 180px;", uiOutput("explain_text_ui")),
-        div(style = "margin-top: 14px;",
-          disabled(actionButton("tell_more", "Tell me more",
-            style = "background-color: white; border-color: #bbb; color: #333;"))
-        ),
-        hr(style = "margin-top: 18px;"),
-        fluidRow(
-          column(5,
-            selectInput("explain_level", "Level of explanation:",
-              choices  = c("Beginner", "Intermediate", "Advanced"),
-              selected = level, width = "100%")
-          ),
-          column(3, style = "padding-top: 25px;",
-            disabled(actionButton("explain_regenerate", "Regenerate",
-              style = "background-color: white; border-color: #bbb; color: #333;"))
-          )
-        ),
-        footer = actionButton("explain_close", "Close",
-          style = "background-color: white; border-color: #bbb; color: #333;")
-      ))
-      updateSelectInput(session, "explain_level", selected = level)
-      text_out   <- paste(console_output_rv(), collapse = "\n")
-      plot_files <- plot_files_rv()
-      code_ctx   <- isolate(input$code_editor %||% "")
-      prompt_ctx <- isolate(last_prompt_for_code() %||% "")
-      shinyjs::delay(150, {
-        withProgress(message = "Interpreting output...", value = 0.5, {
-          api_result <- tryCatch(
-            call_claude(
-              messages      = list(list(role = "user",
-                content = build_output_explain_content(
-                  text_out, plot_files, level,
-                  code   = code_ctx,
-                  prompt = prompt_ctx
-                ))),
-              model         = prefs$model,
-              max_tokens    = 900,
-              system_prompt = build_output_explain_system_prompt(prefs$language)
-            ),
-            error = function(e) list(text = "", stop_reason = "error", cost_usd = 0,
-                                     error_msg = conditionMessage(e))
-          )
-        })
-        if (!nzchar(trimws(api_result$text))) {
-          explain_result(list(explanation = claude_failure_text("Could not generate an explanation.")))
-        } else {
-          last_explain_level(level)
-          record_usage(api_result$cost_usd)
-          explain_result(parse_explain_response(api_result$text))
-        }
-      })
+      show_output_explain_modal(level, tell_more = TRUE)
+      output_explain_request(level, sig, "Interpreting output...")
       return(invisible(NULL))
     }
 
@@ -12448,6 +12506,18 @@ server <- function(input, output, session) {
 
   # Lock / unlock Regenerate when the level dropdown changes.
   observeEvent(input$explain_level, {
+    ctx0 <- isolate(explain_ctx())
+    if (!is.null(ctx0) && identical(ctx0$kind, "output") && !is.null(explain_level_at_last_gen()) &&
+        !identical(input$explain_level, explain_level_at_last_gen())) {
+      sig <- cur_out_sig(); cached <- if (!is.null(sig)) output_expl()[[sig]]$levels[[input$explain_level]] else NULL
+      if (!is.null(cached)) {            # a level made before: go back to it without asking again
+        explain_level_at_last_gen(input$explain_level)
+        disable("explain_regenerate")
+        explain_result(c(cached, list(cached = TRUE)))
+        set_output_shown(sig, input$explain_level)
+        return(invisible(NULL))
+      }
+    }
     if (!is.null(explain_level_at_last_gen()) &&
         input$explain_level != explain_level_at_last_gen()) {
       enable("explain_regenerate")
@@ -12459,6 +12529,14 @@ server <- function(input, output, session) {
   observeEvent(input$explain_regenerate, {
     req(!is.null(explain_result()))
     new_level <- input$explain_level
+    ctx0 <- isolate(explain_ctx())
+    if (!is.null(ctx0) && identical(ctx0$kind, "output")) {      # an explanation of output: interpret the output again (not the code)
+      explain_level_at_last_gen(new_level)
+      disable("explain_regenerate")
+      explain_result(list(loading = TRUE))
+      output_explain_request(new_level, cur_out_sig(), "Regenerating explanation...")
+      return(invisible(NULL))
+    }
     explain_level_at_last_gen(new_level)
     disable("explain_regenerate")
     explain_result(list(loading = TRUE))   # triggers "Generating explanation..." render
@@ -12494,6 +12572,19 @@ server <- function(input, output, session) {
         explain_result(parse_explain_response(api_result$text))
       }
     })
+  })
+
+  # The blue link under the output: its explanation again (the level made or viewed last), without Tell me more
+  observeEvent(input$output_expl_view, {
+    sig <- cur_out_sig(); req(sig)
+    e <- output_expl()[[sig]]; req(!is.null(e))
+    level <- e$shown %||% names(e$levels)[length(e$levels)]
+    res <- e$levels[[level]]; req(!is.null(res))
+    explain_level_at_last_gen(level)
+    if (is.null(e$ctx)) new_explain_ctx("output") else explain_ctx(e$ctx)
+    disable("explain_regenerate")
+    show_output_explain_modal(level, tell_more = FALSE)
+    explain_result(c(res, list(cached = TRUE)))
   })
 
   observeEvent(input$explain_close, {
@@ -12969,6 +13060,7 @@ server <- function(input, output, session) {
       all_log_entries      = all_log_entries(),
       held_explain         = held_explain(),
       about_entries        = about_entries(),
+      output_expl          = output_expl(),
       held_code            = held_code(),
       last_extracted_code  = last_extracted_code(),
       last_prompt_for_code = last_prompt_for_code(),
