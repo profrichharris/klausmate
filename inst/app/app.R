@@ -4295,6 +4295,8 @@ ui <- fluidPage(
         Shiny.addCustomMessageHandler('cm_prompt_recall', function(m) {
           list = (m && m.items) ? [].concat(m.items) : [];
           idx = -1; lastSet = null;
+          var pb = document.getElementById('prompt');
+          if (pb) pb.placeholder = list.length ? 'Type your prompt here. Press \u2191 for earlier prompts.' : 'Type your prompt here';
         });
       }
       reg();
@@ -4726,7 +4728,7 @@ ui <- fluidPage(
           # The data-protection notice is drawn over the (empty, read-only) prompt box while it is active, because a
           # text box cannot hold text in two colours or weights
           tags$div(id = "prompt_wrap", style = "position: relative;",
-            textAreaInput("prompt", label = NULL, rows = 4, width = "100%"),
+            textAreaInput("prompt", label = NULL, rows = 4, width = "100%", placeholder = "Type your prompt here"),
             tags$div(id = "prompt_notice", class = "cm-prompt-notice", style = "display: none;",
               tags$span(style = "color: #8b0000; font-weight: bold;",
                 "Enter your prompt here. Always prioritise data protection. Never include personal data or information in your prompts."),
@@ -4831,6 +4833,7 @@ ui <- fluidPage(
       #prompt_wrap .form-group { margin-bottom: 0; }
       /* The tick boxes beside the buttons (AutoRun Code, Check prompt) take only the room they need: Shiny gives an input 300px */
       .autorun-box .shiny-input-container { width: auto; min-width: 0; margin-bottom: 0; }
+      #prompt::placeholder { font-style: italic; color: #9aa0a6; opacity: 1; }
       /* The prompt box is mid grey (and read-only) while Ask for Code, Answer or Run is working */
       #prompt.cm-busy { background-color: #bdbdbd; }
       .cm-prompt-notice { position: absolute; top: 1px; left: 1px; right: 1px; bottom: 1px; padding: 6px 12px;
@@ -6086,10 +6089,12 @@ HELP_TAB_TEXTS <- list(
   ),
   "Your prompt" = paste(
     "Your Prompt tab — This is where you type your question or instruction for the AI.",
-    "Once submitted with Answer or Ask for Code, the prompt box clears ready for the next step.",
+    "The box clears itself when you press Answer (it comes back if the request fails) and after code has run successfully,",
+    "ready for the next step; Ask for Code alone leaves your prompt in place so you can adjust it and ask again.",
     "With the prompt box empty, the Up arrow key brings back your last prompt (Ask for Code or Answer), and again for the one",
     "before; the Down arrow key steps forward, and past the newest one clears the box. It only fills the box (nothing is sent),",
-    "and text you have typed is never replaced."
+    "and text you have typed is never replaced. The empty box says \"Type your prompt here\" in light italics, with a",
+    "reminder of the Up arrow once there are earlier prompts."
   ),
   "Past prompts" = paste(
     "Past Prompts tab — Shows a history of all the prompts you have sent to the AI",
