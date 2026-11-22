@@ -5090,6 +5090,40 @@ ui <- fluidPage(
 # at a .key file, or at a page/folder listing that links to one or more .key
 # files, in which case the most recently created key is used.
 # Returns list(payload = <key list>) on success or list(error = <message>).
+# For an address on a GitHub Pages site (name.github.io/folder) that returned "not found": the .key files in that folder of the
+# site's public repository, found through GitHub's file-list service (no sign-in; names and addresses only). Tried in order: the
+# user site repository (name.github.io, the folder as given); then, as a project site, the repository named by the first part of
+# the path, with the rest of the path in the top folder and in docs/. Returns list(links =, found_folder =) or NULL.
+github_pages_keys <- function(url, get_raw) {
+  m <- regmatches(url, regexec("^https://([A-Za-z0-9-]+)\\.github\\.io(/[^?#]*)?", url))[[1]]
+  if (length(m) < 2L) return(NULL)
+  user <- m[2]
+  path <- gsub("^/+|/+$", "", if (length(m) >= 3L) m[3] else "")
+  segs <- if (nzchar(path)) strsplit(path, "/", fixed = TRUE)[[1]] else character(0)
+  tries <- list(list(repo = paste0(user, ".github.io"), dir = path))
+  if (length(segs) >= 1L) {
+    sub <- paste(segs[-1], collapse = "/")
+    tries[[2]] <- list(repo = segs[1], dir = sub)
+    tries[[3]] <- list(repo = segs[1], dir = if (nzchar(sub)) paste0("docs/", sub) else "docs")
+  }
+  found_folder <- FALSE
+  for (t in tries) {
+    api <- sprintf("https://api.github.com/repos/%s/%s/contents/%s", utils::URLencode(user), utils::URLencode(t$repo),
+                   utils::URLencode(t$dir))
+    r <- tryCatch(get_raw(sub("/$", "", api)), error = function(e) NULL)
+    if (is.null(r) || r$status >= 400) next
+    items <- tryCatch(jsonlite::fromJSON(rawToChar(r$body), simplifyVector = FALSE), error = function(e) NULL)
+    if (!is.list(items) || !is.null(items$message) || length(items) == 0L) next
+    found_folder <- TRUE
+    links <- unlist(lapply(items, function(it)
+      if (is.list(it) && identical(it$type, "file") && grepl("\\.key$", it$name %||% "", ignore.case = TRUE))
+        it$download_url else NULL))
+    links <- links[grepl("^https://", links)]
+    if (length(links)) return(list(links = head(unique(links), 20L), found_folder = TRUE))
+  }
+  list(links = character(0), found_folder = found_folder)
+}
+
 fetch_key_from_web <- function(url) {
   url <- trimws(url %||% "")
   if (!nzchar(url)) return(list(error = "Please enter a web address."))
@@ -5120,13 +5154,42 @@ fetch_key_from_web <- function(url) {
     if (!identical(klausmate:::klausmate_key_kind(p), "invalid")) p else NULL
   }
 
+  # Read each linked key and use the newest one (by its created date)
+  choose_from_links <- function(links) {
+    keys <- list()
+    for (l in links) {
+      r <- tryCatch(get_raw(l), error = function(e) NULL)
+      if (is.null(r) || r$status >= 400) next
+      k <- as_key(r$body)
+      if (!is.null(k)) keys[[length(keys) + 1]] <- k
+    }
+    if (length(keys) == 0)
+      return(list(error = paste("Found .key links at that address, but none could be",
+                                "read as a valid Klausmate key.")))
+    created <- vapply(keys, function(k)
+      tryCatch(as.numeric(as.POSIXct(k$created)), error = function(e) NA_real_),
+      numeric(1))
+    idx <- if (all(is.na(created))) length(keys) else which.max(replace(created, is.na(created), -Inf))
+    list(payload = keys[[idx]])
+  }
+
   first <- tryCatch(get_raw(url), error = function(e) NULL)
   if (is.null(first))
     return(list(error = paste("Could not connect to that address. Please check it",
                               "and your internet connection, then try again.")))
-  if (first$status >= 400)
+  if (first$status >= 400) {
+    # A folder on a GitHub Pages site has no page of its own (GitHub shows no file list), so look in the public repository
+    # (any error: a folder address without its closing slash gets a 503 from GitHub, not a 404; other hosts return NULL)
+    gh <- tryCatch(github_pages_keys(url, get_raw), error = function(e) NULL)
+    if (!is.null(gh) && length(gh$links)) {
+      r <- choose_from_links(gh$links)
+      if (!is.null(r$payload)) return(r)
+    }
+    if (!is.null(gh) && isTRUE(gh$found_folder))
+      return(list(error = "That folder was found on GitHub, but no Klausmate key (.key file) is in it."))
     return(list(error = paste0("The web address returned an error (HTTP ", first$status,
                                "). Please check the address.")))
+  }
 
   direct <- as_key(first$body)
   if (!is.null(direct)) return(list(payload = direct))
@@ -5153,21 +5216,7 @@ fetch_key_from_web <- function(url) {
   links <- links[grepl("^https://", links)]
   links <- head(unique(links), 20)
 
-  keys <- list()
-  for (l in links) {
-    r <- tryCatch(get_raw(l), error = function(e) NULL)
-    if (is.null(r) || r$status >= 400) next
-    k <- as_key(r$body)
-    if (!is.null(k)) keys[[length(keys) + 1]] <- k
-  }
-  if (length(keys) == 0)
-    return(list(error = paste("Found .key links at that address, but none could be",
-                              "read as a valid Klausmate key.")))
-  created <- vapply(keys, function(k)
-    tryCatch(as.numeric(as.POSIXct(k$created)), error = function(e) NA_real_),
-    numeric(1))
-  idx <- if (all(is.na(created))) length(keys) else which.max(replace(created, is.na(created), -Inf))
-  list(payload = keys[[idx]])
+  choose_from_links(links)
 }
 
 # ---------------------------------------------------------------------------

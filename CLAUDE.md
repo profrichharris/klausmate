@@ -237,8 +237,11 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.84 (2026-11-22)  
-**Current version:** 0.6.84 (no unreleased changes)
+**Last released:** 0.6.85 (2026-11-22)  
+**Current version:** 0.6.85 (no unreleased changes)
+
+Released in 0.6.85: Load from Web finds a key in a GitHub Pages folder (user report: profrichharris.github.io/klausmate gave an error because the folder has no index page and GitHub shows no file list). `github_pages_keys(url, get_raw)` (just above `fetch_key_from_web()`) runs when the address returned any error (a folder address without its closing slash gets a 503, not a 404) and its host is name.github.io; other hosts return NULL, so their error is unchanged. It asks GitHub's file-list service (api.github.com/repos/.../contents/..., no sign-in, public repositories only) for the .key files in: the user site repository (name.github.io) at the folder given; then, as a project site, the repository named by the first part of the path, at the rest of the path and then docs/. The .key files' download addresses go to `choose_from_links()` (the old 'newest by created' loop, now a local function shared with the page-with-links route). Messages: a folder found with no .key gives 'That folder was found on GitHub, but no Klausmate key (.key file) is in it.'; otherwise the original HTTP error. Tested with the real address (with and without the closing slash: key found, sealed kind), a missing folder (404 error), another host (404 error). Quirk: the capital-K spelling reads the klausmate package repository as a project site (repository names are not case-sensitive) and gives the 'no key in it' message. The unauthenticated service allows about 60 requests an hour per computer (a few per load); a rate-limit answer just falls back to the original error. Not tested: a project site served from docs/, inside the app window (function tested outside it).
+Released in 0.6.84 note below; Last released updated here.
 
 Released in 0.6.84: Load from Web sits BELOW its address box, at the left, and is frozen until something is typed in the box (user request; `web_key_ui()`, button made with `shinyjs::disabled()`, two `observe(toggleState())` in the server for `load_key_web_btn` / `load_web_key_btn`; blanks count as empty). Same in the start-up key screen and the Preferences > Load new key file window. Tested live in both (disabled at first, enabled by typing, disabled again for blanks; reopening the window starts disabled). Not changed: Enter in the box still does not load.
 
