@@ -732,15 +732,13 @@ disclosure_risk_rule <- paste(
 )
 
 web_key_ui <- function(url_id, btn_id) {
+  # The address box, with the button under it at the left; the button stays frozen until something is typed in the box
+  # (server: observe_web_btn())
   tagList(
     div(style = "text-align: center; margin: 4px 0 8px 0;", tags$strong("Or")),
-    div(style = "display: flex; align-items: flex-start; gap: 8px;",
-      actionButton(btn_id, "Load from Web", class = "btn-default",
-                   style = "flex-shrink: 0;"),
-      div(style = "flex-grow: 1;",
-        textInput(url_id, NULL, value = "", width = "100%",
-                  placeholder = "Enter web address"))
-    )
+    textInput(url_id, NULL, value = "", width = "100%", placeholder = "Enter web address"),
+    div(style = "text-align: left; margin-top: -8px;",
+      shinyjs::disabled(actionButton(btn_id, "Load from Web", class = "btn-default")))
   )
 }
 
@@ -6577,6 +6575,9 @@ server <- function(input, output, session) {
     load_key_file(tmp, on_success = on_success)
   }
 
+  # Load from Web is frozen until a web address has been typed
+  observe(shinyjs::toggleState("load_web_key_btn", nzchar(trimws(input$web_key_url %||% ""))))
+  observe(shinyjs::toggleState("load_key_web_btn", nzchar(trimws(input$key_web_url %||% ""))))
   observeEvent(input$load_web_key_btn, {
     load_key_from_web(input$web_key_url, on_success = function() removeModal())
   })

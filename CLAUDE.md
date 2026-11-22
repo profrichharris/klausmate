@@ -237,8 +237,10 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.83 (2026-11-20)  
-**Current version:** 0.6.83 (no unreleased changes)
+**Last released:** 0.6.84 (2026-11-22)  
+**Current version:** 0.6.84 (no unreleased changes)
+
+Released in 0.6.84: Load from Web sits BELOW its address box, at the left, and is frozen until something is typed in the box (user request; `web_key_ui()`, button made with `shinyjs::disabled()`, two `observe(toggleState())` in the server for `load_key_web_btn` / `load_web_key_btn`; blanks count as empty). Same in the start-up key screen and the Preferences > Load new key file window. Tested live in both (disabled at first, enabled by typing, disabled again for blanks; reopening the window starts disabled). Not changed: Enter in the box still does not load.
 
 Released in 0.6.83: Past prompts shows a long prompt cut at about 180 characters (`PROMPT_SHOW_CHARS`, `prompt_short()` just above `output$prompt_history_ui`): if the limit falls inside a word, that word and the rest become '...', so the text ends in '...' (a prompt of 180 characters or fewer is shown whole). The full text stays in the row's `data-p` (highlighting), the Recall button, Up / Down and a tooltip (title) on the shortened text. Tested live: a 276-character prompt showed as 177 characters ending '...', tooltip 276, Recall put all 276 back in the prompt box; cutting rule checked in R on five cases. The limit is a guess at 'a few lines' of the list: change PROMPT_SHOW_CHARS if it looks too long or short.
 
