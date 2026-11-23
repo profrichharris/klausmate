@@ -237,8 +237,10 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.88 (2026-11-22)  
-**Current version:** 0.6.88 (no unreleased changes)
+**Last released:** 0.6.89 (2026-11-23)  
+**Current version:** 0.6.89 (no unreleased changes)
+
+Released in 0.6.89: Load from Web finds the key in a GitHub Pages folder that has its own page (user report: profrichharris.github.io/klausmate still needed the file name, because the folder now holds a Quarto manual `index.html` that returns 200 with no .key link, so the 0.6.85 GitHub file-list fallback, which ran only on an HTTP error, never ran). In `fetch_key_from_web()` the 'no .key links on the page' branch now also tries `github_pages_keys()` before giving the 'No Klausmate key was found' error. Tested with the real address (with and without the closing slash and with the file name: sealed key found; a missing folder: 404 error); old code reproduced the failure. Not tested inside the app window.
 
 Released in 0.6.88: the empty prompt box shows a light italic placeholder (user request): 'Type your prompt here' when there are no earlier prompts (start, new conversation), 'Type your prompt here. Press \u2191 for earlier prompts.' once there are. The placeholder is set in the Up / Down script's `cm_prompt_recall` handler (the server sends the list of earlier prompts at start and whenever it changes), initial value in `textAreaInput("prompt", placeholder =)`; CSS `#prompt::placeholder` (italic, grey). Help text of Your prompt mentions it, and its older wording that the box clears after Ask for Code was corrected: it clears when Answer is pressed (restored on failure) and after a successful run (Run, AutoRun, Fix), not on Ask for Code itself. Tested live (stubbed Claude): short text at start, longer text after one request, still showing in a cleared box (italic grey, one line at 528px), Up arrow still recalls the prompt, short text again after New conversation. NOT tested: the largest text sizes (the slider could not be set from the test; a textarea placeholder wraps rather than cuts), after a Pause-resume, Windows.
 

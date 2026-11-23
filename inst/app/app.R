@@ -5238,9 +5238,16 @@ fetch_key_from_web <- function(url) {
     page, gregexpr("(?:href=[\"']|https?://)[^\"'<>\\s]*\\.key(?=[\"'<>\\s?#]|$)",
                    page, perl = TRUE))))
   links <- sub("^href=[\"']", "", links)
-  if (length(links) == 0)
+  if (length(links) == 0) {
+    # A GitHub Pages folder that has a page of its own (a manual, say) but no link to the key: look in the repository too
+    gh <- tryCatch(github_pages_keys(url, get_raw), error = function(e) NULL)
+    if (!is.null(gh) && length(gh$links)) {
+      r <- choose_from_links(gh$links)
+      if (!is.null(r$payload)) return(r)
+    }
     return(list(error = paste("No Klausmate key was found at that address. It should",
                               "point to a .key file, or to a page that links to one.")))
+  }
   parts <- regmatches(url, regexec("^(https://[^/]+)(/.*)?$", url))[[1]]
   origin <- parts[2]
   base_dir <- sub("[^/]*$", "", sub("[?#].*$", "", url))
