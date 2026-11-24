@@ -237,8 +237,10 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.91 (2026-11-24)  
-**Current version:** 0.6.91 (no unreleased changes)
+**Last released:** 0.6.92 (2026-11-24)  
+**Current version:** 0.6.92 (no unreleased changes)
+
+Released in 0.6.92: (1) LAYOUT (user request, a colleague's suggestion): the row Answer / Ask for Code / Clear / AutoRun Code / Check prompt / Preferences now sits directly below the Your prompt / Past prompts box (10px gap), then 'Are there any files or objects...?' (24px gap above, was 8px), the Import files row and the context list; the hr() between the button row and the code area was removed. Same ids, so nothing else changed. Tested live (stubbed Claude): order of the elements by position, Ask for Code from its new place put code in the editor; the test pane was narrow, so Preferences and Load Workspace wrapped onto second lines. Not tested: a wide window, the largest text sizes. The gaps are guesses. (2) The placeholder reads 'Type your prompt here. Press \u2191 for earlier prompts or view them in Past prompts.' once there are earlier prompts (not run).
 
 Released in 0.6.91: End Session's workspace tick box now reads 'Save Workspace to:' (no '[Recommended]', user request) with the folder on a line of its own below, indented to line up with the label text, shown briefly as `.../folder` (`short_dir()`, just above `show_quit_confirm_modal()`; a root or home folder is shown in full; full path in the tooltip; the folder is `project_root()`). Tested live (stubbed Claude): label and folder left-aligned (both at the same x), tooltip the full path, End Session wrote the workspace file with the objects.
 

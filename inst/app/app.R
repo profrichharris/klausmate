@@ -4296,7 +4296,7 @@ ui <- fluidPage(
           list = (m && m.items) ? [].concat(m.items) : [];
           idx = -1; lastSet = null;
           var pb = document.getElementById('prompt');
-          if (pb) pb.placeholder = list.length ? 'Type your prompt here. Press \u2191 for earlier prompts.' : 'Type your prompt here';
+          if (pb) pb.placeholder = list.length ? 'Type your prompt here. Press \u2191 for earlier prompts or view them in Past prompts.' : 'Type your prompt here';
         });
       }
       reg();
@@ -4748,8 +4748,25 @@ ui <- fluidPage(
       )
     ),
 
+    tags$div(style = "margin-top: 10px;", fluidRow(
+      column(8,
+        actionButton("ask_plain", "Answer"),
+        actionButton("ask_code", "Ask for Code", class = "btn-primary"),
+        actionButton("clear_prompt", "Clear"),
+        tags$span(style = "display: inline-block; margin-left: 14px; vertical-align: middle;",
+          tags$div(class = "autorun-box", style = "margin: 0;",
+            checkboxInput("autorun_code", "AutoRun Code", value = FALSE))),
+        tags$span(style = "display: inline-block; margin-left: 10px; vertical-align: middle;",
+          tags$div(class = "autorun-box", style = "margin: 0;",
+            checkboxInput("check_prompt", "Check prompt", value = TRUE)))
+      ),
+      column(4, div(style = "text-align: right;",
+        actionButton("preferences", "Preferences")
+      ))
+    )),
+
     tags$p(
-      style = "margin: 8px 0 6px 0;",
+      style = "margin: 24px 0 6px 0;",
       "Are there any files or objects you want the prompt to work with?"
     ),
     fluidRow(
@@ -4772,24 +4789,6 @@ ui <- fluidPage(
     tags$div(id = "context_links", style = "visibility: hidden; margin: 6px 0 6px 0; font-size: 0.85em;",
       actionLink("remove_context", "Forget deselected"), " \u00b7 ", actionLink("remove_all_context", "Forget all")),
     uiOutput("context_list_ui"),
-
-    hr(),
-    fluidRow(
-      column(8,
-        actionButton("ask_plain", "Answer"),
-        actionButton("ask_code", "Ask for Code", class = "btn-primary"),
-        actionButton("clear_prompt", "Clear"),
-        tags$span(style = "display: inline-block; margin-left: 14px; vertical-align: middle;",
-          tags$div(class = "autorun-box", style = "margin: 0;",
-            checkboxInput("autorun_code", "AutoRun Code", value = FALSE))),
-        tags$span(style = "display: inline-block; margin-left: 10px; vertical-align: middle;",
-          tags$div(class = "autorun-box", style = "margin: 0;",
-            checkboxInput("check_prompt", "Check prompt", value = TRUE)))
-      ),
-      column(4, div(style = "text-align: right;",
-        actionButton("preferences", "Preferences")
-      ))
-    ),
 
     tags$div(style = "display: none;",
       tags$li(id = "cm_fs_li", class = "cm-fs-li", `data-help-id` = "text_size",
