@@ -6067,8 +6067,10 @@ HELP_TEXTS <- list(
   ),
   quit = paste(
     "End Session — Closes Klausmate. By default it saves your code log as an R Notebook (.Rmd), which opens in your",
-    "editor; a tick box in the confirmation window lets you turn that off. The session is kept for a week so that Recent",
-    "Session can bring it back (use Pause to carry straight on next time), and your R workspace is not affected."
+    "editor; a tick box in the confirmation window lets you turn that off. A second tick box (on by default, shown when",
+    "the workspace has objects) saves a copy of your workspace as klausmate_workspace_<date and time>.RData in the working",
+    "folder, to bring back later with Load Workspace. The session is kept for a week so that Recent",
+    "Session can bring it back (use Pause to carry straight on next time), and your R workspace itself is not affected."
   ),
 
   # Buttons inside Explanation and Fix windows
@@ -9503,7 +9505,7 @@ server <- function(input, output, session) {
   # log_path is generated fresh each time Save Code Log is pressed (date-time stamped)
   make_log_path <- function()
     file.path(project_root(),
-      paste0("klausmate_log_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".Rmd"))
+      paste0("klausmate_log_", getOption("klausmate.log_stamp") %||% format(Sys.time(), "%Y%m%d_%H%M%S"), ".Rmd"))
   log_path <- reactiveVal(NULL)    # the last log file saved in this run of the app
   # The log file this session carried on from when it was brought back (Pause, restore, Recent Session): named at the
   # top of the next log written, which holds the whole log so far. Only if that file still exists.
@@ -13222,10 +13224,48 @@ server <- function(input, output, session) {
   observeEvent(input$qc_install_pause,  do_pause_app())
 
   # --- Quit ------------------------------------------------------------------
-  do_quit_with_autosave <- function(save_log = TRUE) {
+  # The objects a workspace copy would hold (what ls() shows in the console; Quick Console stand-ins are not saved)
+  workspace_objects <- function() setdiff(ls(globalenv()), c("q", "quit", "stopApp", "ask", "klaus"))
+
+  # Size in memory of the workspace objects, in bytes (NA if it cannot be worked out); a copy above WORKSPACE_WARN_BYTES
+  # gets a warning in the End Session window (the file is usually smaller, being compressed, but saving can take a while)
+  WORKSPACE_WARN_BYTES <- 100 * 1024^2
+  workspace_bytes <- function() {
+    tryCatch(sum(vapply(workspace_objects(), function(n) as.numeric(utils::object.size(get(n, envir = globalenv()))),
+                        numeric(1))), error = function(e) NA_real_)
+  }
+
+  # Saves a copy of the workspace as klausmate_workspace_<date-time stamp>.RData in the working folder (the stamp of the
+  # Code Log written just before it, so the two match). Returns the file, or an error message in "error".
+  save_workspace_copy <- function(stamp) {
+    objs <- workspace_objects()
+    f <- file.path(project_root(), paste0("klausmate_workspace_", stamp, ".RData"))
+    err <- tryCatch({ save(list = objs, file = f, envir = globalenv()); NULL },
+                    error = function(e) conditionMessage(e), warning = function(w) conditionMessage(w))
+    if (!is.null(err)) { unlink(f); return(list(error = err)) }
+    list(file = f, n = length(objs))
+  }
+
+  do_quit_with_autosave <- function(save_log = TRUE, save_workspace = FALSE) {
+    stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+    # Save the workspace first: if that fails the session is not ended, so nothing is lost
+    if (save_workspace && length(workspace_objects()) > 0) {
+      if (save_log && length(full_log()) > 0) {   # the log is written next, with this stamp in its name
+        options(klausmate.log_stamp = stamp)
+      }
+      w <- save_workspace_copy(stamp)
+      if (!is.null(w$error)) {
+        options(klausmate.log_stamp = NULL)
+        showNotification(paste0("Could not save the workspace (", w$error, "). The session has not ended."),
+                         type = "error", duration = 10)
+        return(invisible(NULL))
+      }
+      message("Klausmate: workspace saved to ", w$file)
+    }
     # Unticking "Save your Code Log..." in the End Session window also stops the automatic save when the session ends
     if (!save_log) recov$nolog <- TRUE
     if (save_log && length(full_log()) > 0) do_save_log()
+    options(klausmate.log_stamp = NULL)
     if (!session_is_empty()) save_session_snapshot(session_state())   # kept so that Load Session can bring it back
     do_quit()
   }
@@ -13246,6 +13286,16 @@ server <- function(input, output, session) {
                       paste0("Save your Code Log and open it in ", if (in_rstudio()) "RStudio" else "your editor",
                              "? [Recommended]"),
                       value = TRUE, width = "100%"),     # full width (Shiny's default is 300 px), so it wraps only if it must
+      if (length(workspace_objects()) > 0)
+        checkboxInput("end_save_workspace",
+                      "Save Workspace? [Recommended]",
+                      value = TRUE, width = "100%"),
+      if (length(workspace_objects()) > 0 && isTRUE(workspace_bytes() >= WORKSPACE_WARN_BYTES))
+        conditionalPanel("input.end_save_workspace",
+          tags$p(style = "color: #b35900; margin: 0 0 10px 20px;",
+                 paste0("Your workspace is large (about ", sub("b$", "B", format(structure(workspace_bytes(), class = "object_size"), units = "auto")),
+                        " in memory), so saving it may take a while, perhaps a minute or more, and the file may be big. ",
+                        "Press Yes, end session to go ahead with the save, or untick the box to skip it."))),
       footer = tagList(
         actionButton("confirm_quit", "Yes, end session", class = "btn-danger"),
         modalButton("Cancel")
@@ -13269,7 +13319,7 @@ server <- function(input, output, session) {
   })
 
   observeEvent(input$quit,         { show_quit_confirm_modal() })
-  observeEvent(input$confirm_quit, { removeModal(); do_quit_with_autosave(save_log = !isFALSE(input$end_save_log)) })
+  observeEvent(input$confirm_quit, { removeModal(); do_quit_with_autosave(save_log = !isFALSE(input$end_save_log), save_workspace = isTRUE(input$end_save_workspace)) })
 
   # --- Auto-save on unexpected close (browser tab closed, Escape in console) --
   session$onSessionEnded(function() {
