@@ -4761,7 +4761,7 @@ ui <- fluidPage(
             checkboxInput("check_prompt", "Check prompt", value = TRUE)))
       ),
       column(4, div(style = "text-align: right;",
-        actionButton("preferences", "Preferences")
+        actionButton("load_session_btn", "Recent Session", disabled = "disabled")
       ))
     )),
 
@@ -4772,7 +4772,7 @@ ui <- fluidPage(
     fluidRow(
       column(12,
         tags$span(style = "float: right;",
-          actionButton("load_session_btn", "Recent Session", disabled = "disabled")),
+          actionButton("preferences", "Preferences")),
         shinyFilesButton("file_select", "Import files",
           title = "Select one or more files", multiple = TRUE),
         tags$span(style = "display: inline-block; width: 4px;"),
