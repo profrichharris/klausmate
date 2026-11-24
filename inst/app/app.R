@@ -13270,6 +13270,14 @@ server <- function(input, output, session) {
     do_quit()
   }
 
+  # A folder shown briefly: ".../folder" (just its own name); a root or home folder is shown as it is
+  short_dir <- function(path) {
+    path <- normalizePath(path, winslash = "/", mustWork = FALSE)
+    nm <- basename(path)
+    if (!nzchar(nm) || identical(path, normalizePath("~", winslash = "/", mustWork = FALSE))) return(path)
+    paste0(".../", nm)
+  }
+
   show_quit_confirm_modal <- function() {
     has_log <- length(full_log()) > 0
     showModal(modalDialog(
@@ -13288,8 +13296,11 @@ server <- function(input, output, session) {
                       value = TRUE, width = "100%"),     # full width (Shiny's default is 300 px), so it wraps only if it must
       if (length(workspace_objects()) > 0)
         checkboxInput("end_save_workspace",
-                      "Save Workspace? [Recommended]",
+                      "Save Workspace to:",
                       value = TRUE, width = "100%"),
+      if (length(workspace_objects()) > 0)
+        tags$div(style = "margin: -8px 0 10px 20px; color: #444;", title = project_root(),   # indented to line up with the label text; full path on hover
+                 tags$code(short_dir(project_root()))),
       if (length(workspace_objects()) > 0 && isTRUE(workspace_bytes() >= WORKSPACE_WARN_BYTES))
         conditionalPanel("input.end_save_workspace",
           tags$p(style = "color: #b35900; margin: 0 0 10px 20px;",
