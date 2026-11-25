@@ -6155,7 +6155,7 @@ HELP_TEXTS <- list(
     "box, Answer, Ask for Code and Clear, the Code, R output and Past code tabs with Run, Explain and Fix (Grab Code and Send to RStudio are not needed there),",
     "and the buttons to start a new conversation, pause and end the session. The files and objects you have added are still used (a line",
     "says how many); press Expand to change them or to reach the other buttons. While the view is compact, code that Klausmate writes is",
-    "also sent to RStudio as a new script. Run, Explain and Fix work on the script in focus in RStudio (Explain, on just the lines you select there if you select any); if you have changed it, Run and Fix ask which code to use.",
+    "also sent to RStudio as a new script. Run, Explain and Fix work on the script in focus in RStudio (Explain, on just the lines you select there if you select any); if you have changed it, Run and Fix ask which code to use. When you press Expand, the script in focus in RStudio (the whole script) comes back into the Code window, so the two stay linked.",
     "Klausmate remembers which view you used last. Only shown when Klausmate is run from RStudio."
   ),
   compact_toggle_top = paste(
@@ -6164,7 +6164,7 @@ HELP_TEXTS <- list(
     "box, Answer, Ask for Code and Clear, the Code, R output and Past code tabs with Run, Explain and Fix (Grab Code and Send to RStudio are not needed there),",
     "and the buttons to start a new conversation, pause and end the session. The files and objects you have added are still used (a line",
     "says how many); press Expand to change them or to reach the other buttons. While the view is compact, code that Klausmate writes is",
-    "also sent to RStudio as a new script. Run, Explain and Fix work on the script in focus in RStudio (Explain, on just the lines you select there if you select any); if you have changed it, Run and Fix ask which code to use.",
+    "also sent to RStudio as a new script. Run, Explain and Fix work on the script in focus in RStudio (Explain, on just the lines you select there if you select any); if you have changed it, Run and Fix ask which code to use. When you press Expand, the script in focus in RStudio (the whole script) comes back into the Code window, so the two stay linked.",
     "Klausmate remembers which view you used last. Only shown when Klausmate is run from RStudio."
   ),
   view_log = paste(
@@ -6494,8 +6494,8 @@ server <- function(input, output, session) {
   # the way a restored session is: its state is written as the pause file, the app is stopped and klaus() starts it again
   # (klausmate.restart_app), this time opening the Viewer pane (klausmate.handover) at once and on a new port, so this tab
   # does not reconnect to it (it shows where Klausmate went instead). The new page applies the layout from compact_view.rds.
-  move_app <- function(to) {
-    st <- session_state()
+  move_app <- function(to, code = NULL) {
+    st <- session_state(code)
     st$moved <- to
     ok <- tryCatch({ saveRDS(st, pause_file()); TRUE }, error = function(e) FALSE)
     if (!ok) {
@@ -6517,7 +6517,17 @@ server <- function(input, output, session) {
     saved <- tryCatch({ d <- dirname(.cv_file()); dir.create(d, showWarnings = FALSE, recursive = TRUE); saveRDS(on, .cv_file()); TRUE },
                       error = function(e) FALSE)
     if (!saved) { showNotification("Klausmate could not save the view setting, so it was not changed.", type = "error", duration = 8); return(invisible(NULL)) }
-    if (!isTRUE(move_app(if (on) "viewer" else "browser")))
+    code <- NULL
+    if (!on && in_rstudio()) {      # Expand: the script in focus in RStudio IS the code, so it comes back into the Code window
+      fs <- tryCatch(focused_script(ignore_selection = TRUE), error = function(e) NULL)
+      if (!is.null(fs) && !identical(trimws(fs$text), trimws(isolate(input$code_editor) %||% ""))) {
+        if (code_too_long(fs$text, isolate(prefs$max_lines)))
+          showNotification(paste0(fs$name, " in RStudio is longer than the limit set by your key (", isolate(prefs$max_lines),
+                                  " lines), so it was not brought back into the Code window."), type = "warning", duration = 10)
+        else { apply_grab(fs); code <- fs$text }
+      }
+    }
+    if (!isTRUE(move_app(if (on) "viewer" else "browser", code)))
       tryCatch(saveRDS(!on, .cv_file()), error = function(e) NULL)       # not moved: keep the old setting
   }
   # one observer per button (a combined observeEvent would count the 0 an action button first reports as a click)
@@ -12964,9 +12974,9 @@ server <- function(input, output, session) {
   }
   # Compact view: Run means "run what is in RStudio". If the script in focus in RStudio is not the code in Klausmate's window
   # (for example it was edited there), ask which to run; otherwise just run.
-  focused_script <- function() {
+  focused_script <- function(ignore_selection = FALSE) {
     ctx <- grab_context(); if (is.null(ctx)) return(NULL)
-    sel_text <- tryCatch(paste(vapply(ctx$selection, function(x) x$text %||% "", ""), collapse = "\n"), error = function(e) "")
+    sel_text <- if (ignore_selection) "" else tryCatch(paste(vapply(ctx$selection, function(x) x$text %||% "", ""), collapse = "\n"), error = function(e) "")
     use_sel  <- nzchar(trimws(sel_text))
     path     <- ctx$path %||% ""
     ext      <- tolower(tools::file_ext(path))
@@ -13393,7 +13403,7 @@ server <- function(input, output, session) {
 
   # Pause is also offered directly by the Quick Console's install warning and timeout pop-ups
   # Everything that is saved to resume a session (Pause) or to restore it (recovery file)
-  session_state <- function() {
+  session_state <- function(code = NULL) {      # `code`: text for the Code window that the page has not reported back yet
     capture_active_code()
     list(
       packages             = all_session_pkgs(),
@@ -13401,7 +13411,7 @@ server <- function(input, output, session) {
       log_file             = { lp <- isolate(log_path()); if (!is.null(lp) && file.exists(lp)) lp else isolate(log_continues()) },
       port                 = suppressWarnings(as.integer(isolate(session$clientData$url_port))),   # klaus() reuses it when resuming
       prompt               = isolate(input$prompt),
-      code_editor          = isolate(input$code_editor),
+      code_editor          = code %||% isolate(input$code_editor),
       autorun_code         = isolate(input$autorun_code),       # the two tick boxes beside Ask for Code, as the student left them
       check_prompt         = isolate(input$check_prompt),
       selected_files       = selected_files(),

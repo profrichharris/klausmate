@@ -237,8 +237,10 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.97 (2026-11-25)  
-**Current version:** 0.6.97 (no unreleased changes)
+**Last released:** 0.6.98 (2026-11-25)  
+**Current version:** 0.6.98 (no unreleased changes)
+
+Released in 0.6.98: EXPAND BRINGS THE RSTUDIO SCRIPT BACK (user request: the RStudio script is the Code window moved elsewhere, so keep generated code -> RStudio script -> edits -> Run / Explain / Expand linked). In `do_compact_toggle()`, when expanding in RStudio, `focused_script(ignore_selection = TRUE)` (whole script, any selection ignored) is put in the Code window with `apply_grab()` if it differs (no question asked); too long for the key -> notice, Klausmate's copy kept; no usable script -> nothing changes. `move_app(to, code)` / `session_state(code)` take the text, because `input$code_editor` is not updated before the hand-over. Help text of both Minimise buttons updated. Tested in a scratch app (stubbed in_rstudio / grab_context): Expand saved the RStudio script as the pause file's code_editor. NOT tested: the real RStudio, the visible result in the new browser tab, a selection in RStudio, an Rmd.
 
 Released in 0.6.97: (1) Compact note reworded: 'Pressing Run, Explain or Fix whilst Klausmate is minimised works on the script that is in focus in RStudio (Explain, on just the lines you select there, if you select any).' (2) The page left behind after Minimise / Expand (the Viewer pane after Expand, user report: blank and white) now shows a FULL-PAGE white message (title, the moved text, 'This page will come back to life by itself when you press the button there.') instead of a thin strip over the greyed app; text now 'Klausmate is running in your web browser. Press the Minimise icon there to bring it back to this Viewer pane.' / '...running in the RStudio Viewer pane. Press the Expand icon there...'. Tested in a scratch app (stopApp after Expand shows it). The real cause of the blank pane is NOT confirmed: if RStudio reloads the Viewer when the server is down the page has no script left to show anything. (3) User report 'Minimise icon missing top right' not reproduced: both icons are drawn only when in_rstudio() is TRUE when the page is built.
 
