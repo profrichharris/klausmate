@@ -7770,7 +7770,7 @@ server <- function(input, output, session) {
       document.getElementById('clear_prompt').style.borderColor = '';
       document.getElementById('clear_prompt').style.color = '';
     ")
-    for (btn in c("help_toggle", "quick_console", "pause_app", "quit", "view_log",
+    for (btn in c("help_toggle", "quick_console", "pause_app", "quit", "view_log", "compact_toggle",
                   "add_objects", "load_package_data", "preferences",
                   "file_select", "load_workspace"))
       shinyjs::enable(btn)
