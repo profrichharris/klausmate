@@ -237,8 +237,10 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.7.0 (2026-11-25)  
-**Current version:** 0.7.0 (no unreleased changes)
+**Last released:** 0.7.1 (2026-11-25)  
+**Current version:** 0.7.1 (no unreleased changes)
+
+Released in 0.7.1: the version label in the header (app.R, the only `utils::packageVersion("klausmate")` in the app) no longer stops the page if R cannot find the installed package at that moment (user report after Expand, 0.7.0: 'Error in utils::packageVersion("klausmate"): there is no package called klausmate' in the console; the package WAS installed afterwards, so the cause is unconfirmed: most likely the page was rebuilt while the library folder was being replaced by an install). Falls back to the loaded version, then to no label. (The user's 'missing minimise icon' was the 0.6.96 icon replacing the old text button; nothing was missing.)
 
 Released in 0.7.0: COMPACT CODE TAB SHOWS THE FIRST LINES (user request: the 'Which code should run?' window says RStudio's script differs from Klausmate's code, but the minimised Code tab showed none). The explanatory note in `#cm_code_note` is gone; it now holds `#cm_code_prev` (monospace, not italic, read only, long lines cut with an ellipsis) with up to the first three lines of Klausmate's COPY of the code (the Ace editor's value, refreshed by the compact timer every 0.6 s via `preview()`), then `#cm_code_more` in italics: 4+ lines -> 3 lines + '[continues in RStudio]'; 3 lines -> 2 + marker; 2 lines -> 1 + marker; 1 line -> only '[shown in RStudio]' (read literally: the single line itself is NOT shown, ask the user if they wanted it shown); empty -> '[no code yet]'. All compact panes (this one, R output, Past code, Explanation, Answer) are now 100px (was 132px; about five lines of code). Tested at 579 x 375 in a scratch app: line-count cases, Code / R output / Past code tabs look fine. NOT checked: Explanation and Answer tabs visually, the largest text size, real RStudio. ALSO (user wording): the 'Which code should run?' / 'Which code should be fixed?' windows now say 'The script in focus in RStudio (name) is not the code linked to this Code window' and the buttons are 'Run / Fix the script in focus', 'Run / Fix the linked script', Cancel (ids unchanged). Parsed only; not seen live.
 

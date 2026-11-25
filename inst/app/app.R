@@ -4785,7 +4785,7 @@ ui <- fluidPage(
         tags$h3("Klausmate", class = "cm-title", style = "margin: 0;"),
         tags$span(
           class = "cm-ver", style = "color: #888; font-size: 0.75em; white-space: nowrap;",
-          paste0("v", utils::packageVersion("klausmate"))
+          paste0("v", tryCatch(as.character(utils::packageVersion("klausmate")), error = function(e) tryCatch(as.character(getNamespaceVersion("klausmate")), error = function(e2) "")))   # never stop the page for a version label
         )
       )
     )
