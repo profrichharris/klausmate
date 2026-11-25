@@ -237,8 +237,10 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.99 (2026-11-25)  
-**Current version:** 0.6.99 (no unreleased changes)
+**Last released:** 0.7.0 (2026-11-25)  
+**Current version:** 0.7.0 (no unreleased changes)
+
+Released in 0.7.0: COMPACT CODE TAB SHOWS THE FIRST LINES (user request: the 'Which code should run?' window says RStudio's script differs from Klausmate's code, but the minimised Code tab showed none). The explanatory note in `#cm_code_note` is gone; it now holds `#cm_code_prev` (monospace, not italic, read only, long lines cut with an ellipsis) with up to the first three lines of Klausmate's COPY of the code (the Ace editor's value, refreshed by the compact timer every 0.6 s via `preview()`), then `#cm_code_more` in italics: 4+ lines -> 3 lines + '[continues in RStudio]'; 3 lines -> 2 + marker; 2 lines -> 1 + marker; 1 line -> only '[shown in RStudio]' (read literally: the single line itself is NOT shown, ask the user if they wanted it shown); empty -> '[no code yet]'. All compact panes (this one, R output, Past code, Explanation, Answer) are now 100px (was 132px; about five lines of code). Tested at 579 x 375 in a scratch app: line-count cases, Code / R output / Past code tabs look fine. NOT checked: Explanation and Answer tabs visually, the largest text size, real RStudio. ALSO (user wording): the 'Which code should run?' / 'Which code should be fixed?' windows now say 'The script in focus in RStudio (name) is not the code linked to this Code window' and the buttons are 'Run / Fix the script in focus', 'Run / Fix the linked script', Cancel (ids unchanged). Parsed only; not seen live.
 
 Released in 0.6.99: VIEW AT START (user decision, after discussing 'always open minimised', which was dropped). Klausmate opens in the view the user LEFT (Pause or End Session; `compact_view.rds`, as before) and a recovered session (crash restore, Recent Session, Esc then klaus()) runs in whatever view is current when it is recovered (nothing to change: those restarts keep the app's view). NEW: `klausmate_reset()` and `klausmate_reset_key()` delete `compact_view.rds` (`km_forget_view()`, R/ask_claude.R), so after a reset the key screen and first run are in the full view, in the browser. Tested: `klausmate_reset_key()` in a redirected config removed the file. NOT tested: `klausmate_reset()` itself (needs the yes prompt; it calls the same helper), a real recovery in the Viewer.
 

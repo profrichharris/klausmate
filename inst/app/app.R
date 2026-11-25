@@ -4709,10 +4709,14 @@ ui <- fluidPage(
       { display: none !important; }
     html body.cm-compact #prompt { height: calc(56px * var(--cm-s)); min-height: 0; }          /* two lines of text */
     body.cm-compact:not(.cm-code-big) #code_editor, body.cm-compact #code_expand_btn { display: none !important; }
-    body.cm-compact #cm_code_note { display: block !important; height: calc(132px * var(--cm-s)); box-sizing: border-box; overflow-y: auto;
-      border: 1px solid #ddd; border-radius: 3px; background: #fafafa; padding: 10px 14px; color: #666; font-style: italic; }
-    html body.cm-compact .tab-pane > div[style*='height: 220px'] { height: calc(132px * var(--cm-s)) !important; }    /* 60% of 220px */
-    html body.cm-compact .cm-answer-pane { height: calc(132px * var(--cm-s)); }
+    body.cm-compact #cm_code_note { display: block !important; height: calc(100px * var(--cm-s)); box-sizing: border-box; overflow: hidden;
+      border: 1px solid #ddd; border-radius: 3px; background: #fafafa; padding: 6px 10px; color: #333; }
+    body.cm-compact #cm_code_prev { margin: 0; padding: 0; border: 0; background: transparent; font-family: Menlo, Consolas, monospace;
+      font-size: calc(13px * var(--cm-s)); line-height: 1.4; color: #222; white-space: pre; overflow: hidden; text-overflow: ellipsis; user-select: text; }
+    body.cm-compact #cm_code_prev:empty { display: none; }
+    body.cm-compact #cm_code_more { font-size: calc(12px * var(--cm-s)); line-height: 1.4; font-style: italic; color: #777; }
+    html body.cm-compact .tab-pane > div[style*='height: 220px'] { height: calc(100px * var(--cm-s)) !important; }
+    html body.cm-compact .cm-answer-pane { height: calc(100px * var(--cm-s)); }
     body.cm-compact #main_tabs { margin-top: 12px; }     /* a little air between the Answer / Ask for Code row and the tabs */
     .cm-compact-btn svg { width: 15px; height: 15px; vertical-align: -3px; }
     .cm-compact-btn .cm-ic-exp { display: none; }
@@ -4733,6 +4737,18 @@ ui <- fluidPage(
         if (box) box.querySelectorAll('.checkbox input[type=checkbox]').forEach(function(c) { if (!c.checked) n++; });
         el.textContent = n ? ('Using ' + n + (n === 1 ? ' file or object' : ' files and objects') + ' from the full view.') : '';
       }
+      // The Code tab while compact: the first lines of Klausmate's copy of the code (read only), then where the rest is
+      function preview() {
+        var pre = document.getElementById('cm_code_prev'), more = document.getElementById('cm_code_more');
+        if (!pre || !more) return;
+        var code = '';
+        try { code = ace.edit('code_editor').getValue(); } catch (e) { return; }
+        var lines = code.replace(/\s+$/, '').split('\n');
+        if (!code.trim()) { pre.textContent = ''; more.textContent = '[no code yet]'; return; }
+        var n = lines.length, show = n >= 4 ? 3 : n - 1;
+        pre.textContent = lines.slice(0, show).join('\n');
+        more.textContent = n === 1 ? '[shown in RStudio]' : '[continues in RStudio]';
+      }
       var timer = null;
       Shiny.addCustomMessageHandler('cm_compact', function(msg) {
         var on = !!(msg && msg.on);
@@ -4750,7 +4766,7 @@ ui <- fluidPage(
         if (on) {
           var t = document.querySelector('#prompt_tabs a[data-value=\"Your prompt\"]');
           if (t && window.jQuery) window.jQuery(t).tab('show');
-          summary(); timer = setInterval(summary, 800);
+          summary(); preview(); timer = setInterval(function() { summary(); preview(); }, 600);
         }
         window.dispatchEvent(new Event('resize'));
       });
@@ -4953,8 +4969,7 @@ ui <- fluidPage(
         tags$div(id = "code_slot", style = "margin-top: 8px;",
           # Compact view only: the code is in RStudio, so the editor is hidden and this says so
           tags$div(id = "cm_code_note", style = "display: none;",
-            "In the compact view your code is in RStudio: Klausmate sends each new script there as an Untitled tab. Edit and keep it there; ",
-            "Pressing Run, Explain or Fix whilst Klausmate is minimised works on the script that is in focus in RStudio (Explain, on just the lines you select there, if you select any). Press the expand icon to see and edit the code in Klausmate again."),
+            tags$pre(id = "cm_code_prev"), tags$div(id = "cm_code_more")),
           aceEditor("code_editor", value = "", mode = "r", theme = "textmate",
             height = "220px", fontSize = 13, showLineNumbers = TRUE,
             highlightActiveLine = TRUE, wordWrap = FALSE,
@@ -13018,13 +13033,13 @@ server <- function(input, output, session) {
     compact_fix_pending(fs)
     showModal(modalDialog(
       title = "Which code should be fixed?",
-      tags$p("The script in RStudio (", tags$strong(fs$name), if (fs$use_sel) ", the lines you selected" else "",
-             ") is not the same as the code in Klausmate's Code window, which is the code that failed."),
+      tags$p("The script in focus in RStudio (", tags$strong(fs$name), if (fs$use_sel) ", the lines you selected" else "",
+             ") is not the code linked to this Code window, which is the code that failed."),
       if (too_long) tags$p(style = "color: #8b0000;",
-        "The RStudio script is longer than the limit set by your key (", isolate(prefs$max_lines), " lines), so Klausmate cannot fix it. Select part of it in RStudio, or fix the code in Klausmate's window."),
+        "The script in focus is longer than the limit set by your key (", isolate(prefs$max_lines), " lines), so Klausmate cannot fix it. Select part of it in RStudio, or fix the linked script."),
       footer = tagList(
-        if (!too_long) actionButton("compact_fix_rs", "Fix the RStudio script", class = "btn-primary"),
-        actionButton("compact_fix_km", "Fix the code in Klausmate's window", class = if (too_long) "btn-primary" else ""),
+        if (!too_long) actionButton("compact_fix_rs", "Fix the script in focus", class = "btn-primary"),
+        actionButton("compact_fix_km", "Fix the linked script", class = if (too_long) "btn-primary" else ""),
         actionButton("compact_fix_cancel", "Cancel")),
       easyClose = FALSE))
     TRUE
@@ -13055,13 +13070,13 @@ server <- function(input, output, session) {
     compact_run_pending(fs)
     showModal(modalDialog(
       title = "Which code should run?",
-      tags$p("The script in RStudio (", tags$strong(fs$name), if (fs$use_sel) ", the lines you selected" else "",
-             ") is not the same as the code in Klausmate's Code window."),
+      tags$p("The script in focus in RStudio (", tags$strong(fs$name), if (fs$use_sel) ", the lines you selected" else "",
+             ") is not the code linked to this Code window."),
       if (too_long) tags$p(style = "color: #8b0000;",
-        "The RStudio script is longer than the limit set by your key (", isolate(prefs$max_lines), " lines), so Klausmate cannot run it. Select part of it in RStudio, or run the code in Klausmate's window."),
+        "The script in focus is longer than the limit set by your key (", isolate(prefs$max_lines), " lines), so Klausmate cannot run it. Select part of it in RStudio, or run the linked script."),
       footer = tagList(
-        if (!too_long) actionButton("compact_run_rs", "Run the RStudio script", class = "btn-primary"),
-        actionButton("compact_run_km", "Run the code in Klausmate's window", class = if (too_long) "btn-primary" else ""),
+        if (!too_long) actionButton("compact_run_rs", "Run the script in focus", class = "btn-primary"),
+        actionButton("compact_run_km", "Run the linked script", class = if (too_long) "btn-primary" else ""),
         actionButton("compact_run_cancel", "Cancel")),
       easyClose = FALSE))
     TRUE
