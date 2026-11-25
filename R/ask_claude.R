@@ -88,18 +88,32 @@ klaus <- function(fresh = FALSE) {
   # restored: the saved state is written as a pause file and the app is started again, resuming as after a Pause.
   repeat {
   # A paused session remembers the port it ran on. Starting on the same port lets the old (disconnected) browser
-  # tab reconnect by itself and carry on; a new tab is opened only if no tab has connected a few seconds later.
-  port <- klausmate_paused_port()
+  # tab (or Viewer pane) reconnect by itself and carry on; a new tab is opened only if nothing has connected a few
+  # seconds later. Minimise / Expand in the app hands the session over (klausmate.handover = "viewer" or "browser"): it
+  # opens the Viewer pane or a browser tab at once, on a new port, so the page it left does not reconnect.
+  handover <- getOption("klausmate.handover")
+  options(klausmate.handover = NULL)
+  port <- if (is.null(handover)) klausmate_paused_port() else NULL
   options(klausmate.session_connected = FALSE)
   # The browser chosen with klausmate_browser() (NULL = the system default, also used if in doubt)
   chosen <- km_browser_launcher()
-  launch <- if (is.null(port)) { if (is.null(chosen)) TRUE else chosen } else function(url) {
-    later::later(function() {
-      if (!isTRUE(getOption("klausmate.session_connected"))) {
-        if (is.null(chosen)) utils::browseURL(url) else chosen(url)
-      }
-    }, 6)
+  to_viewer <- if (!is.null(handover)) identical(handover, "viewer") else km_compact_saved()
+  open_in_browser <- function(url) if (is.null(chosen)) utils::browseURL(url) else chosen(url)
+  opener <- function(url) {
+    if (to_viewer && requireNamespace("rstudioapi", quietly = TRUE) &&
+        isTRUE(tryCatch(rstudioapi::isAvailable(), error = function(e) FALSE))) {
+      ok <- tryCatch({ rstudioapi::viewer(url); TRUE }, error = function(e) FALSE)
+      if (ok) return(invisible(NULL))
+    }
+    open_in_browser(url)
   }
+  launch <- if (!is.null(handover)) opener
+            else if (is.null(port)) { if (to_viewer) opener else if (is.null(chosen)) TRUE else chosen }
+            else function(url) {
+              later::later(function() {
+                if (!isTRUE(getOption("klausmate.session_connected"))) opener(url)
+              }, 6)
+            }
   run_args <- list(appDir = app_dir, launch.browser = launch)
   if (!is.null(port)) run_args$port <- port
   suppressWarnings(suppressMessages(do.call(shiny::runApp, run_args)))
@@ -119,6 +133,13 @@ klaus <- function(fresh = FALSE) {
     }
   }
   invisible(NULL)
+}
+
+# TRUE when Klausmate was last left in the compact view (Minimise) and this is RStudio: it then opens in the Viewer pane
+km_compact_saved <- function() {
+  interactive() && requireNamespace("rstudioapi", quietly = TRUE) &&
+    isTRUE(tryCatch(rstudioapi::isAvailable(), error = function(e) FALSE)) &&
+    isTRUE(tryCatch(readRDS(file.path(klausmate_user_dir("config"), "compact_view.rds")), error = function(e) FALSE))
 }
 
 # The port a paused session was running on (stored in its pause file), if it is still free
