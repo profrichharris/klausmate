@@ -4283,14 +4283,20 @@ ui <- fluidPage(
       function code() { try { return ace.edit('code_editor').getValue(); } catch (e) { return ''; } }
       function mark() {
         var a = document.querySelector('#main_tabs a[data-value="Code"]');
-        if (a && a.getAttribute('draggable') !== 'true') { a.setAttribute('draggable', 'true'); a.setAttribute('title', TIP); }
         var t = document.querySelector('#code_big_bar .cm-big-title');
+        if (document.body.classList.contains('cm-compact')) {      // compact view: the code goes to RStudio by itself, no dragging
+          if (a && a.getAttribute('draggable') === 'true') { a.removeAttribute('draggable'); a.removeAttribute('title'); }
+          if (t && t.getAttribute('draggable') === 'true') { t.removeAttribute('draggable'); t.removeAttribute('title'); }
+          return;
+        }
+        if (a && a.getAttribute('draggable') !== 'true') { a.setAttribute('draggable', 'true'); a.setAttribute('title', TIP); }
         if (t && t.getAttribute('draggable') !== 'true') { t.setAttribute('draggable', 'true'); t.setAttribute('title', TIP); }
       }
       setInterval(mark, 500); mark();
       document.addEventListener('dragstart', function(e) {
         var src = e.target && e.target.closest && e.target.closest('#main_tabs a[data-value="Code"], #code_big_bar .cm-big-title');
         if (!src) return;
+        if (document.body.classList.contains('cm-compact')) { e.preventDefault(); return; }
         var txt = code();
         if (!txt.trim()) { e.preventDefault(); return; }
         e.dataTransfer.setData('text/plain', txt);
@@ -4698,7 +4704,7 @@ ui <- fluidPage(
   tags$style(HTML("
     body.cm-compact #cm_files_section, body.cm-compact ul#prompt_tabs, body.cm-compact .cm-prompt-echo,
     body.cm-compact #load_session_btn, body.cm-compact span:has(> .autorun-box), body.cm-compact #cm_header .cm-ver,
-    body.cm-compact #load_script, body.cm-compact #clear_code,
+    body.cm-compact #load_script, body.cm-compact #clear_code, body.cm-compact #grab_code, body.cm-compact #send_rstudio,
     body.cm-compact #save_block, body.cm-compact #view_log, body.cm-compact #quick_console, body.cm-compact #about_klausmate
       { display: none !important; }
     html body.cm-compact #prompt { height: calc(56px * var(--cm-s)); min-height: 0; }          /* two lines of text */
@@ -4707,6 +4713,7 @@ ui <- fluidPage(
       border: 1px solid #ddd; border-radius: 3px; background: #fafafa; padding: 10px 14px; color: #666; font-style: italic; }
     html body.cm-compact .tab-pane > div[style*='height: 220px'] { height: calc(132px * var(--cm-s)) !important; }    /* 60% of 220px */
     html body.cm-compact .cm-answer-pane { height: calc(132px * var(--cm-s)); }
+    body.cm-compact #main_tabs { margin-top: 12px; }     /* a little air between the Answer / Ask for Code row and the tabs */
     .cm-compact-btn svg { width: 15px; height: 15px; vertical-align: -3px; }
     .cm-compact-btn .cm-ic-exp { display: none; }
     body.cm-compact .cm-compact-btn .cm-ic-min { display: none; }
@@ -4947,7 +4954,7 @@ ui <- fluidPage(
           # Compact view only: the code is in RStudio, so the editor is hidden and this says so
           tags$div(id = "cm_code_note", style = "display: none;",
             "In the compact view your code is in RStudio: Klausmate sends each new script there as an Untitled tab. Edit and keep it there; ",
-            "Run here runs the script that is in focus in RStudio. Press the expand icon to see and edit the code in Klausmate again."),
+            "Pressing Run, Explain or Fix whilst Klausmate is minimised works on the script that is in focus in RStudio (Explain, on just the lines you select there, if you select any). Press the expand icon to see and edit the code in Klausmate again."),
           aceEditor("code_editor", value = "", mode = "r", theme = "textmate",
             height = "220px", fontSize = 13, showLineNumbers = TRUE,
             highlightActiveLine = TRUE, wordWrap = FALSE,
@@ -5107,7 +5114,15 @@ ui <- fluidPage(
         var moved = null;
         try { moved = sessionStorage.getItem('cmMoved'); } catch (e) {}
         if (moved) {
-          box.textContent = moved; document.body.appendChild(box);
+          // a full-page message (not a thin strip over the greyed-out app), so this page never looks blank or dead
+          box.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483000;background:#fff;color:#333;' +
+                              'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;' +
+                              'padding:24px;font-size:15px;text-align:center;line-height:1.5;';
+          var hd = document.createElement('div'); hd.textContent = 'Klausmate'; hd.style.cssText = 'font-size:20px;font-weight:600;';
+          var tx = document.createElement('div'); tx.textContent = moved; tx.style.cssText = 'max-width:420px;';
+          var sub = document.createElement('div'); sub.textContent = 'This page will come back to life by itself when you press the button there.';
+          sub.style.cssText = 'color:#888;font-size:13px;max-width:420px;';
+          box.appendChild(hd); box.appendChild(tx); box.appendChild(sub); document.body.appendChild(box);
           // Wait to be brought back: klaus() writes which kind of page (viewer or browser) the app is now for into a small file
           // the app serves; when it names this page's kind and the app is up, reload (new session, as after a Pause)
           var role = null; try { role = sessionStorage.getItem('cmRole'); } catch (e) {}
@@ -6089,7 +6104,8 @@ HELP_TEXTS <- list(
     "Explain — Asks the AI to explain the current code or R output. On the",
     "Code tab it explains what the code does; on the R output tab it interprets",
     "what the results mean. If you have highlighted a passage in an explanation",
-    "window, it unpacks that specific part in more detail. (Not available while the",
+    "window, it unpacks that specific part in more detail. In the compact view (Minimise) it explains the script in",
+    "focus in RStudio, or only the lines you have selected there. (Not available while the",
     "Answer view is showing.)"
   ),
   fix_code = paste(
@@ -6098,6 +6114,7 @@ HELP_TEXTS <- list(
     "If the fix does not work you can try again, or cancel to restore the original code.",
     "When a fix works, Klausmate keeps a short note of the mistake for the rest of the conversation",
     "and passes it to Ask for Code, so later code avoids it.",
+    "In the compact view (Minimise), if the script in focus in RStudio is not the code that failed, you are asked which to fix.",
     "(Not available while the Answer view is showing.)"
   ),
   load_script = paste(
@@ -6135,19 +6152,19 @@ HELP_TEXTS <- list(
   compact_toggle = paste(
     "Minimise / Expand — Moves Klausmate into RStudio's Viewer pane, in a compact layout, or back out to a browser tab in the",
     "full layout. The session goes with it: your conversation, code, results and context are all kept. The compact view keeps the prompt",
-    "box, Answer, Ask for Code and Clear, the Code, R output and Past code tabs with Run, Explain, Fix, Grab Code and Send to RStudio,",
+    "box, Answer, Ask for Code and Clear, the Code, R output and Past code tabs with Run, Explain and Fix (Grab Code and Send to RStudio are not needed there),",
     "and the buttons to start a new conversation, pause and end the session. The files and objects you have added are still used (a line",
     "says how many); press Expand to change them or to reach the other buttons. While the view is compact, code that Klausmate writes is",
-    "also sent to RStudio as a new script, and Run checks the script in focus in RStudio: if you have changed it, you are asked which to run.",
+    "also sent to RStudio as a new script. Run, Explain and Fix work on the script in focus in RStudio (Explain, on just the lines you select there if you select any); if you have changed it, Run and Fix ask which code to use.",
     "Klausmate remembers which view you used last. Only shown when Klausmate is run from RStudio."
   ),
   compact_toggle_top = paste(
     "Minimise / Expand — Moves Klausmate into RStudio's Viewer pane, in a compact layout, or back out to a browser tab in the",
     "full layout. The session goes with it: your conversation, code, results and context are all kept. The compact view keeps the prompt",
-    "box, Answer, Ask for Code and Clear, the Code, R output and Past code tabs with Run, Explain, Fix, Grab Code and Send to RStudio,",
+    "box, Answer, Ask for Code and Clear, the Code, R output and Past code tabs with Run, Explain and Fix (Grab Code and Send to RStudio are not needed there),",
     "and the buttons to start a new conversation, pause and end the session. The files and objects you have added are still used (a line",
     "says how many); press Expand to change them or to reach the other buttons. While the view is compact, code that Klausmate writes is",
-    "also sent to RStudio as a new script, and Run checks the script in focus in RStudio: if you have changed it, you are asked which to run.",
+    "also sent to RStudio as a new script. Run, Explain and Fix work on the script in focus in RStudio (Explain, on just the lines you select there if you select any); if you have changed it, Run and Fix ask which code to use.",
     "Klausmate remembers which view you used last. Only shown when Klausmate is run from RStudio."
   ),
   view_log = paste(
@@ -6489,8 +6506,8 @@ server <- function(input, output, session) {
     recov$off <- TRUE
     options(klausmate.restart_app = TRUE, klausmate.handover = to,
             klausmate.key_checked_at = Sys.time())       # the key just worked: no new check delays the restart
-    msg <- if (identical(to, "viewer")) "Klausmate is in the RStudio Viewer pane. Press Expand there to bring it back to this tab."
-           else "Klausmate is back in your browser. Press Minimise there to bring it back to the Viewer pane."
+    msg <- if (identical(to, "viewer")) "Klausmate is running in the RStudio Viewer pane. Press the Expand icon there to bring it back to this browser tab."
+           else "Klausmate is running in your web browser. Press the Minimise icon there to bring it back to this Viewer pane."
     shinyjs::runjs(sprintf("try { sessionStorage.setItem('cmMoved', %s); } catch (e) {}", jsonlite::toJSON(msg, auto_unbox = TRUE)))
     later::later(function() stopApp(), delay = 0.4)
     invisible(TRUE)
@@ -7775,7 +7792,11 @@ server <- function(input, output, session) {
     has_unrun_code  <- is.null(last_run_code()) ||
                        !identical(trimws(input$code_editor %||% ""), trimws(last_run_code())) ||
                        identical(trimws(input$code_editor %||% ""), trimws(rerun_code() %||% "\001"))
-    if (!answer_view && has_code && has_unrun_code && !code_running() && !exceeded && (on_code_tab || on_changes_tab)) {
+    # Compact view: Run works on the script in focus in RStudio, which may have been edited there (or run before) whatever
+    # Klausmate's own copy holds, so it is always available on the Code tab
+    compact_run_ok <- on_code_tab && isTRUE(compact_on()) && in_rstudio()
+    if (!answer_view && !code_running() && !exceeded &&
+        ((has_code && has_unrun_code && (on_code_tab || on_changes_tab)) || compact_run_ok)) {
       enable("run_code")
     } else {
       disable("run_code")
@@ -7785,6 +7806,7 @@ server <- function(input, output, session) {
     has_run_output <- length(console_output_rv()) > 0 || length(plot_files_rv()) > 0 || length(widget_files_rv()) > 0 || length(warnings_rv()) > 0
     if (!answer_view && !code_running() && !exceeded &&
         ((has_code && (on_code_tab || on_changes_tab)) || last_run_failed() ||
+         (on_code_tab && isTRUE(compact_on()) && in_rstudio()) ||
          (on_output_tab && has_run_output))) {
       enable("explain_code")
     } else {
@@ -12645,10 +12667,19 @@ server <- function(input, output, session) {
     }
 
     # --- Normal mode: explain the code in the editor ---------------------------
-    req(nzchar(trimws(input$code_editor %||% "")))
+    # Compact view: the code is in RStudio, so explain the script in focus there (or just the lines selected in it)
+    rs <- if (isTRUE(compact_on()) && in_rstudio()) compact_explain_source() else NULL
+    if (isFALSE(rs)) return(invisible(NULL))
+    explain_rs_text(if (is.list(rs)) (if (nzchar(rs$sel)) rs$sel else rs$text) else NULL)
+    if (!is.list(rs) && !nzchar(trimws(isolate(input$code_editor) %||% ""))) {
+      if (isTRUE(compact_on()) && in_rstudio())
+        showNotification("There is no script to explain. Click the tab of an R script in RStudio first.", type = "warning", duration = 6)
+      return(invisible(NULL))
+    }
 
-    sel       <- trimws(input$code_selection %||% "")
-    code_text <- if (nzchar(sel)) sel else isolate(input$code_editor)
+    sel       <- if (is.list(rs)) rs$sel else trimws(input$code_selection %||% "")
+    ed_code   <- if (is.list(rs) && !nzchar(rs$sel)) rs$text else isolate(input$code_editor)
+    code_text <- if (nzchar(sel)) sel else ed_code
     modal_title <- if (nzchar(sel)) "Code explanation (selection)" else "Code explanation"
 
     level <- last_explain_level()
@@ -12658,7 +12689,7 @@ server <- function(input, output, session) {
     explain_level_at_last_gen(level)
     disable("explain_regenerate")
     new_explain_ctx(if (nzchar(sel)) "selection" else "code", if (nzchar(sel)) sel else "",
-                    isolate(input$code_editor), row = suppressWarnings(as.integer(isolate(input$code_selection_row %||% 0L))))
+                    ed_code, row = if (is.list(rs)) 0L else suppressWarnings(as.integer(isolate(input$code_selection_row %||% 0L))))
     explain_result(list(loading = TRUE))
 
     showModal(modalDialog(
@@ -12779,6 +12810,8 @@ server <- function(input, output, session) {
 
     sel       <- trimws(input$code_selection %||% "")
     code_text <- if (nzchar(sel)) sel else isolate(input$code_editor)
+    rs_txt    <- explain_rs_text()              # compact view: what was taken from RStudio
+    if (!is.null(rs_txt) && ctx0$kind %in% c("code", "selection")) code_text <- rs_txt
 
     shinyjs::delay(150, {
       withProgress(message = "Regenerating explanation...", value = 0.5, {
@@ -12948,11 +12981,67 @@ server <- function(input, output, session) {
          label = if (nzchar(path)) tools::file_path_sans_ext(basename(path)) else "Untitled")
   }
   compact_run_pending <- reactiveVal(NULL)
-  compact_run_check <- function() {          # TRUE if a question was asked (Run waits for the answer)
+  # Compact view, Explain: what to explain. FALSE = stop (a message was shown); NULL = no usable RStudio script, use Klausmate's
+  # copy; otherwise list(sel, text): `sel` is the lines selected in RStudio (explained alone), else `text` is the whole script
+  # (put in the Code window, as Grab Code does, if it differs from what is there).
+  explain_rs_text <- reactiveVal(NULL)
+  compact_explain_source <- function() {
+    fs <- tryCatch(focused_script(), error = function(e) NULL)
+    if (is.null(fs)) return(NULL)
+    if (code_too_long(fs$text, isolate(prefs$max_lines))) {
+      showNotification(paste0(if (fs$use_sel) "The selection" else fs$name, " is longer than the limit set by your key (",
+                              isolate(prefs$max_lines), " lines). Select a shorter part in RStudio and press Explain again."),
+                       type = "warning", duration = 10)
+      return(FALSE)
+    }
+    if (fs$use_sel) return(list(sel = fs$text, text = ""))
+    if (!identical(trimws(fs$text), trimws(isolate(input$code_editor) %||% ""))) apply_grab(fs)
+    list(sel = "", text = fs$text)
+  }
+  # Compact view, Fix: the same question as Run's, about which code to fix
+  compact_fix_pending <- reactiveVal(NULL)
+  compact_fix_check <- function() {          # TRUE if a question was asked (Fix waits for the answer)
     fs <- tryCatch(focused_script(), error = function(e) NULL)
     if (is.null(fs)) return(FALSE)
     if (identical(trimws(fs$text), trimws(input$code_editor %||% ""))) return(FALSE)
     too_long <- code_too_long(fs$text, isolate(prefs$max_lines))
+    compact_fix_pending(fs)
+    showModal(modalDialog(
+      title = "Which code should be fixed?",
+      tags$p("The script in RStudio (", tags$strong(fs$name), if (fs$use_sel) ", the lines you selected" else "",
+             ") is not the same as the code in Klausmate's Code window, which is the code that failed."),
+      if (too_long) tags$p(style = "color: #8b0000;",
+        "The RStudio script is longer than the limit set by your key (", isolate(prefs$max_lines), " lines), so Klausmate cannot fix it. Select part of it in RStudio, or fix the code in Klausmate's window."),
+      footer = tagList(
+        if (!too_long) actionButton("compact_fix_rs", "Fix the RStudio script", class = "btn-primary"),
+        actionButton("compact_fix_km", "Fix the code in Klausmate's window", class = if (too_long) "btn-primary" else ""),
+        actionButton("compact_fix_cancel", "Cancel")),
+      easyClose = FALSE))
+    TRUE
+  }
+  observeEvent(input$compact_fix_cancel, { compact_fix_pending(NULL); removeModal() })
+  observeEvent(input$compact_fix_km, { compact_fix_pending(NULL); removeModal(); do_fix() })
+  observeEvent(input$compact_fix_rs, {
+    g <- compact_fix_pending(); removeModal(); compact_fix_pending(NULL)
+    req(g)
+    apply_grab(g)
+    do_fix(g$text)
+  })
+  compact_run_check <- function() {          # TRUE if a question was asked (Run waits for the answer)
+    fs <- tryCatch(focused_script(), error = function(e) NULL)
+    ed_empty <- !nzchar(trimws(input$code_editor %||% ""))
+    if (is.null(fs)) {
+      if (ed_empty) showNotification("There is no script to run. Click the tab of an R script in RStudio first.", type = "warning", duration = 6)
+      return(ed_empty)
+    }
+    if (identical(trimws(fs$text), trimws(input$code_editor %||% ""))) return(FALSE)
+    too_long <- code_too_long(fs$text, isolate(prefs$max_lines))
+    if (ed_empty) {                          # nothing in Klausmate's window to choose instead: run the RStudio script
+      if (too_long) showNotification(paste0("The script is longer than the limit set by your key (", isolate(prefs$max_lines),
+                                            " lines). Select part of it in RStudio and press Run again."), type = "warning", duration = 10)
+      else { apply_grab(fs); do_run_code(fs$text) }
+      return(TRUE)
+    }
     compact_run_pending(fs)
     showModal(modalDialog(
       title = "Which code should run?",
@@ -12989,10 +13078,10 @@ server <- function(input, output, session) {
   # --- Fix button ------------------------------------------------------------
   code_before_fix <- reactiveVal(NULL)
 
-  do_fix <- function() {
+  do_fix <- function(code = NULL) {
     if (isTRUE(quota_exceeded())) { show_quota_modal(); return(invisible(NULL)) }
 
-    current_code  <- input$code_editor
+    current_code  <- code %||% input$code_editor
     current_error <- last_error_msg()
 
     # Save original code on first fix attempt in this error sequence
@@ -13124,7 +13213,10 @@ server <- function(input, output, session) {
     })
   }
 
-  observeEvent(input$fix_code, do_fix())
+  observeEvent(input$fix_code, {
+    if (isTRUE(compact_on()) && in_rstudio() && isTRUE(compact_fix_check())) return(invisible(NULL))
+    do_fix()
+  })
 
   observeEvent(input$fix_retry, {
     removeModal()
