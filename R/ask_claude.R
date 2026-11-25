@@ -155,6 +155,13 @@ km_compact_saved <- function() {
     { f <- file.path(klausmate_user_dir("config"), "compact_view.rds"); file.exists(f) && isTRUE(tryCatch(readRDS(f), error = function(e) FALSE)) }
 }
 
+# Forget the remembered Minimise / Expand view (reset): the next start is in the full view, in the browser
+km_forget_view <- function() {
+  f <- file.path(klausmate_user_dir("config"), "compact_view.rds")
+  if (file.exists(f)) unlink(f)
+  invisible(NULL)
+}
+
 # The port a paused session was running on (stored in its pause file), if it is still free
 klausmate_paused_port <- function() {
   f <- file.path(getwd(), "claude_assistant_pause.rds")

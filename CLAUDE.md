@@ -237,8 +237,10 @@ cd .. && gh release create vX.Y.Z klausmate_X.Y.Z.tar.gz \
 
 ## Current version and recent unreleased changes
 
-**Last released:** 0.6.98 (2026-11-25)  
-**Current version:** 0.6.98 (no unreleased changes)
+**Last released:** 0.6.99 (2026-11-25)  
+**Current version:** 0.6.99 (no unreleased changes)
+
+Released in 0.6.99: VIEW AT START (user decision, after discussing 'always open minimised', which was dropped). Klausmate opens in the view the user LEFT (Pause or End Session; `compact_view.rds`, as before) and a recovered session (crash restore, Recent Session, Esc then klaus()) runs in whatever view is current when it is recovered (nothing to change: those restarts keep the app's view). NEW: `klausmate_reset()` and `klausmate_reset_key()` delete `compact_view.rds` (`km_forget_view()`, R/ask_claude.R), so after a reset the key screen and first run are in the full view, in the browser. Tested: `klausmate_reset_key()` in a redirected config removed the file. NOT tested: `klausmate_reset()` itself (needs the yes prompt; it calls the same helper), a real recovery in the Viewer.
 
 Released in 0.6.98: EXPAND BRINGS THE RSTUDIO SCRIPT BACK (user request: the RStudio script is the Code window moved elsewhere, so keep generated code -> RStudio script -> edits -> Run / Explain / Expand linked). In `do_compact_toggle()`, when expanding in RStudio, `focused_script(ignore_selection = TRUE)` (whole script, any selection ignored) is put in the Code window with `apply_grab()` if it differs (no question asked); too long for the key -> notice, Klausmate's copy kept; no usable script -> nothing changes. `move_app(to, code)` / `session_state(code)` take the text, because `input$code_editor` is not updated before the hand-over. Help text of both Minimise buttons updated. Tested in a scratch app (stubbed in_rstudio / grab_context): Expand saved the RStudio script as the pause file's code_editor. NOT tested: the real RStudio, the visible result in the new browser tab, a selection in RStudio, an Rmd.
 

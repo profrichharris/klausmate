@@ -906,6 +906,8 @@ klausmate_reset_key <- function() {
     removed <- TRUE
   }
 
+  km_forget_view()      # a new key starts in the full view, in the browser
+
   if (!removed) message("No saved key found.")
 
   if (.watch_env$active)
@@ -996,6 +998,8 @@ klausmate_reset <- function() {
     Sys.unsetenv("ANTHROPIC_API_KEY")
     message("ANTHROPIC_API_KEY cleared from environment.")
   }
+
+  km_forget_view()      # Klausmate starts in the full view, in the browser, again
 
   # --- Reset language to English --------------------------------------------
   lang_path <- .klausmate_lang_path()
