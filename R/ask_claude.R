@@ -89,31 +89,44 @@ klaus <- function(fresh = FALSE) {
   repeat {
   # A paused session remembers the port it ran on. Starting on the same port lets the old (disconnected) browser
   # tab (or Viewer pane) reconnect by itself and carry on; a new tab is opened only if nothing has connected a few
-  # seconds later. Minimise / Expand in the app hands the session over (klausmate.handover = "viewer" or "browser"): it
-  # opens the Viewer pane or a browser tab at once, on a new port, so the page it left does not reconnect.
+  # seconds later. Minimise / Expand in the app hands the session over (klausmate.handover = "viewer" or "browser").
   handover <- getOption("klausmate.handover")
   options(klausmate.handover = NULL)
-  port <- if (is.null(handover)) klausmate_paused_port() else NULL
+  # A hand-over keeps the port too: the page that was left behind (a browser tab, or the Viewer pane) is still open and
+  # reconnects by itself when the app is for its kind again; a new tab / pane is opened only if nothing has connected
+  # a few seconds later, or if that kind of page was never opened in this R session.
+  port <- klausmate_paused_port()
   options(klausmate.session_connected = FALSE)
   # The browser chosen with klausmate_browser() (NULL = the system default, also used if in doubt)
   chosen <- km_browser_launcher()
   to_viewer <- if (!is.null(handover)) identical(handover, "viewer") else km_compact_saved()
-  open_in_browser <- function(url) if (is.null(chosen)) utils::browseURL(url) else chosen(url)
+  # Tell the pages left behind which kind of page the app is for now (the app serves this file)
+  tryCatch({
+    d <- file.path(tempdir(), "klausmate_state"); dir.create(d, showWarnings = FALSE)
+    writeLines(if (to_viewer) "viewer" else "browser", file.path(d, "target.txt"))
+  }, error = function(e) NULL)
+  open_in_browser <- function(url) {
+    options(klausmate.browser_opened = TRUE)
+    if (is.null(chosen)) utils::browseURL(url) else chosen(url)
+  }
   opener <- function(url) {
     if (to_viewer && requireNamespace("rstudioapi", quietly = TRUE) &&
         isTRUE(tryCatch(rstudioapi::isAvailable(), error = function(e) FALSE))) {
       ok <- tryCatch({ rstudioapi::viewer(url); TRUE }, error = function(e) FALSE)
-      if (ok) return(invisible(NULL))
+      if (ok) { options(klausmate.viewer_opened = TRUE); return(invisible(NULL)) }
     }
     open_in_browser(url)
   }
-  launch <- if (!is.null(handover)) opener
-            else if (is.null(port)) { if (to_viewer) opener else if (is.null(chosen)) TRUE else chosen }
-            else function(url) {
-              later::later(function() {
-                if (!isTRUE(getOption("klausmate.session_connected"))) opener(url)
-              }, 6)
-            }
+  later_open <- function(secs) function(url) {
+    later::later(function() {
+      if (!isTRUE(getOption("klausmate.session_connected"))) opener(url)
+    }, secs)
+  }
+  opened_before <- isTRUE(getOption(if (to_viewer) "klausmate.viewer_opened" else "klausmate.browser_opened"))
+  launch_inner <- if (is.null(port) || (!is.null(handover) && !opened_before)) opener
+                  else later_open(if (is.null(handover)) 6 else 3)
+  # the app's address is kept, so the app can show itself in the Viewer again (see the session-end handler in the app)
+  launch <- function(url) { options(klausmate.app_url = url); launch_inner(url) }
   run_args <- list(appDir = app_dir, launch.browser = launch)
   if (!is.null(port)) run_args$port <- port
   suppressWarnings(suppressMessages(do.call(shiny::runApp, run_args)))
@@ -139,7 +152,7 @@ klaus <- function(fresh = FALSE) {
 km_compact_saved <- function() {
   interactive() && requireNamespace("rstudioapi", quietly = TRUE) &&
     isTRUE(tryCatch(rstudioapi::isAvailable(), error = function(e) FALSE)) &&
-    isTRUE(tryCatch(readRDS(file.path(klausmate_user_dir("config"), "compact_view.rds")), error = function(e) FALSE))
+    { f <- file.path(klausmate_user_dir("config"), "compact_view.rds"); file.exists(f) && isTRUE(tryCatch(readRDS(f), error = function(e) FALSE)) }
 }
 
 # The port a paused session was running on (stored in its pause file), if it is still free

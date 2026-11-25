@@ -18,6 +18,12 @@ in_rstudio <- function()
 # (A separate function so that it can be replaced when testing without RStudio.)
 grab_context <- function()
   tryCatch(rstudioapi::getSourceEditorContext(), error = function(e) NULL)
+# The icons of the Minimise / Expand button (which one shows follows body.cm-compact). There are two such buttons, one each
+# side of the page (ids compact_toggle, beside the ? button, and compact_toggle_top, beside the licence info), doing the same.
+compact_icons <- function()
+  tagList(
+    tags$span(class = "cm-ic-min", HTML("<svg viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='1.4'><rect x='1.5' y='2.5' width='13' height='11' rx='1.5'/><rect x='8' y='8' width='5' height='4' rx='0.8' fill='currentColor' stroke='none'/></svg>")),
+    tags$span(class = "cm-ic-exp", HTML("<svg viewBox='0 0 16 16' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9'/></svg>")))
 # Opens a new, unsaved R script tab in RStudio holding `text`; returns TRUE, or an error message (character). A separate
 # function so that it can be replaced when testing without RStudio.
 new_script_in_rstudio <- function(text)
@@ -312,6 +318,8 @@ cm_set_root <- function(new_dir) {
 
 # Serve temp plot files captured during code runs
 addResourcePath("klausmate_plots", tempdir())
+# Small state file written by klaus() (target.txt: "viewer" or "browser"), read by pages left behind by Minimise / Expand
+local({ d <- file.path(tempdir(), "klausmate_state"); dir.create(d, showWarnings = FALSE); addResourcePath("klausmate_state", d) })
 
 # --- Constants ---------------------------------------------------------------
 MAX_HISTORY_TURNS     <- 8
@@ -4693,10 +4701,16 @@ ui <- fluidPage(
     body.cm-compact #load_script, body.cm-compact #clear_code,
     body.cm-compact #save_block, body.cm-compact #view_log, body.cm-compact #quick_console, body.cm-compact #about_klausmate
       { display: none !important; }
-    html body.cm-compact #prompt { height: 64px; min-height: 0; }
-    html body.cm-compact:not(.cm-code-big) #code_editor { height: calc(150px * var(--cm-s)) !important; }
-    html body.cm-compact .tab-pane > div[style*='height: 220px'] { height: calc(150px * var(--cm-s)) !important; }
-    html body.cm-compact .cm-answer-pane { height: calc(150px * var(--cm-s)); }
+    html body.cm-compact #prompt { height: calc(56px * var(--cm-s)); min-height: 0; }          /* two lines of text */
+    body.cm-compact:not(.cm-code-big) #code_editor, body.cm-compact #code_expand_btn { display: none !important; }
+    body.cm-compact #cm_code_note { display: block !important; height: calc(132px * var(--cm-s)); box-sizing: border-box; overflow-y: auto;
+      border: 1px solid #ddd; border-radius: 3px; background: #fafafa; padding: 10px 14px; color: #666; font-style: italic; }
+    html body.cm-compact .tab-pane > div[style*='height: 220px'] { height: calc(132px * var(--cm-s)) !important; }    /* 60% of 220px */
+    html body.cm-compact .cm-answer-pane { height: calc(132px * var(--cm-s)); }
+    .cm-compact-btn svg { width: 15px; height: 15px; vertical-align: -3px; }
+    .cm-compact-btn .cm-ic-exp { display: none; }
+    body.cm-compact .cm-compact-btn .cm-ic-min { display: none; }
+    body.cm-compact .cm-compact-btn .cm-ic-exp { display: inline; }
     body.cm-compact #cm_header { padding-top: 4px; margin-bottom: 6px; }
     body.cm-compact #cm_header img { height: 34px !important; }
     body.cm-compact #cm_header .cm-title { font-size: 18px; }
@@ -4716,8 +4730,15 @@ ui <- fluidPage(
       Shiny.addCustomMessageHandler('cm_compact', function(msg) {
         var on = !!(msg && msg.on);
         document.body.classList.toggle('cm-compact', on);
-        var b = document.getElementById('compact_toggle');
-        if (b) b.textContent = on ? 'Expand' : 'Minimise';
+        try { sessionStorage.setItem('cmRole', on ? 'viewer' : 'browser'); } catch (e) {}   // which kind of page this is (see the disconnect script)
+        document.querySelectorAll('.cm-compact-btn').forEach(function(b) {
+          b.title = on ? 'Expand Klausmate back to a browser tab' : 'Minimise Klausmate into RStudio\'s Viewer pane';
+        });
+        // the code is edited in RStudio while compact: the (hidden) editor is read-only, and a large code window is closed
+        (function lock(k) {
+          try { ace.edit('code_editor').setReadOnly(on); if (on && window.cmCodeBig) window.cmCodeBig(false); }
+          catch (e) { if (k < 20) setTimeout(function() { lock(k + 1); }, 500); }
+        })(0);
         if (timer) { clearInterval(timer); timer = null; }
         if (on) {
           var t = document.querySelector('#prompt_tabs a[data-value=\"Your prompt\"]');
@@ -4749,9 +4770,10 @@ ui <- fluidPage(
     tags$h3(id = "help-mode-label", "Help Mode",
             style = "margin: 0; display: none;"),
     div(style = "display: flex; align-items: center; gap: 14px;",
-      # Minimise / Expand (RStudio only): the compact layout for a narrow window such as RStudio's Viewer pane
+      # the same button as the one beside ?, nearer the licence info
       if (in_rstudio())
-        actionButton("compact_toggle", "Minimise", class = "btn-xs",
+        actionButton("compact_toggle_top", compact_icons(), class = "cm-compact-btn",
+          title = "Minimise Klausmate into RStudio's Viewer pane",
           style = "background-color: white; border-color: #bbb; color: #333;"),
       uiOutput("usage_bar_ui"))
   ),
@@ -4922,6 +4944,10 @@ ui <- fluidPage(
     tabsetPanel(id = "main_tabs", type = "tabs",
       tabPanel("Code",
         tags$div(id = "code_slot", style = "margin-top: 8px;",
+          # Compact view only: the code is in RStudio, so the editor is hidden and this says so
+          tags$div(id = "cm_code_note", style = "display: none;",
+            "In the compact view your code is in RStudio: Klausmate sends each new script there as an Untitled tab. Edit and keep it there; ",
+            "Run here runs the script that is in focus in RStudio. Press the expand icon to see and edit the code in Klausmate again."),
           aceEditor("code_editor", value = "", mode = "r", theme = "textmate",
             height = "220px", fontSize = 13, showLineNumbers = TRUE,
             highlightActiveLine = TRUE, wordWrap = FALSE,
@@ -5080,7 +5106,18 @@ ui <- fluidPage(
         // Klausmate was moved to the Viewer pane (or back to the browser) by Minimise / Expand: say so and never reconnect here
         var moved = null;
         try { moved = sessionStorage.getItem('cmMoved'); } catch (e) {}
-        if (moved) { box.textContent = moved; document.body.appendChild(box); return; }
+        if (moved) {
+          box.textContent = moved; document.body.appendChild(box);
+          // Wait to be brought back: klaus() writes which kind of page (viewer or browser) the app is now for into a small file
+          // the app serves; when it names this page's kind and the app is up, reload (new session, as after a Pause)
+          var role = null; try { role = sessionStorage.getItem('cmRole'); } catch (e) {}
+          var k = 0, iv2 = setInterval(function() {
+            if (++k > 7200) { clearInterval(iv2); return; }
+            fetch('klausmate_state/target.txt', {cache: 'no-store'}).then(function(r) { return r.ok ? r.text() : ''; })
+              .then(function(t) { if (role && t.trim() === role) { clearInterval(iv2); location.reload(); } }).catch(function() {});
+          }, 500);
+          return;
+        }
         var stopped = 'Klausmate has stopped. To carry on, run klaus() in R and this tab will reconnect by itself (after Pause or Esc you come back to where you were); otherwise you can close this tab.';
         // A restart that Klausmate started itself (restoring or loading a session) says so, instead of the stop notice,
         // and falls back to the stop notice if the app has not come back after 30 seconds
@@ -5162,6 +5199,11 @@ ui <- fluidPage(
         div(style = "display: flex; justify-content: flex-end; align-items: flex-start; white-space: nowrap;",
           actionButton("about_klausmate", "About Klausmate",
             style = "margin-right: 8px;"),
+          # Minimise / Expand (RStudio only): moves Klausmate into RStudio's Viewer pane (compact layout) and back out
+          if (in_rstudio())
+            actionButton("compact_toggle", compact_icons(), class = "cm-compact-btn",
+              title = "Minimise Klausmate into RStudio's Viewer pane",
+              style = "background-color: white; border-color: #bbb; color: #333; margin-right: 4px;"),
           actionButton("help_toggle", "?",
             style = "margin-right: 8px;"),
           actionButton("quick_console", "Quick Console",
@@ -6099,6 +6141,15 @@ HELP_TEXTS <- list(
     "also sent to RStudio as a new script, and Run checks the script in focus in RStudio: if you have changed it, you are asked which to run.",
     "Klausmate remembers which view you used last. Only shown when Klausmate is run from RStudio."
   ),
+  compact_toggle_top = paste(
+    "Minimise / Expand — Moves Klausmate into RStudio's Viewer pane, in a compact layout, or back out to a browser tab in the",
+    "full layout. The session goes with it: your conversation, code, results and context are all kept. The compact view keeps the prompt",
+    "box, Answer, Ask for Code and Clear, the Code, R output and Past code tabs with Run, Explain, Fix, Grab Code and Send to RStudio,",
+    "and the buttons to start a new conversation, pause and end the session. The files and objects you have added are still used (a line",
+    "says how many); press Expand to change them or to reach the other buttons. While the view is compact, code that Klausmate writes is",
+    "also sent to RStudio as a new script, and Run checks the script in focus in RStudio: if you have changed it, you are asked which to run.",
+    "Klausmate remembers which view you used last. Only shown when Klausmate is run from RStudio."
+  ),
   view_log = paste(
     "View Code Log — Opens a read-only window listing the code that has been run successfully in",
     "this conversation, each piece with the prompt that produced it, together with any explanations you",
@@ -6372,6 +6423,8 @@ cm_completion_help <- function(it, max_chars = 6000L) {
 
 server <- function(input, output, session) {
   options(klausmate.session_connected = TRUE)
+  my_seq <- (getOption("klausmate.session_seq") %||% 0L) + 1L        # numbers the sessions of this R process (see the session-end handler)
+  options(klausmate.session_seq = my_seq)
   shinyAce::aceAutocomplete("code_editor")       # the completion list, from R's own completion engine
   shinyAce::aceAutocomplete("qc_input")          # the same in the Quick Console's input
   # ... and the help for the highlighted entry (shown by the script near #cm_help_tip)
@@ -6401,7 +6454,7 @@ server <- function(input, output, session) {
   # Text size: remembered across restarts in the user's config folder; the slider is in the page, this restores and saves it
   .ts_file <- function() file.path(klausmate:::klausmate_user_dir("config"), "text_size.rds")
   local({
-    idx <- tryCatch(as.integer(readRDS(.ts_file())), error = function(e) 1L)
+    idx <- if (file.exists(.ts_file())) tryCatch(as.integer(readRDS(.ts_file())), error = function(e) 1L) else 1L
     if (length(idx) != 1L || is.na(idx) || idx < 0L || idx > 4L) idx <- 1L
     session$sendCustomMessage("cm_text_size", list(idx = idx))
   })
@@ -6416,9 +6469,9 @@ server <- function(input, output, session) {
   .cv_file <- function() file.path(klausmate:::klausmate_user_dir("config"), "compact_view.rds")
   compact_on <- reactiveVal(FALSE)
   local({
-    on <- in_rstudio() && isTRUE(tryCatch(readRDS(.cv_file()), error = function(e) FALSE))
+    on <- in_rstudio() && file.exists(.cv_file()) && isTRUE(tryCatch(readRDS(.cv_file()), error = function(e) FALSE))
     compact_on(on)
-    if (on) session$sendCustomMessage("cm_compact", list(on = TRUE))
+    if (in_rstudio()) session$sendCustomMessage("cm_compact", list(on = on))     # also tells the page which kind it is
   })
   # Minimise moves the app into RStudio's Viewer pane and Expand moves it back to the browser. The session is handed over
   # the way a restored session is: its state is written as the pause file, the app is stopped and klaus() starts it again
@@ -6434,21 +6487,25 @@ server <- function(input, output, session) {
     }
     unlink(recovery_file())
     recov$off <- TRUE
-    options(klausmate.restart_app = TRUE, klausmate.handover = to)
-    msg <- if (identical(to, "viewer")) "Klausmate has moved to the RStudio Viewer pane. Press Expand there to bring it back to a browser tab; you can close this tab."
-           else "Klausmate has moved back to your browser (another tab). You can close this tab."
+    options(klausmate.restart_app = TRUE, klausmate.handover = to,
+            klausmate.key_checked_at = Sys.time())       # the key just worked: no new check delays the restart
+    msg <- if (identical(to, "viewer")) "Klausmate is in the RStudio Viewer pane. Press Expand there to bring it back to this tab."
+           else "Klausmate is back in your browser. Press Minimise there to bring it back to the Viewer pane."
     shinyjs::runjs(sprintf("try { sessionStorage.setItem('cmMoved', %s); } catch (e) {}", jsonlite::toJSON(msg, auto_unbox = TRUE)))
     later::later(function() stopApp(), delay = 0.4)
     invisible(TRUE)
   }
-  observeEvent(input$compact_toggle, {
+  do_compact_toggle <- function() {
     on <- !isTRUE(compact_on())
     saved <- tryCatch({ d <- dirname(.cv_file()); dir.create(d, showWarnings = FALSE, recursive = TRUE); saveRDS(on, .cv_file()); TRUE },
                       error = function(e) FALSE)
     if (!saved) { showNotification("Klausmate could not save the view setting, so it was not changed.", type = "error", duration = 8); return(invisible(NULL)) }
     if (!isTRUE(move_app(if (on) "viewer" else "browser")))
       tryCatch(saveRDS(!on, .cv_file()), error = function(e) NULL)       # not moved: keep the old setting
-  }, ignoreInit = TRUE)
+  }
+  # one observer per button (a combined observeEvent would count the 0 an action button first reports as a click)
+  observeEvent(input$compact_toggle,     do_compact_toggle(), ignoreInit = TRUE)
+  observeEvent(input$compact_toggle_top, do_compact_toggle(), ignoreInit = TRUE)
   recov <- new.env(); recov$off <- FALSE; recov$offered <- FALSE
   migrate_old_sessions()
   do_quit <- function(clear_recovery = TRUE) {
@@ -7374,6 +7431,7 @@ server <- function(input, output, session) {
     pending_export(list(snippet = to_run, full = full, file = file, what = "plot"))
     old_code <- input$code_editor %||% ""
     updateAceEditor(session, "code_editor", value = full)
+    auto_send_if_compact(full)
     # What was added is in the interaction's diff (however much of a short script it is)
     d <- if (nzchar(trimws(old_code))) compute_diff(old_code, full, max_changed_frac = Inf) else NULL
     # (the student stays on the output: the Changes tab is not shown, though Recall of this entry will show it)
@@ -7543,6 +7601,7 @@ server <- function(input, output, session) {
     pending_export(list(snippet = to_run, full = full, file = file, what = pw$noun))
     old_code <- input$code_editor %||% ""
     updateAceEditor(session, "code_editor", value = full)
+    auto_send_if_compact(full)
     d <- if (nzchar(trimws(old_code))) compute_diff(old_code, full, max_changed_frac = Inf) else NULL
     # (the student stays on the output: the Changes tab is not shown, though Recall of this entry will show it)
     label <- if (open) paste0("Open ", pw$noun, " ", file, " to copy it") else paste0("Save ", pw$noun, " as ", file)
@@ -7704,7 +7763,7 @@ server <- function(input, output, session) {
     if (ui_busy()) {
       for (btn in c("ask_plain", "ask_code", "explain_code", "fix_code", "run_code",
                     "load_script", "grab_code", "clear_code", "save_block", "send_rstudio", "view_log", "help_toggle",
-                    "quick_console", "pause_app", "new_conversation", "quit", "compact_toggle"))
+                    "quick_console", "pause_app", "new_conversation", "quit", "compact_toggle", "compact_toggle_top"))
         shinyjs::disable(btn)
       return()
     }
@@ -7749,7 +7808,7 @@ server <- function(input, output, session) {
     if (protection_notice_active()) {
       for (btn in c("ask_plain", "ask_code", "explain_code", "fix_code", "run_code",
                     "load_script", "grab_code", "clear_code", "save_block", "send_rstudio", "view_log", "help_toggle",
-                    "quick_console", "pause_app", "new_conversation", "compact_toggle",
+                    "quick_console", "pause_app", "new_conversation", "compact_toggle", "compact_toggle_top",
                     "add_objects", "load_package_data", "remove_context", "remove_all_context",
                     "preferences",
                     "file_select", "load_workspace"))
@@ -7770,7 +7829,7 @@ server <- function(input, output, session) {
       document.getElementById('clear_prompt').style.borderColor = '';
       document.getElementById('clear_prompt').style.color = '';
     ")
-    for (btn in c("help_toggle", "quick_console", "pause_app", "quit", "view_log", "compact_toggle",
+    for (btn in c("help_toggle", "quick_console", "pause_app", "quit", "view_log", "compact_toggle", "compact_toggle_top",
                   "add_objects", "load_package_data", "preferences",
                   "file_select", "load_workspace"))
       shinyjs::enable(btn)
@@ -8071,6 +8130,7 @@ server <- function(input, output, session) {
     capture_active_code()
     set_ask_mode("code"); hide_changes_tab()
     updateAceEditor(session, "code_editor", value = e$code)       # the code it replaces is kept in its place
+    auto_send_if_compact(e$code, e$description %||% "")
     held_code(Filter(function(x) !identical(as.integer(x$uid), as.integer(e$uid)), held_code()))
     console_output_rv(character(0)); warnings_rv(character(0)); plot_files_rv(character(0)); widget_files_rv(character(0))
     last_run_code(NULL); last_run_failed(FALSE); last_error_msg("")
@@ -8102,6 +8162,7 @@ server <- function(input, output, session) {
       set_ask_mode("code")
       hide_changes_tab()
       updateAceEditor(session, "code_editor", value = e$code)
+      auto_send_if_compact(e$code, e$description %||% "")
       last_run_code(NULL)
       console_output_rv(character(0)); warnings_rv(character(0)); plot_files_rv(character(0)); widget_files_rv(character(0))
       last_run_failed(FALSE); last_error_msg(""); diff_rv(NULL); active_code_id(NULL); output$run_status <- renderUI(NULL)
@@ -8164,6 +8225,7 @@ server <- function(input, output, session) {
             recall_interaction(rec, code_override = entry$code, prefer = "code")   # the prompt box is left alone: Past prompts recalls prompts
           } else {
             updateAceEditor(session, "code_editor", value = entry$code)
+            auto_send_if_compact(entry$code, entry$description %||% "")
             last_run_code(NULL)
             # This code has no saved output: show none (the output of the code that was there before must not linger)
             console_output_rv(character(0)); warnings_rv(character(0)); plot_files_rv(character(0)); widget_files_rv(character(0))
@@ -8271,6 +8333,7 @@ server <- function(input, output, session) {
       if (!is.null(u$foreign)) {                       # back to the script (or the cleared editor)
         capture_active_code()
         updateAceEditor(session, "code_editor", value = u$foreign$code)
+        auto_send_if_compact(u$foreign$code)
         loaded_script_name(u$foreign$script); last_extracted_code(""); last_run_code(NULL)
         held_code(Filter(function(e) !identical(about_norm(e$code), about_norm(u$foreign$code)), held_code()))
         goto_tab("Code")
@@ -8415,6 +8478,7 @@ server <- function(input, output, session) {
     if (length(ask_code_entries) > 0) {
       last_entry <- ask_code_entries[[length(ask_code_entries)]]
       updateAceEditor(session, "code_editor", value = last_entry$code)
+      auto_send_if_compact(last_entry$code, last_entry$description %||% "")
       last_prompt_for_code(last_entry$prompt %||% "")     # the prompt behind the code now on view (Past prompts highlights it)
     } else
       updateAceEditor(session, "code_editor", value = "")
@@ -9555,6 +9619,7 @@ server <- function(input, output, session) {
     set_ask_mode("code")
     hide_changes_tab()
     updateAceEditor(session, "code_editor", value = code_override %||% rec$editor_code %||% rec$code)
+    auto_send_if_compact(code_override %||% rec$editor_code %||% rec$code, rec$description %||% "")     # compact view: the recalled code goes to RStudio too
     console_output_rv(rec$console %||% character(0))
     warnings_rv(rec$warnings %||% character(0))
     plots <- rec$plots %||% character(0)
@@ -10512,6 +10577,7 @@ server <- function(input, output, session) {
           new_code <- gsub("\n?```\\s*$",           "", new_code, perl = TRUE)
           if (nzchar(new_code)) {
             updateAceEditor(session, "code_editor", value = new_code)
+            auto_send_if_compact(new_code)
             output$run_status <- renderUI(tags$span(
               "Comments updated.", style = "color: #888;"
             ))
@@ -13540,6 +13606,21 @@ server <- function(input, output, session) {
   session$onSessionEnded(function() {
     # The last few seconds of work go into the recovery file (it is written a few seconds after each change)
     if (!isTRUE(recov$off)) tryCatch(save_recovery(), error = function(e) NULL)
+    # The compact view lives in RStudio's Viewer pane. If its page is lost without Klausmate being told to stop (the computer
+    # slept with the lid shut, the connection dropped, the pane was cleared), the app is still running here: leave the
+    # session as a pause file, so that whatever connects next (the page reloading itself, or the Viewer reopened below)
+    # carries on where it was, and if nothing has connected after a few seconds, show the app in the Viewer again.
+    if (!isTRUE(recov$off) && in_rstudio() && isTRUE(isolate(compact_on()))) {
+      tryCatch({ st <- isolate(session_state()); st$interrupted <- TRUE; saveRDS(st, pause_file()) }, error = function(e) NULL)
+      ended_seq <- my_seq
+      later::later(function() {
+        if (isTRUE(getOption("klausmate.app_stopping"))) return(invisible(NULL))
+        if ((getOption("klausmate.session_seq") %||% 0L) > ended_seq) return(invisible(NULL))     # a newer session has connected
+        url <- getOption("klausmate.app_url")
+        if (is.character(url) && length(url) == 1L && nzchar(url))
+          tryCatch(rstudioapi::viewer(url), error = function(e) NULL)
+      }, delay = 6)
+    }
     # pending_log_entries is cleared by do_save_log; non-empty means unsaved runs exist
     entries <- isolate(full_log())
     pending <- isolate(pending_log_entries())
